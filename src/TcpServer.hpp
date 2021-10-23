@@ -11,7 +11,7 @@ public:
     explicit TcpServer(uint16_t port);
     ~TcpServer();
 
-    void loop(TcpClientHandlerInterface& handler);
+    [[noreturn]] void loop(TcpClientHandlerInterface& handler);
 };
 
 }

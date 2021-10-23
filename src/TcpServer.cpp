@@ -25,7 +25,7 @@ TcpServer::TcpServer(uint16_t port) {
         spdlog::critical("Socket creation failed");
         exit(1);
     }
-    spdlog::info("Socket created");
+    spdlog::trace("Socket created");
     int reuse = 1;
     if(setsockopt(mSockFd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) < 0) {
         spdlog::error("Failed to set SO_REUSEADDR on the socket");
@@ -39,21 +39,20 @@ TcpServer::TcpServer(uint16_t port) {
         spdlog::critical("Socket failed to bind to port {}", port);
         exit(2);
     }
-    spdlog::info("Socket successfully bound");
+    spdlog::trace("Socket successfully bound");
 
     if ((listen(mSockFd, 10)) != 0) {
         spdlog::critical("Socket listen failed");
         exit(3);
     }
-    spdlog::info("Socket listening");
+    spdlog::trace("Socket listening");
 }
 
 TcpServer::~TcpServer() {
     close(mSockFd);
 }
 
-void TcpServer::loop(TcpClientHandlerInterface& handler) {
-    spdlog::info("Entering TcpServer::loop");
+[[noreturn]] void TcpServer::loop(TcpClientHandlerInterface& handler) {
     while(true) {
         struct sockaddr_in clientAddr;
         socklen_t len = sizeof(clientAddr);
