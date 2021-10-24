@@ -6,23 +6,37 @@
 #include <mutex>
 
 #include "TcpClientConnection.hpp"
+#include "Enums.hpp"
 
 namespace nioev {
 
-using ClientConnId = int32_t;
-
 class MQTTClientConnection {
 public:
-    MQTTClientConnection(ClientConnId id, TcpClientConnection&& tcpClient);
+    MQTTClientConnection(TcpClientConnection&& conn);
 
-private:
-    void loop();
+    [[nodiscard]] TcpClientConnection& getTcpClient() {
+        return mConn;
+    }
+    enum class PacketReceiveState {
+        IDLE,
+        RECEIVING_VAR_LENGTH,
+        RECEIVING_DATA
+    };
 
+    struct PacketReceiveData {
+        std::vector<uint8_t> currentReceiveBuffer;
+        PacketReceiveState recvState = PacketReceiveState::IDLE;
+        MQTTMessageType messageType = MQTTMessageType::Invalid;
+        uint32_t packetLength = 0;
+        uint32_t multiplier = 1;
+        uint8_t firstByte = 0;
+    };
+    PacketReceiveData& getRecvData() {
+        return mRecvData;
+    }
 private:
-    ClientConnId mId;
-    std::mutex mClientMutex;
-    std::thread mClientThread;
     TcpClientConnection mConn;
+    PacketReceiveData mRecvData;
 };
 
 

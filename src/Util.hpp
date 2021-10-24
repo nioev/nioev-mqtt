@@ -5,11 +5,19 @@
 
 #include "spdlog/spdlog.h"
 
-namespace nioev::util {
+namespace nioev {
 
-std::string errnoToString() {
+using uint = unsigned int;
+
+namespace util {
+
+inline std::string errnoToString() {
     char buffer[1024] = { 0 };
-    strerror_r(errno, buffer, 1024);
-    return buffer;
+    return strerror_r(errno, buffer, 1024);
+}
+
+inline void throwErrno(std::string msg) {
+    throw std::runtime_error{msg + ": " + errnoToString()};
+}
 }
 }

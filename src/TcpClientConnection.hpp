@@ -2,6 +2,7 @@
 
 #include <string>
 #include <cstdint>
+#include <vector>
 
 namespace nioev {
 
@@ -19,10 +20,16 @@ public:
     [[nodiscard]] const std::string& getRemoteIp() const {
         return mRemoteIp;
     }
-
     [[nodiscard]] uint16_t getRemotePort() const {
         return mRemotePort;
     }
+    [[nodiscard]] int getFd() const {
+        return mSockFd;
+    }
+
+    std::vector<uint8_t> recv(uint length);
+    std::vector<uint8_t> recvAllAvailableBytes();
+
 private:
     int mSockFd;
     std::string mRemoteIp;

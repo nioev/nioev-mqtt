@@ -56,7 +56,7 @@ TcpServer::~TcpServer() {
     while(true) {
         struct sockaddr_in clientAddr;
         socklen_t len = sizeof(clientAddr);
-        auto clientFd = accept(mSockFd, (struct sockaddr*)&clientAddr, &len);
+        auto clientFd = accept4(mSockFd, (struct sockaddr*)&clientAddr, &len, SOCK_NONBLOCK | SOCK_CLOEXEC);
         if(clientFd < 0) {
             spdlog::error("Failed to accept client: {}", util::errnoToString());
             continue;
