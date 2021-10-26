@@ -11,6 +11,8 @@ class ReceiverThreadManager {
 public:
     explicit ReceiverThreadManager(ReceiverThreadManagerExternalBridgeInterface& bridge, uint threadCount);
     void addClientConnection(MQTTClientConnection& conn);
+    void removeClientConnection(MQTTClientConnection& connection);
+
 private:
     void receiverThreadFunction();
     void handlePacketReceived(MQTTClientConnection& client, const MQTTClientConnection::PacketReceiveData&);

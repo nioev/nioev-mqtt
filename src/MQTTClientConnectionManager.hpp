@@ -22,6 +22,7 @@ public:
     void handleNewClientConnection(TcpClientConnection&&) override;
     std::pair<std::reference_wrapper<MQTTClientConnection>, std::shared_lock<std::shared_mutex>> getClient(int fd) override;
     void sendData(MQTTClientConnection& conn, std::vector<uint8_t>&& data) override;
+    void notifyConnectionError(int connFd) override;
 
     std::shared_mutex mClientsMutex;
 };

@@ -17,6 +17,7 @@ public:
     explicit SenderThreadManager(SenderThreadManagerExternalBridgeInterface& bridge, uint threadCount);
     void addClientConnection(MQTTClientConnection& conn);
     void sendData(MQTTClientConnection& client, std::vector<uint8_t>&& data);
+    void removeClientConnection(MQTTClientConnection& conn);
 private:
     void senderThreadFunction();
 private:
