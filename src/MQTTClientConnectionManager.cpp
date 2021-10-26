@@ -16,8 +16,8 @@ void MQTTClientConnectionManager::handleNewClientConnection(TcpClientConnection&
         std::make_tuple(std::move(conn)));
     mReceiverManager.addClientConnection(newClient.first->second);
 }
-MQTTClientConnection& MQTTClientConnectionManager::getClient(int fd) {
-    return mClients.at(fd);
+std::pair<std::reference_wrapper<MQTTClientConnection>, std::shared_lock<std::shared_mutex>> MQTTClientConnectionManager::getClient(int fd) {
+    return {mClients.at(fd), std::shared_lock<std::shared_mutex>{mClientsMutex}};
 }
 
 }

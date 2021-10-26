@@ -17,6 +17,11 @@ public:
     [[nodiscard]] TcpClientConnection& getTcpClient() {
         return mConn;
     }
+    enum class ConnectionState {
+        INITIAL,
+        CONNECTED,
+        INVALID_PROTOCOL_VERSION
+    };
     enum class PacketReceiveState {
         IDLE,
         RECEIVING_VAR_LENGTH,
@@ -31,12 +36,20 @@ public:
         uint32_t multiplier = 1;
         uint8_t firstByte = 0;
     };
-    PacketReceiveData& getRecvData() {
-        return mRecvData;
+    std::pair<std::reference_wrapper<PacketReceiveData>, std::unique_lock<std::mutex>> getRecvData() {
+        return {mRecvData, std::unique_lock<std::mutex>{mMutex}};
+    }
+    [[nodiscard]] ConnectionState getState() {
+        return mState;
+    }
+    void setState(ConnectionState newState) {
+        mState = newState;
     }
 private:
+    std::mutex mMutex;
     TcpClientConnection mConn;
     PacketReceiveData mRecvData;
+    ConnectionState mState = ConnectionState::INITIAL;
 };
 
 

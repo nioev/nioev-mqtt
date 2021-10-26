@@ -34,28 +34,28 @@ void ReceiverThreadManager::receiverThreadFunction() {
                 spdlog::info("Socket error!");
             } else if(events[i].events & EPOLLIN) {
                 spdlog::info("Socket EPOLLIN!");
-                auto& client = mBridge.getClient(events[i].data.fd);
+                auto[clientRef, clientRefLock] = mBridge.getClient(events[i].data.fd);
+                auto& client = clientRef.get();
                 std::vector<uint8_t> bytes;
                 // We receive bytes until there are none left (EAGAIN/EWOULDBLOCK). This is
                 // the recommended way of doing io if one uses the edge-triggered mode of epoll.
                 // This ensures that we don't hang somewhere when we couldn't receive all the data.
                 do {
+                    auto[recvDataRef, recvDataRefLock] = client.getRecvData();
                     bytes = client.getTcpClient().recvAllAvailableBytes();
                     spdlog::info("Bytes read: {}", bytes.size());
                     // assert(bytes.size() > 0);
-                    auto& recvData = client.getRecvData();
-
+                    auto& recvData = recvDataRef.get();
                     for(int i = 0; i < bytes.size(); ++i) {
                         switch(recvData.recvState) {
                         case MQTTClientConnection::PacketReceiveState::IDLE: {
                             recvData = {};
                             uint8_t packetTypeId = bytes.at(i) >> 4;
                             if(packetTypeId >= static_cast<int>(MQTTMessageType::Count) || packetTypeId == 0) {
-                                spdlog::error("protocol violation"); // TODO
+                                protocolViolation();
                             }
                             recvData.firstByte = bytes.at(i);
                             recvData.messageType = static_cast<MQTTMessageType>(packetTypeId);
-                            recvData.currentReceiveBuffer.push_back(packetTypeId);
                             recvData.recvState = MQTTClientConnection::PacketReceiveState::RECEIVING_VAR_LENGTH;
                             break;
                         }
@@ -64,7 +64,7 @@ void ReceiverThreadManager::receiverThreadFunction() {
                             recvData.packetLength += (encodedByte & 127) * recvData.multiplier;
                             recvData.multiplier *= 128;
                             if(recvData.multiplier > 128 * 128 * 128) {
-                                throw std::runtime_error{ "Malformed remaining length" };
+                                protocolViolation();
                             }
                             if((encodedByte & 128) == 0) {
                                 recvData.recvState = MQTTClientConnection::PacketReceiveState::RECEIVING_DATA;
@@ -81,7 +81,7 @@ void ReceiverThreadManager::receiverThreadFunction() {
                                 i += recvData.packetLength;
                             }
                             if(recvData.currentReceiveBuffer.size() >= recvData.packetLength) {
-                                spdlog::info("Received packet of type {}", recvData.messageType);
+                                handlePacketReceived(client, recvData);
                                 recvData.recvState = MQTTClientConnection::PacketReceiveState::IDLE;
                             }
                             break;
@@ -93,7 +93,6 @@ void ReceiverThreadManager::receiverThreadFunction() {
     }
 }
 void ReceiverThreadManager::addClientConnection(MQTTClientConnection& conn) {
-    mClients.emplace_back(conn);
     epoll_event ev = { 0 };
     ev.data.fd = conn.getTcpClient().getFd();
     ev.events = EPOLLET | EPOLLIN | EPOLLEXCLUSIVE;
@@ -101,6 +100,53 @@ void ReceiverThreadManager::addClientConnection(MQTTClientConnection& conn) {
         spdlog::critical("Failed to fd to epoll: " + util::errnoToString());
         exit(6);
     }
+}
+void ReceiverThreadManager::handlePacketReceived(MQTTClientConnection& client, const MQTTClientConnection::PacketReceiveData& recvData) {
+    spdlog::info("Received packet of type {}", recvData.messageType);
+    switch(client.getState()) {
+    case MQTTClientConnection::ConnectionState::INITIAL: {
+        switch(recvData.messageType) {
+        case MQTTMessageType::CONNECT: {
+            // initial connect
+            constexpr uint8_t protocolName[] = { 0, 4, 'M', 'Q', 'T', 'T' };
+            if(memcmp(protocolName, recvData.currentReceiveBuffer.data(), 6) != 0) {
+                protocolViolation();
+            }
+            std::vector<uint8_t> response;
+            response.push_back(static_cast<uint8_t>(MQTTMessageType::CONNACK) << 4);
+            response.push_back(2); // remaining packet length
+
+            uint8_t protocolLevel = recvData.currentReceiveBuffer.at(6);
+            if(protocolLevel != 4) {
+                // we only support MQTT 3.1.1
+                response.push_back(0); // no session present
+                response.push_back(1); // invalid protocol version
+                client.setState(MQTTClientConnection::ConnectionState::INVALID_PROTOCOL_VERSION);
+                spdlog::error("Invalid protocol version requested by client: {}", protocolLevel);
+                // TODO send response here
+                //mBridge->sendData(client, std::move(response));
+                break;
+            }
+            uint8_t connectFlags = recvData.currentReceiveBuffer.at(7);
+            if(connectFlags & 0x1) {
+                protocolViolation();
+            }
+            bool cleanSession = connectFlags & 0x2;
+
+
+            client.setState(MQTTClientConnection::ConnectionState::CONNECTED);
+            break;
+        }
+        default: {
+            protocolViolation();
+        }
+        }
+        break;
+    }
+    }
+}
+void ReceiverThreadManager::protocolViolation() {
+    throw std::runtime_error{"Protocol violation"};
 }
 
 }

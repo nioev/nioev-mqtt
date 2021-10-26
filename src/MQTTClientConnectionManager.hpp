@@ -17,7 +17,8 @@ private:
 public:
     MQTTClientConnectionManager();
     void handleNewClientConnection(TcpClientConnection&&) override;
-    MQTTClientConnection& getClient(int fd) override;
+    std::pair<std::reference_wrapper<MQTTClientConnection>, std::shared_lock<std::shared_mutex>> getClient(int fd) override;
+    std::shared_mutex mClientsMutex;
 };
 
 }

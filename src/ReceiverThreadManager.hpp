@@ -13,11 +13,12 @@ public:
     void addClientConnection(MQTTClientConnection& conn);
 private:
     void receiverThreadFunction();
+    void handlePacketReceived(MQTTClientConnection& client, const MQTTClientConnection::PacketReceiveData&);
+    void protocolViolation();
 private:
     std::vector<std::thread> mReceiverThreads;
     std::atomic<bool> mShouldQuit = false;
     int mEpollFd = -1;
-    std::vector<std::reference_wrapper<MQTTClientConnection>> mClients;
     ReceiverThreadManagerExternalBridgeInterface& mBridge;
 };
 
