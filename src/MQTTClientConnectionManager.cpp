@@ -4,7 +4,7 @@
 namespace nioev {
 
 MQTTClientConnectionManager::MQTTClientConnectionManager()
-: mReceiverManager(*this, 4) {
+: mReceiverManager(*this, 4), mSenderManager(*this, 4) {
 
 }
 
@@ -20,7 +20,7 @@ std::pair<std::reference_wrapper<MQTTClientConnection>, std::shared_lock<std::sh
     return {mClients.at(fd), std::shared_lock<std::shared_mutex>{mClientsMutex}};
 }
 void MQTTClientConnectionManager::sendData(MQTTClientConnection& conn, std::vector<uint8_t>&& data) {
-
+    mSenderManager.sendData(conn, std::move(data));
 }
 
 }

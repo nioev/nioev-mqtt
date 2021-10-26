@@ -3,6 +3,7 @@
 #include "MQTTClientConnection.hpp"
 #include "ReceiverThreadManager.hpp"
 #include "ReceiverThreadManagerExternalBridgeInterface.hpp"
+#include "SenderThreadManager.hpp"
 #include "SenderThreadManagerExternalBridgeInterface.hpp"
 #include "TcpClientHandlerInterface.hpp"
 #include <thread>
@@ -15,6 +16,7 @@ class MQTTClientConnectionManager : public TcpClientHandlerInterface, public Rec
 private:
     std::unordered_map<int, MQTTClientConnection> mClients;
     ReceiverThreadManager mReceiverManager;
+    SenderThreadManager mSenderManager;
 public:
     MQTTClientConnectionManager();
     void handleNewClientConnection(TcpClientConnection&&) override;

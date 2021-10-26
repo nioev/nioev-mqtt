@@ -103,20 +103,23 @@ void ReceiverThreadManager::addClientConnection(MQTTClientConnection& conn) {
 }
 void ReceiverThreadManager::handlePacketReceived(MQTTClientConnection& client, const MQTTClientConnection::PacketReceiveData& recvData) {
     spdlog::info("Received packet of type {}", recvData.messageType);
+
     switch(client.getState()) {
     case MQTTClientConnection::ConnectionState::INITIAL: {
         switch(recvData.messageType) {
         case MQTTMessageType::CONNECT: {
             // initial connect
+            util::BinaryDecoder decoder{recvData.currentReceiveBuffer};
             constexpr uint8_t protocolName[] = { 0, 4, 'M', 'Q', 'T', 'T' };
-            if(memcmp(protocolName, recvData.currentReceiveBuffer.data(), 6) != 0) {
+            if(memcmp(protocolName, decoder.getCurrentPtr(), 6) != 0) {
                 protocolViolation();
             }
+            decoder.advance(6);
             std::vector<uint8_t> response;
             response.push_back(static_cast<uint8_t>(MQTTMessageType::CONNACK) << 4);
             response.push_back(2); // remaining packet length
 
-            uint8_t protocolLevel = recvData.currentReceiveBuffer.at(6);
+            uint8_t protocolLevel = decoder.decodeByte();
             if(protocolLevel != 4) {
                 // we only support MQTT 3.1.1
                 response.push_back(0); // no session present
@@ -127,14 +130,35 @@ void ReceiverThreadManager::handlePacketReceived(MQTTClientConnection& client, c
                 mBridge.sendData(client, std::move(response));
                 break;
             }
-            uint8_t connectFlags = recvData.currentReceiveBuffer.at(7);
+            uint8_t connectFlags = decoder.decodeByte();
             if(connectFlags & 0x1) {
                 protocolViolation();
             }
             bool cleanSession = connectFlags & 0x2;
+            auto clientId = decoder.decodeString();
+            if(clientId.empty() && !cleanSession) {
+                protocolViolation();
+            }
+            if(connectFlags & 0x4) {
+                // will message exists
+                auto willTopic = decoder.decodeString();
+                auto willMessage = decoder.decodeString();
+                // TODO use/save
+            }
+            if(connectFlags & 0x80) {
+                // username
+                auto username = decoder.decodeString();
+            }
+            if(connectFlags & 0x40) {
+                // password
+                auto password = decoder.decodeString();
+            }
+            response.push_back(0); // no session present TODO fix
+            response.push_back(0); // everything okay
+            spdlog::debug("Sent response!");
 
 
-
+            mBridge.sendData(client, std::move(response));
             client.setState(MQTTClientConnection::ConnectionState::CONNECTED);
             break;
         }

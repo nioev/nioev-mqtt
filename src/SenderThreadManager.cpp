@@ -9,6 +9,7 @@ namespace nioev {
 
 SenderThreadManager::SenderThreadManager(SenderThreadManagerExternalBridgeInterface& bridge, uint threadCount)
 : mBridge(bridge) {
+    mEpollFd = epoll_create1(0);
     for(uint i = 0; i< threadCount; ++i) {
         mSenderThreads.emplace_back([this, i] {
             std::string threadName = "S-" + std::to_string(i);
@@ -32,8 +33,9 @@ void SenderThreadManager::senderThreadFunction() {
     while(!mShouldQuit) {
         epoll_event events[20] = { 0 };
         int eventCount = epoll_wait(mEpollFd, events, 20, -1);
+        spdlog::debug("Sender waking up!");
         if(eventCount < 0) {
-            if(eventCount != EINTR) {
+            if(errno != EINTR) {
                 spdlog::critical("epoll_wait(): {}", util::errnoToString());
             }
             // We got interrupted, which means there is data that we need to send.
@@ -77,9 +79,9 @@ void SenderThreadManager::sendData(MQTTClientConnection& client, std::vector<uin
     mInitialSendTasks.emplace_back(InitialSendTask{client, std::move(data)});
     lock.unlock();
     // pick a random thread to notify of the new task
-    int tid = mSenderThreads.at(rand() % mSenderThreads.size()).native_handle();
-    if(kill(tid, SIGUSR1) < 0) {
-        spdlog::error("kill(): " + util::errnoToString());
+    pthread_t tid = mSenderThreads.at(rand() % mSenderThreads.size()).native_handle();
+    if(pthread_kill(tid, SIGUSR1) > 0) {
+        spdlog::error("pthread_kill(): " + util::errnoToString());
     }
 
 }
