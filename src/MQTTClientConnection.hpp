@@ -17,11 +17,18 @@ public:
     [[nodiscard]] TcpClientConnection& getTcpClient() {
         return mConn;
     }
+
     enum class ConnectionState {
         INITIAL,
         CONNECTED,
         INVALID_PROTOCOL_VERSION
     };
+    [[nodiscard]] ConnectionState getState() {
+        return mState;
+    }
+    void setState(ConnectionState newState) {
+        mState = newState;
+    }
     enum class PacketReceiveState {
         IDLE,
         RECEIVING_VAR_LENGTH,
@@ -37,19 +44,25 @@ public:
         uint8_t firstByte = 0;
     };
     std::pair<std::reference_wrapper<PacketReceiveData>, std::unique_lock<std::mutex>> getRecvData() {
-        return {mRecvData, std::unique_lock<std::mutex>{mMutex}};
+        return {mRecvData, std::unique_lock<std::mutex>{mRecvMutex}};
     }
-    [[nodiscard]] ConnectionState getState() {
-        return mState;
-    }
-    void setState(ConnectionState newState) {
-        mState = newState;
+
+    struct SendTask {
+        std::vector<uint8_t> data;
+        uint offset = 0;
+    };
+    std::pair<std::reference_wrapper<std::vector<SendTask>>, std::unique_lock<std::mutex>> getSendTasks() {
+        return {mSendTasks, std::unique_lock<std::mutex>{mSendMutex}};
     }
 private:
-    std::mutex mMutex;
-    TcpClientConnection mConn;
-    PacketReceiveData mRecvData;
     ConnectionState mState = ConnectionState::INITIAL;
+    TcpClientConnection mConn;
+
+    std::mutex mRecvMutex;
+    PacketReceiveData mRecvData;
+
+    std::mutex mSendMutex;
+    std::vector<SendTask> mSendTasks;
 };
 
 

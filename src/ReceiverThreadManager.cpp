@@ -14,7 +14,7 @@ ReceiverThreadManager::ReceiverThreadManager(ReceiverThreadManagerExternalBridge
         spdlog::critical("Failed to create epoll fd: " + util::errnoToString());
         exit(5);
     }
-    for(int i = 0; i < threadCount; ++i) {
+    for(uint i = 0; i < threadCount; ++i) {
         mReceiverThreads.emplace_back([this, i] {
             std::string threadName = "R-" + std::to_string(i);
             pthread_setname_np(pthread_self(), threadName.c_str());
@@ -31,7 +31,7 @@ void ReceiverThreadManager::receiverThreadFunction() {
         }
         for(int i = 0; i < eventCount; ++i) {
             if(events[i].events & EPOLLERR || events[i].events & EPOLLHUP) {
-                spdlog::info("Socket error!");
+                spdlog::error("Socket error!"); // TODO handle
             } else if(events[i].events & EPOLLIN) {
                 spdlog::info("Socket EPOLLIN!");
                 auto[clientRef, clientRefLock] = mBridge.getClient(events[i].data.fd);
@@ -124,7 +124,7 @@ void ReceiverThreadManager::handlePacketReceived(MQTTClientConnection& client, c
                 client.setState(MQTTClientConnection::ConnectionState::INVALID_PROTOCOL_VERSION);
                 spdlog::error("Invalid protocol version requested by client: {}", protocolLevel);
                 // TODO send response here
-                //mBridge->sendData(client, std::move(response));
+                mBridge.sendData(client, std::move(response));
                 break;
             }
             uint8_t connectFlags = recvData.currentReceiveBuffer.at(7);
@@ -132,6 +132,7 @@ void ReceiverThreadManager::handlePacketReceived(MQTTClientConnection& client, c
                 protocolViolation();
             }
             bool cleanSession = connectFlags & 0x2;
+
 
 
             client.setState(MQTTClientConnection::ConnectionState::CONNECTED);

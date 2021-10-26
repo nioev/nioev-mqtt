@@ -24,7 +24,7 @@ TcpClientConnection::TcpClientConnection(TcpClientConnection&& other) noexcept
 }
 std::vector<uint8_t> TcpClientConnection::recv(uint length) {
     std::vector<uint8_t> buffer(length);
-    int result = ::recv(mSockFd, buffer.data(), buffer.size(), MSG_DONTWAIT);
+    int result = ::recv(mSockFd, buffer.data(), buffer.size(), MSG_NOSIGNAL | MSG_DONTWAIT);
     if(result <= 0) {
         if(errno == EWOULDBLOCK || errno == EAGAIN) {
             return {};
@@ -34,6 +34,16 @@ std::vector<uint8_t> TcpClientConnection::recv(uint length) {
     }
     buffer.resize(result);
     return buffer;
+}
+uint TcpClientConnection::send(const uint8_t* data, uint len) {
+    auto result = ::send(mSockFd, data, len, MSG_NOSIGNAL | MSG_DONTWAIT);
+    if(result < 0) {
+        if(errno == EWOULDBLOCK || errno == EAGAIN) {
+            return 0;
+        }
+        util::throwErrno("send()");
+    }
+    return result;
 }
 std::vector<uint8_t> TcpClientConnection::recvAllAvailableBytes() {
     // TODO use the actual pipe size

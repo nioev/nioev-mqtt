@@ -26,7 +26,7 @@ public:
     [[nodiscard]] int getFd() const {
         return mSockFd;
     }
-
+    uint send(const uint8_t* data, uint len);
     std::vector<uint8_t> recv(uint length);
     std::vector<uint8_t> recvAllAvailableBytes();
 

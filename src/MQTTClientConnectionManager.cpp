@@ -19,5 +19,8 @@ void MQTTClientConnectionManager::handleNewClientConnection(TcpClientConnection&
 std::pair<std::reference_wrapper<MQTTClientConnection>, std::shared_lock<std::shared_mutex>> MQTTClientConnectionManager::getClient(int fd) {
     return {mClients.at(fd), std::shared_lock<std::shared_mutex>{mClientsMutex}};
 }
+void MQTTClientConnectionManager::sendData(MQTTClientConnection& conn, std::vector<uint8_t>&& data) {
+
+}
 
 }
