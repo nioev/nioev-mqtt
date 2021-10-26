@@ -46,7 +46,7 @@ void ReceiverThreadManager::receiverThreadFunction() {
                     spdlog::info("Bytes read: {}", bytes.size());
                     // assert(bytes.size() > 0);
                     auto& recvData = recvDataRef.get();
-                    for(int i = 0; i < bytes.size(); ++i) {
+                    for(int i = 0; i < bytes.size();) {
                         switch(recvData.recvState) {
                         case MQTTClientConnection::PacketReceiveState::IDLE: {
                             recvData = {};
@@ -57,6 +57,7 @@ void ReceiverThreadManager::receiverThreadFunction() {
                             recvData.firstByte = bytes.at(i);
                             recvData.messageType = static_cast<MQTTMessageType>(packetTypeId);
                             recvData.recvState = MQTTClientConnection::PacketReceiveState::RECEIVING_VAR_LENGTH;
+                            i += 1;
                             break;
                         }
                         case MQTTClientConnection::PacketReceiveState::RECEIVING_VAR_LENGTH: {
@@ -68,11 +69,13 @@ void ReceiverThreadManager::receiverThreadFunction() {
                             }
                             if((encodedByte & 128) == 0) {
                                 recvData.recvState = MQTTClientConnection::PacketReceiveState::RECEIVING_DATA;
+                                spdlog::debug("Expecting packet of length {}", recvData.packetLength);
                             }
+                            i += 1;
                             break;
                         }
                         case MQTTClientConnection::PacketReceiveState::RECEIVING_DATA:
-                            if(bytes.size() <= recvData.packetLength) {
+                            if(bytes.size() - i <= recvData.packetLength) {
                                 recvData.currentReceiveBuffer.insert(recvData.currentReceiveBuffer.end(), bytes.begin() + i, bytes.end());
                                 i = bytes.size();
                             } else {
@@ -81,6 +84,7 @@ void ReceiverThreadManager::receiverThreadFunction() {
                                 i += recvData.packetLength;
                             }
                             if(recvData.currentReceiveBuffer.size() >= recvData.packetLength) {
+                                spdlog::debug("Received: {}", recvData.currentReceiveBuffer.size());
                                 handlePacketReceived(client, recvData);
                                 recvData.recvState = MQTTClientConnection::PacketReceiveState::IDLE;
                             }
@@ -104,12 +108,12 @@ void ReceiverThreadManager::addClientConnection(MQTTClientConnection& conn) {
 void ReceiverThreadManager::handlePacketReceived(MQTTClientConnection& client, const MQTTClientConnection::PacketReceiveData& recvData) {
     spdlog::info("Received packet of type {}", recvData.messageType);
 
+    util::BinaryDecoder decoder{recvData.currentReceiveBuffer};
     switch(client.getState()) {
     case MQTTClientConnection::ConnectionState::INITIAL: {
         switch(recvData.messageType) {
         case MQTTMessageType::CONNECT: {
             // initial connect
-            util::BinaryDecoder decoder{recvData.currentReceiveBuffer};
             constexpr uint8_t protocolName[] = { 0, 4, 'M', 'Q', 'T', 'T' };
             if(memcmp(protocolName, decoder.getCurrentPtr(), 6) != 0) {
                 protocolViolation();
@@ -164,6 +168,28 @@ void ReceiverThreadManager::handlePacketReceived(MQTTClientConnection& client, c
         }
         default: {
             protocolViolation();
+        }
+        }
+        break;
+    }
+    case MQTTClientConnection::ConnectionState::CONNECTED: {
+        switch(recvData.messageType) {
+        case MQTTMessageType::PUBLISH: {
+            bool dup = recvData.firstByte & 0x8; // TODO handle
+            uint8_t qosInt = (recvData.firstByte >> 1) & 0x3;
+            if(qosInt >= 3) {
+                protocolViolation();
+            }
+            QoS qos = static_cast<QoS>(qosInt);
+            bool retain = recvData.firstByte & 0x1;
+            auto topic = decoder.decodeString(); // TODO check for allowed chars
+            if(qos == QoS::QoS1 || qos == QoS::QoS2) {
+                auto id = decoder.decode2Bytes(); // TODO use
+            }
+            std::vector<uint8_t> data = decoder.getRemainingBytes();
+            std::string dataAsStr{data.begin(), data.end()};
+            spdlog::info("Received on {} data {}", topic, dataAsStr);
+            break;
         }
         }
         break;
