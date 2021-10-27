@@ -24,9 +24,11 @@ public:
         INVALID_PROTOCOL_VERSION
     };
     [[nodiscard]] ConnectionState getState() {
+        std::lock_guard<std::mutex> lock{mRemaingingMutex};
         return mState;
     }
     void setState(ConnectionState newState) {
+        std::lock_guard<std::mutex> lock{mRemaingingMutex};
         mState = newState;
     }
     enum class PacketReceiveState {
@@ -44,7 +46,8 @@ public:
         uint8_t firstByte = 0;
     };
     std::pair<std::reference_wrapper<PacketReceiveData>, std::unique_lock<std::mutex>> getRecvData() {
-        return {mRecvData, std::unique_lock<std::mutex>{mRecvMutex}};
+        std::unique_lock<std::mutex> lock{mRecvMutex};
+        return {mRecvData, std::move(lock)};
     }
 
     struct SendTask {
@@ -52,10 +55,22 @@ public:
         uint offset = 0;
     };
     std::pair<std::reference_wrapper<std::vector<SendTask>>, std::unique_lock<std::mutex>> getSendTasks() {
-        return {mSendTasks, std::unique_lock<std::mutex>{mSendMutex}};
+        std::unique_lock<std::mutex> lock{mSendMutex};
+        return {mSendTasks, std::move(lock)};
+    }
+
+public:
+    void setWill(std::string&& topic, std::vector<uint8_t>&& msg, QoS qos) {
+        std::lock_guard<std::mutex> lock{mRemaingingMutex};
+        mWill.topic = std::move(topic);
+        mWill.msg = std::move(msg);
+        mWill.qos = qos;
+    }
+    auto getWill() {
+        std::lock_guard<std::mutex> lock{mRemaingingMutex};
+        return mWill;
     }
 private:
-    ConnectionState mState = ConnectionState::INITIAL;
     TcpClientConnection mConn;
 
     std::mutex mRecvMutex;
@@ -63,6 +78,14 @@ private:
 
     std::mutex mSendMutex;
     std::vector<SendTask> mSendTasks;
+
+    std::mutex mRemaingingMutex;
+    ConnectionState mState = ConnectionState::INITIAL;
+    struct {
+        std::string topic;
+        std::vector<uint8_t> msg;
+        QoS qos;
+    } mWill;
 };
 
 

@@ -112,5 +112,20 @@ void SenderThreadManager::sendData(MQTTClientConnection& client, std::vector<uin
     }
 
 }
+void SenderThreadManager::sendPublish(MQTTClientConnection& conn, const std::string& topic, const std::vector<uint8_t>& msg, QoS qos) {
+    util::BinaryEncoder encoder;
+    uint8_t firstByte = static_cast<uint8_t>(qos) << 1;
+    // TODO retain, dup
+    firstByte |= static_cast<uint8_t>(MQTTMessageType::PUBLISH) << 4;
+    encoder.encodeByte(firstByte);
+    encoder.encodeString(topic);
+    if(qos != QoS::QoS0) {
+        // TODO add id
+        assert(false);
+    }
+    encoder.encodeBytes(msg);
+    encoder.insertPacketLength();
+    sendData(conn, encoder.moveData());
+}
 
 }

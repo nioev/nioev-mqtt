@@ -9,6 +9,7 @@ MQTTClientConnectionManager::MQTTClientConnectionManager()
 }
 
 void MQTTClientConnectionManager::handleNewClientConnection(TcpClientConnection&& conn) {
+    std::lock_guard<std::shared_mutex> lock{mClientsMutex};
     int fd = conn.getFd();
     auto newClient = mClients.emplace(
         std::piecewise_construct,
@@ -18,7 +19,8 @@ void MQTTClientConnectionManager::handleNewClientConnection(TcpClientConnection&
     mSenderManager.addClientConnection(newClient.first->second);
 }
 std::pair<std::reference_wrapper<MQTTClientConnection>, std::shared_lock<std::shared_mutex>> MQTTClientConnectionManager::getClient(int fd) {
-    return {mClients.at(fd), std::shared_lock<std::shared_mutex>{mClientsMutex}};
+    std::shared_lock<std::shared_mutex> lock{mClientsMutex};
+    return {mClients.at(fd), std::move(lock)};
 }
 void MQTTClientConnectionManager::sendData(MQTTClientConnection& conn, std::vector<uint8_t>&& data) {
     mSenderManager.sendData(conn, std::move(data));
@@ -33,10 +35,25 @@ void MQTTClientConnectionManager::notifyConnectionError(int connFd) {
         return;
     }
     spdlog::info("Deleting connection {}", connFd);
+    auto willMsg = client->second.getWill();
+    publishWithoutAcquiringLock(willMsg.topic, willMsg.msg, willMsg.qos);
     mReceiverManager.removeClientConnection(client->second);
     mSenderManager.removeClientConnection(client->second);
 
     mClients.erase(client);
+}
+void MQTTClientConnectionManager::publish(const std::string& topic, std::vector<uint8_t>& msg, QoS qos) {
+    std::shared_lock<std::shared_mutex> lock{mClientsMutex};
+    publishWithoutAcquiringLock(topic, msg, qos);
+}
+void MQTTClientConnectionManager::publishWithoutAcquiringLock(const std::string& topic, std::vector<uint8_t>& msg, QoS qos) {
+    {
+        std::string dataAsStr{msg.begin(), msg.end()};
+        spdlog::info("Publishing on '{}' data '{}'", topic, dataAsStr);
+    }
+    mSubscriptions.forEachSubscriber(topic, [this, &topic, &msg, qos] (auto& sub) {
+        mSenderManager.sendPublish(sub.conn, topic, msg, qos);
+    });
 }
 
 }

@@ -7,6 +7,7 @@
 #include <vector>
 #include <list>
 
+#include "Enums.hpp"
 #include "Forward.hpp"
 #include "SenderThreadManagerExternalBridgeInterface.hpp"
 
@@ -18,6 +19,8 @@ public:
     void addClientConnection(MQTTClientConnection& conn);
     void sendData(MQTTClientConnection& client, std::vector<uint8_t>&& data);
     void removeClientConnection(MQTTClientConnection& conn);
+    void sendPublish(MQTTClientConnection& conn, const std::string& topic, const std::vector<uint8_t>& msg, QoS qos);
+
 private:
     void senderThreadFunction();
 private:

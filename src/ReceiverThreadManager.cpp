@@ -145,6 +145,7 @@ void ReceiverThreadManager::handlePacketReceived(MQTTClientConnection& client, c
                 break;
             }
             uint8_t connectFlags = decoder.decodeByte();
+            uint16_t keepAlive = decoder.decode2Bytes();
             if(connectFlags & 0x1) {
                 protocolViolation();
             }
@@ -156,8 +157,12 @@ void ReceiverThreadManager::handlePacketReceived(MQTTClientConnection& client, c
             if(connectFlags & 0x4) {
                 // will message exists
                 auto willTopic = decoder.decodeString();
-                auto willMessage = decoder.decodeString();
-                // TODO use/save
+                auto willMessage = decoder.decodeBytesWithPrefixLength();
+                auto willQos = (connectFlags & 0x18) >> 3;
+                if(willQos >= 3) {
+                    protocolViolation();
+                }
+                client.setWill(std::move(willTopic), std::move(willMessage), static_cast<QoS>(willQos));
             }
             if(connectFlags & 0x80) {
                 // username
@@ -197,8 +202,7 @@ void ReceiverThreadManager::handlePacketReceived(MQTTClientConnection& client, c
                 auto id = decoder.decode2Bytes(); // TODO use
             }
             std::vector<uint8_t> data = decoder.getRemainingBytes();
-            std::string dataAsStr{data.begin(), data.end()};
-            spdlog::info("Received on {} data {}", topic, dataAsStr);
+            mBridge.publish(topic, data, qos);
             break;
         }
         }
