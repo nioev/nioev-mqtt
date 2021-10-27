@@ -23,6 +23,7 @@ ReceiverThreadManager::ReceiverThreadManager(ReceiverThreadManagerExternalBridge
     }
 }
 void ReceiverThreadManager::receiverThreadFunction() {
+    std::vector<uint8_t> buffer;
     while(!mShouldQuit) {
         epoll_event events[20] = { 0 };
         int eventCount = epoll_wait(mEpollFd, events, 20, -1);
@@ -34,7 +35,7 @@ void ReceiverThreadManager::receiverThreadFunction() {
                 if(events[i].events & EPOLLERR || events[i].events & EPOLLHUP) {
                     throw std::runtime_error{"Socket error!"};
                 } else if(events[i].events & EPOLLIN) {
-                    spdlog::info("Socket EPOLLIN!");
+                    spdlog::debug("Socket EPOLLIN!");
                     auto [clientRef, clientRefLock] = mBridge.getClient(events[i].data.fd);
                     auto& client = clientRef.get();
                     std::vector<uint8_t> bytes;
@@ -43,8 +44,9 @@ void ReceiverThreadManager::receiverThreadFunction() {
                     // This ensures that we don't hang somewhere when we couldn't receive all the data.
                     do {
                         auto [recvDataRef, recvDataRefLock] = client.getRecvData();
-                        bytes = client.getTcpClient().recvAllAvailableBytes();
-                        spdlog::info("Bytes read: {}", bytes.size());
+                        buffer.resize(64 * 1024);
+                        bytes = client.getTcpClient().recv(buffer);
+                        spdlog::debug("Bytes read: {}", bytes.size());
                         // assert(bytes.size() > 0);
                         auto& recvData = recvDataRef.get();
                         for(int i = 0; i < bytes.size();) {
@@ -116,7 +118,7 @@ void ReceiverThreadManager::removeClientConnection(MQTTClientConnection& conn) {
     }
 }
 void ReceiverThreadManager::handlePacketReceived(MQTTClientConnection& client, const MQTTClientConnection::PacketReceiveData& recvData) {
-    spdlog::info("Received packet of type {}", recvData.messageType);
+    spdlog::debug("Received packet of type {}", recvData.messageType);
 
     util::BinaryDecoder decoder{recvData.currentReceiveBuffer};
     switch(client.getState()) {

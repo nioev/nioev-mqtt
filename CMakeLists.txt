@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.0)
 project(nioev)
 
 set(CMAKE_CXX_STANDARD 20)
+#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Og")
 
 set(SPDLOG_NO_PTHREAD_ID OFF)
 add_subdirectory(thirdparty/spdlog)

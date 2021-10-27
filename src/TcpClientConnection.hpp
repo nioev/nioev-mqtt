@@ -27,8 +27,7 @@ public:
         return mSockFd;
     }
     uint send(const uint8_t* data, uint len);
-    std::vector<uint8_t> recv(uint length);
-    std::vector<uint8_t> recvAllAvailableBytes();
+    std::vector<uint8_t> recv(std::vector<uint8_t>& buffer);
 
 private:
     int mSockFd;

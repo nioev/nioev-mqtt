@@ -8,7 +8,7 @@ using namespace nioev;
 
 int main() {
     signal(SIGUSR1, [](int){});
-    spdlog::set_level(spdlog::level::trace);
+    spdlog::set_level(spdlog::level::info);
     spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] %^[%-5l]%$ [%-15N] %v");
 
     MQTTClientConnectionManager clientManager;

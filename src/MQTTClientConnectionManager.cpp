@@ -34,7 +34,7 @@ void MQTTClientConnectionManager::notifyConnectionError(int connFd) {
         // both try to delete the connection at the same time.
         return;
     }
-    spdlog::info("Deleting connection {}", connFd);
+    spdlog::debug("Deleting connection {}", connFd);
     auto willMsg = client->second.getWill();
     if(willMsg) {
         publishWithoutAcquiringLock(willMsg->topic, willMsg->msg, willMsg->qos);
@@ -50,10 +50,12 @@ void MQTTClientConnectionManager::publish(const std::string& topic, std::vector<
     publishWithoutAcquiringLock(topic, msg, qos);
 }
 void MQTTClientConnectionManager::publishWithoutAcquiringLock(const std::string& topic, std::vector<uint8_t>& msg, QoS qos) {
+#ifndef NDEBUG
     {
         std::string dataAsStr{msg.begin(), msg.end()};
-        spdlog::info("Publishing on '{}' data '{}'", topic, dataAsStr);
+        spdlog::debug("Publishing on '{}' data '{}'", topic, dataAsStr);
     }
+#endif
     mSubscriptions.forEachSubscriber(topic, [this, &topic, &msg, qos] (auto& sub) {
         mSenderManager.sendPublish(sub.conn, topic, msg, qos);
     });
