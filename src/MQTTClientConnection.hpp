@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <thread>
 #include <mutex>
+#include <optional>
 
 #include "TcpClientConnection.hpp"
 #include "Enums.hpp"
@@ -62,9 +63,10 @@ public:
 public:
     void setWill(std::string&& topic, std::vector<uint8_t>&& msg, QoS qos) {
         std::lock_guard<std::mutex> lock{mRemaingingMutex};
-        mWill.topic = std::move(topic);
-        mWill.msg = std::move(msg);
-        mWill.qos = qos;
+        mWill.emplace();
+        mWill->topic = std::move(topic);
+        mWill->msg = std::move(msg);
+        mWill->qos = qos;
     }
     auto getWill() {
         std::lock_guard<std::mutex> lock{mRemaingingMutex};
@@ -81,11 +83,12 @@ private:
 
     std::mutex mRemaingingMutex;
     ConnectionState mState = ConnectionState::INITIAL;
-    struct {
+    struct WillStruct{
         std::string topic;
         std::vector<uint8_t> msg;
         QoS qos;
-    } mWill;
+    };
+    std::optional<WillStruct> mWill;
 };
 
 

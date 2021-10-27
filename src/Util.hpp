@@ -32,7 +32,7 @@ public:
         mData.insert(mData.end(), (uint8_t*)&value, ((uint8_t*)&value) + 2);
     }
     void encodeString(const std::string& str) {
-        encodeByte(str.size());
+        encode2Bytes(str.size());
         mData.insert(mData.end(), str.begin(), str.end());
     }
     void encodeBytes(const std::vector<uint8_t>& data) {
@@ -96,6 +96,9 @@ public:
         std::vector<uint8_t> ret(mData.begin() + mOffset, mData.end());
         mOffset = mData.size();
         return ret;
+    }
+    bool empty() {
+        return mOffset >= mData.size();
     }
 private:
     const std::vector<uint8_t>& mData;

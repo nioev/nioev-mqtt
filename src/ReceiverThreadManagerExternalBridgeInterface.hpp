@@ -11,6 +11,7 @@ public:
     virtual void sendData(MQTTClientConnection& conn, std::vector<uint8_t>&& data) = 0;
     virtual void notifyConnectionError(int connFd) = 0;
     virtual void publish(const std::string& topic, std::vector<uint8_t>& msg, QoS qos) = 0;
+    virtual void addSubscription(MQTTClientConnection& conn, std::string&& topic, QoS qos) = 0;
 };
 
 }

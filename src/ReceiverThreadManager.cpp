@@ -205,6 +205,31 @@ void ReceiverThreadManager::handlePacketReceived(MQTTClientConnection& client, c
             mBridge.publish(topic, data, qos);
             break;
         }
+        case MQTTMessageType::SUBSCRIBE: {
+            if(recvData.firstByte != 0x82) {
+                protocolViolation();
+            }
+            auto packetIdentifier = decoder.decode2Bytes();
+            do {
+                auto topic = decoder.decodeString();
+                uint8_t qosInt = decoder.decodeByte();
+                if(qosInt >= 3) {
+                    protocolViolation();
+                }
+                auto qos = static_cast<QoS>(qosInt);
+                mBridge.addSubscription(client, std::move(topic), qos);
+            } while(!decoder.empty());
+
+            // prepare SUBACK
+            util::BinaryEncoder encoder;
+            encoder.encodeByte(static_cast<uint8_t>(MQTTMessageType::SUBACK) << 4);
+            encoder.encode2Bytes(packetIdentifier);
+            encoder.encodeByte(0); // maximum QoS 0 TODO support more
+            encoder.insertPacketLength();
+            mBridge.sendData(client, encoder.moveData());
+
+            break;
+        }
         }
         break;
     }

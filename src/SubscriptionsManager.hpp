@@ -11,6 +11,8 @@ namespace nioev {
 class SubscriptionsManager {
 public:
     void addSubscription(MQTTClientConnection& conn, std::string topic, QoS qos);
+    void deleteSubscription(MQTTClientConnection& conn, const std::string& topic);
+    void deleteAllSubscriptions(MQTTClientConnection& conn);
 
     struct Subscription {
         std::reference_wrapper<MQTTClientConnection> conn;

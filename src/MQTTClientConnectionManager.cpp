@@ -4,7 +4,7 @@
 namespace nioev {
 
 MQTTClientConnectionManager::MQTTClientConnectionManager()
-: mReceiverManager(*this, 4), mSenderManager(*this, 4) {
+: mReceiverManager(*this, 8), mSenderManager(*this, 4) {
 
 }
 
@@ -36,9 +36,12 @@ void MQTTClientConnectionManager::notifyConnectionError(int connFd) {
     }
     spdlog::info("Deleting connection {}", connFd);
     auto willMsg = client->second.getWill();
-    publishWithoutAcquiringLock(willMsg.topic, willMsg.msg, willMsg.qos);
+    if(willMsg) {
+        publishWithoutAcquiringLock(willMsg->topic, willMsg->msg, willMsg->qos);
+    }
     mReceiverManager.removeClientConnection(client->second);
     mSenderManager.removeClientConnection(client->second);
+    mSubscriptions.deleteAllSubscriptions(client->second);
 
     mClients.erase(client);
 }
@@ -54,6 +57,9 @@ void MQTTClientConnectionManager::publishWithoutAcquiringLock(const std::string&
     mSubscriptions.forEachSubscriber(topic, [this, &topic, &msg, qos] (auto& sub) {
         mSenderManager.sendPublish(sub.conn, topic, msg, qos);
     });
+}
+void MQTTClientConnectionManager::addSubscription(MQTTClientConnection& conn, std::string&& topic, QoS qos) {
+    mSubscriptions.addSubscription(conn, std::move(topic), qos);
 }
 
 }
