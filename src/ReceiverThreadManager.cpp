@@ -69,28 +69,33 @@ void ReceiverThreadManager::receiverThreadFunction() {
                                 if(recvData.multiplier > 128 * 128 * 128) {
                                     protocolViolation();
                                 }
-                                if((encodedByte & 128) == 0) {
+                                if((encodedByte & 0x80) == 0) {
                                     recvData.recvState = MQTTClientConnection::PacketReceiveState::RECEIVING_DATA;
                                     spdlog::debug("Expecting packet of length {}", recvData.packetLength);
                                 }
                                 i += 1;
                                 break;
                             }
-                            case MQTTClientConnection::PacketReceiveState::RECEIVING_DATA:
-                                if(bytesReceived - i <= recvData.packetLength) {
-                                    recvData.currentReceiveBuffer.insert(recvData.currentReceiveBuffer.end(), bytes.begin() + i, bytes.end());
-                                    i = bytesReceived;
-                                } else {
+                            case MQTTClientConnection::PacketReceiveState::RECEIVING_DATA: {
+                                uint remainingReceivedSize = bytesReceived - i;
+                                assert(recvData.currentReceiveBuffer.size() <= recvData.packetLength);
+                                if(remainingReceivedSize <= recvData.packetLength - recvData.currentReceiveBuffer.size()) {
                                     recvData.currentReceiveBuffer.insert(
-                                        recvData.currentReceiveBuffer.end(), bytes.begin() + i, bytes.begin() + i + recvData.packetLength);
-                                    i += recvData.packetLength;
+                                        recvData.currentReceiveBuffer.end(), bytes.begin() + i, bytes.begin() + i + remainingReceivedSize);
+                                    i = bytesReceived; // break
+                                } else {
+                                    const uint bytesToCopy = recvData.packetLength - recvData.currentReceiveBuffer.size();
+                                    recvData.currentReceiveBuffer.insert(
+                                        recvData.currentReceiveBuffer.end(), bytes.begin() + i, bytes.begin() + i + bytesToCopy);
+                                    i += bytesToCopy;
                                 }
-                                if(recvData.currentReceiveBuffer.size() >= recvData.packetLength) {
+                                if(recvData.currentReceiveBuffer.size() == recvData.packetLength) {
                                     spdlog::debug("Received: {}", recvData.currentReceiveBuffer.size());
                                     handlePacketReceived(client, recvData);
                                     recvData.recvState = MQTTClientConnection::PacketReceiveState::IDLE;
                                 }
                                 break;
+                            }
                             }
                         }
                     } while(bytesReceived > 0);
