@@ -17,9 +17,15 @@ class SenderThreadManager {
 public:
     explicit SenderThreadManager(SenderThreadManagerExternalBridgeInterface& bridge, uint threadCount);
     void addClientConnection(MQTTClientConnection& conn);
-    void sendData(MQTTClientConnection& client, std::vector<uint8_t>&& data);
     void removeClientConnection(MQTTClientConnection& conn);
+
+
+    // Build up a packet and send it immediately in this thread. If not all data can be send,
+    // the rest will be send by the sender threads.
+    void sendData(MQTTClientConnection& client, std::vector<uint8_t>&& data);
     void sendPublish(MQTTClientConnection& conn, const std::string& topic, const std::vector<uint8_t>& msg, QoS qos);
+
+
 
 private:
     void senderThreadFunction();
@@ -33,8 +39,6 @@ private:
         std::reference_wrapper<MQTTClientConnection> client;
         std::vector<uint8_t> data;
     };
-    std::vector<InitialSendTask> mInitialSendTasks;
-    std::shared_mutex mInitialSendTasksMutex;
 };
 
 }

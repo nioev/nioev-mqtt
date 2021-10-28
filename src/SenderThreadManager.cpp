@@ -7,10 +7,9 @@
 
 namespace nioev {
 
-SenderThreadManager::SenderThreadManager(SenderThreadManagerExternalBridgeInterface& bridge, uint threadCount)
-: mBridge(bridge) {
+SenderThreadManager::SenderThreadManager(SenderThreadManagerExternalBridgeInterface& bridge, uint threadCount) : mBridge(bridge) {
     mEpollFd = epoll_create1(0);
-    for(uint i = 0; i< threadCount; ++i) {
+    for(uint i = 0; i < threadCount; ++i) {
         mSenderThreads.emplace_back([this, i] {
             std::string threadName = "S-" + std::to_string(i);
             pthread_setname_np(pthread_self(), threadName.c_str());
@@ -29,19 +28,18 @@ void SenderThreadManager::addClientConnection(MQTTClientConnection& conn) {
     }
 }
 
-
 void SenderThreadManager::removeClientConnection(MQTTClientConnection& conn) {
     if(epoll_ctl(mEpollFd, EPOLL_CTL_DEL, conn.getTcpClient().getFd(), nullptr) < 0) {
         spdlog::critical("Failed to remove fd from epoll: {}", util::errnoToString());
     }
-    std::lock_guard<std::shared_mutex> lock{mInitialSendTasksMutex};
+    /*std::lock_guard<std::shared_mutex> lock{mInitialSendTasksMutex};
     for(auto it = mInitialSendTasks.begin(); it != mInitialSendTasks.end();) {
         if(&it->client.get() == &conn) {
             it = mInitialSendTasks.erase(it);
         } else {
             it++;
         }
-    }
+    }*/
 }
 
 void SenderThreadManager::senderThreadFunction() {
@@ -83,34 +81,7 @@ void SenderThreadManager::senderThreadFunction() {
                 }
             }
         }
-        // TODO send data until we get EAGAIN to be sure that we will always get woken up correctly
-        std::unique_lock<std::shared_mutex> lock{mInitialSendTasksMutex};
-        for(auto& task: mInitialSendTasks) {
-            try {
-                auto bytesSend = task.client.get().getTcpClient().send(task.data.data(), task.data.size());
-                if(bytesSend != task.data.size()) {
-                    auto [sendTasksRef, sendTasksRefLock] = task.client.get().getSendTasks();
-                    auto& sendTasks = sendTasksRef.get();
-                    sendTasks.emplace_back(MQTTClientConnection::SendTask{ std::move(task.data), bytesSend });
-                }
-            } catch(std::exception& e) {
-                spdlog::error("Caught: {}", e.what());
-                mBridge.notifyConnectionError(task.client.get().getTcpClient().getFd());
-            }
-        }
-        mInitialSendTasks.clear();
     }
-}
-void SenderThreadManager::sendData(MQTTClientConnection& client, std::vector<uint8_t>&& data) {
-    std::unique_lock<std::shared_mutex> lock{mInitialSendTasksMutex};
-    mInitialSendTasks.emplace_back(InitialSendTask{client, std::move(data)});
-    lock.unlock();
-    // pick a random thread to notify of the new task
-    pthread_t tid = mSenderThreads.at(rand() % mSenderThreads.size()).native_handle();
-    if(pthread_kill(tid, SIGUSR1) > 0) {
-        spdlog::error("pthread_kill(): " + util::errnoToString());
-    }
-
 }
 void SenderThreadManager::sendPublish(MQTTClientConnection& conn, const std::string& topic, const std::vector<uint8_t>& msg, QoS qos) {
     util::BinaryEncoder encoder;
@@ -126,6 +97,19 @@ void SenderThreadManager::sendPublish(MQTTClientConnection& conn, const std::str
     encoder.encodeBytes(msg);
     encoder.insertPacketLength();
     sendData(conn, encoder.moveData());
+}
+void SenderThreadManager::sendData(MQTTClientConnection& conn, std::vector<uint8_t>&& bytes) {
+    uint totalBytesSent = 0;
+    uint bytesSent = 0;
+    do {
+        bytesSent = conn.getTcpClient().send(bytes.data() + totalBytesSent, bytes.size() - totalBytesSent);
+        totalBytesSent += bytesSent;
+    } while(bytesSent > 0);
+    if(totalBytesSent < bytes.size()) {
+        auto [sendTasksRef, sendTasksRefLock] = conn.getSendTasks();
+        auto& sendTasks = sendTasksRef.get();
+        sendTasks.emplace_back(MQTTClientConnection::SendTask{ std::move(bytes), totalBytesSent });
+    }
 }
 
 }
