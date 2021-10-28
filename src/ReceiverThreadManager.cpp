@@ -70,8 +70,13 @@ void ReceiverThreadManager::receiverThreadFunction() {
                                     protocolViolation();
                                 }
                                 if((encodedByte & 0x80) == 0) {
-                                    recvData.recvState = MQTTClientConnection::PacketReceiveState::RECEIVING_DATA;
-                                    spdlog::debug("Expecting packet of length {}", recvData.packetLength);
+                                    if(recvData.packetLength == 0) {
+                                        recvData.recvState = MQTTClientConnection::PacketReceiveState::IDLE;
+                                        handlePacketReceived(client, recvData);
+                                    } else {
+                                       recvData.recvState = MQTTClientConnection::PacketReceiveState::RECEIVING_DATA;
+                                       spdlog::debug("Expecting packet of length {}", recvData.packetLength);
+                                    }
                                 }
                                 i += 1;
                                 break;
@@ -234,6 +239,17 @@ void ReceiverThreadManager::handlePacketReceived(MQTTClientConnection& client, c
             encoder.insertPacketLength();
             mBridge.sendData(client, encoder.moveData());
 
+            break;
+        }
+        case MQTTMessageType::PINGREQ: {
+            if(recvData.firstByte != 0xC0) {
+                protocolViolation();
+            }
+            util::BinaryEncoder encoder;
+            encoder.encodeByte(static_cast<uint8_t>(MQTTMessageType::PINGRESP) << 4);
+            encoder.insertPacketLength();
+            mBridge.sendData(client, encoder.moveData());
+            spdlog::debug("Replying to PINGREQ");
             break;
         }
         }
