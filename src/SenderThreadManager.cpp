@@ -71,8 +71,11 @@ void SenderThreadManager::senderThreadFunction() {
                         }
                         // send data
                         for(auto& task : sendTasks) {
-                            auto bytesSend = client.getTcpClient().send(task.data.data() + task.offset, task.data.size() - task.offset);
-                            task.offset += bytesSend;
+                            uint bytesSend = 0;
+                            do {
+                                bytesSend = client.getTcpClient().send(task.data.data() + task.offset, task.data.size() - task.offset);
+                                task.offset += bytesSend;
+                            } while(bytesSend > 0);
                         }
                     }
                 } catch(std::exception& e) {
@@ -101,6 +104,7 @@ void SenderThreadManager::sendPublish(MQTTClientConnection& conn, const std::str
 void SenderThreadManager::sendData(MQTTClientConnection& conn, std::vector<uint8_t>&& bytes) {
     uint totalBytesSent = 0;
     uint bytesSent = 0;
+    auto [_, sendLock] = conn.getSendTasks();
     do {
         bytesSent = conn.getTcpClient().send(bytes.data() + totalBytesSent, bytes.size() - totalBytesSent);
         totalBytesSent += bytesSent;
