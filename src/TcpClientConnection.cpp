@@ -22,17 +22,16 @@ TcpClientConnection::TcpClientConnection(TcpClientConnection&& other) noexcept
     other.mSockFd = 0;
 
 }
-std::vector<uint8_t> TcpClientConnection::recv(std::vector<uint8_t>& buffer) {
+uint TcpClientConnection::recv(std::vector<uint8_t>& buffer) {
     int result = ::recv(mSockFd, buffer.data(), buffer.size(), MSG_NOSIGNAL | MSG_DONTWAIT);
     if(result <= 0) {
         if(errno == EWOULDBLOCK || errno == EAGAIN) {
-            return {};
+            return 0;
         }
         // connection dropped or so
         util::throwErrno("recv()");
     }
-    buffer.resize(result);
-    return buffer;
+    return result;
 }
 uint TcpClientConnection::send(const uint8_t* data, uint len) {
     auto result = ::send(mSockFd, data, len, MSG_NOSIGNAL | MSG_DONTWAIT);

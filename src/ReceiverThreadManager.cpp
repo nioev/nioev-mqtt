@@ -23,7 +23,8 @@ ReceiverThreadManager::ReceiverThreadManager(ReceiverThreadManagerExternalBridge
     }
 }
 void ReceiverThreadManager::receiverThreadFunction() {
-    std::vector<uint8_t> buffer;
+    std::vector<uint8_t> bytes;
+    bytes.resize(64 * 1024);
     while(!mShouldQuit) {
         epoll_event events[20] = { 0 };
         int eventCount = epoll_wait(mEpollFd, events, 20, -1);
@@ -38,18 +39,16 @@ void ReceiverThreadManager::receiverThreadFunction() {
                     spdlog::debug("Socket EPOLLIN!");
                     auto [clientRef, clientRefLock] = mBridge.getClient(events[i].data.fd);
                     auto& client = clientRef.get();
-                    std::vector<uint8_t> bytes;
                     // We receive bytes until there are none left (EAGAIN/EWOULDBLOCK). This is
                     // the recommended way of doing io if one uses the edge-triggered mode of epoll.
                     // This ensures that we don't hang somewhere when we couldn't receive all the data.
+                    uint bytesReceived = 0;
                     do {
                         auto [recvDataRef, recvDataRefLock] = client.getRecvData();
-                        buffer.resize(64 * 1024);
-                        bytes = client.getTcpClient().recv(buffer);
-                        spdlog::debug("Bytes read: {}", bytes.size());
-                        // assert(bytes.size() > 0);
+                        bytesReceived = client.getTcpClient().recv(bytes);
+                        spdlog::debug("Bytes read: {}", bytesReceived);
                         auto& recvData = recvDataRef.get();
-                        for(int i = 0; i < bytes.size();) {
+                        for(int i = 0; i < bytesReceived;) {
                             switch(recvData.recvState) {
                             case MQTTClientConnection::PacketReceiveState::IDLE: {
                                 recvData = {};
@@ -78,9 +77,9 @@ void ReceiverThreadManager::receiverThreadFunction() {
                                 break;
                             }
                             case MQTTClientConnection::PacketReceiveState::RECEIVING_DATA:
-                                if(bytes.size() - i <= recvData.packetLength) {
+                                if(bytesReceived - i <= recvData.packetLength) {
                                     recvData.currentReceiveBuffer.insert(recvData.currentReceiveBuffer.end(), bytes.begin() + i, bytes.end());
-                                    i = bytes.size();
+                                    i = bytesReceived;
                                 } else {
                                     recvData.currentReceiveBuffer.insert(
                                         recvData.currentReceiveBuffer.end(), bytes.begin() + i, bytes.begin() + i + recvData.packetLength);
@@ -94,7 +93,7 @@ void ReceiverThreadManager::receiverThreadFunction() {
                                 break;
                             }
                         }
-                    } while(!bytes.empty());
+                    } while(bytesReceived > 0);
                 }
             } catch(std::exception& e) {
                 spdlog::error("Caught: {}", e.what());
