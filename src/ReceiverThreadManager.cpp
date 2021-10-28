@@ -142,7 +142,6 @@ void ReceiverThreadManager::handlePacketReceived(MQTTClientConnection& client, c
                 response.push_back(1); // invalid protocol version
                 client.setState(MQTTClientConnection::ConnectionState::INVALID_PROTOCOL_VERSION);
                 spdlog::error("Invalid protocol version requested by client: {}", protocolLevel);
-                // TODO send response here
                 mBridge.sendData(client, std::move(response));
                 break;
             }
