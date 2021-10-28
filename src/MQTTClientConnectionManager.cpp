@@ -4,7 +4,7 @@
 namespace nioev {
 
 MQTTClientConnectionManager::MQTTClientConnectionManager()
-: mReceiverManager(*this, 8), mSenderManager(*this, 4) {
+: mReceiverManager(*this, 4), mSenderManager(*this, 1) {
 
 }
 

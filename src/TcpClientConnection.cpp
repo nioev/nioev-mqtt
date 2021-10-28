@@ -12,7 +12,9 @@ TcpClientConnection::TcpClientConnection(int sockFd, std::string remoteIp, uint1
 }
 TcpClientConnection::~TcpClientConnection() {
     if(mSockFd != 0) {
-        close(mSockFd);
+        if(close(mSockFd) < 0) {
+            spdlog::error("close(): {}", util::errnoToString());
+        }
     }
 }
 TcpClientConnection::TcpClientConnection(TcpClientConnection&& other) noexcept
@@ -23,8 +25,11 @@ TcpClientConnection::TcpClientConnection(TcpClientConnection&& other) noexcept
 
 }
 uint TcpClientConnection::recv(std::vector<uint8_t>& buffer) {
-    int result = ::recv(mSockFd, buffer.data(), buffer.size(), MSG_NOSIGNAL | MSG_DONTWAIT);
-    if(result <= 0) {
+    auto result = ::recv(mSockFd, buffer.data(), buffer.size(), MSG_NOSIGNAL | MSG_DONTWAIT);
+    if(result == 0) {
+        throw std::runtime_error{"recv(): Remote closed connection"};
+    }
+    if(result < 0) {
         if(errno == EWOULDBLOCK || errno == EAGAIN) {
             return 0;
         }
@@ -35,6 +40,9 @@ uint TcpClientConnection::recv(std::vector<uint8_t>& buffer) {
 }
 uint TcpClientConnection::send(const uint8_t* data, uint len) {
     auto result = ::send(mSockFd, data, len, MSG_NOSIGNAL | MSG_DONTWAIT);
+    if(result == 0) {
+        throw std::runtime_error{"send(): Remote closed connection"};
+    }
     if(result < 0) {
         if(errno == EWOULDBLOCK || errno == EAGAIN) {
             return 0;

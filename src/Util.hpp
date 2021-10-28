@@ -60,8 +60,8 @@ private:
 
 class BinaryDecoder {
 public:
-    explicit BinaryDecoder(const std::vector<uint8_t>& data)
-    : mData(data) {
+    explicit BinaryDecoder(const std::vector<uint8_t>& data, uint usableSize)
+    : mData(data), mUsableSize(usableSize) {
 
     }
     std::string decodeString() {
@@ -98,11 +98,12 @@ public:
         return ret;
     }
     bool empty() {
-        return mOffset >= mData.size();
+        return mOffset >= mUsableSize;
     }
 private:
     const std::vector<uint8_t>& mData;
     uint mOffset = 0;
+    uint mUsableSize = 0;
 };
 }
 }

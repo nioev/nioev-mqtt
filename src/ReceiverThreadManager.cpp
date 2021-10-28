@@ -33,7 +33,7 @@ void ReceiverThreadManager::receiverThreadFunction() {
         }
         for(int i = 0; i < eventCount; ++i) {
             try {
-                if(events[i].events & EPOLLERR || events[i].events & EPOLLHUP) {
+                if(events[i].events & EPOLLERR) {
                     throw std::runtime_error{"Socket error!"};
                 } else if(events[i].events & EPOLLIN) {
                     spdlog::debug("Socket EPOLLIN!");
@@ -43,12 +43,12 @@ void ReceiverThreadManager::receiverThreadFunction() {
                     // the recommended way of doing io if one uses the edge-triggered mode of epoll.
                     // This ensures that we don't hang somewhere when we couldn't receive all the data.
                     uint bytesReceived = 0;
+                    auto [recvDataRef, recvDataRefLock] = client.getRecvData();
                     do {
-                        auto [recvDataRef, recvDataRefLock] = client.getRecvData();
                         bytesReceived = client.getTcpClient().recv(bytes);
                         spdlog::debug("Bytes read: {}", bytesReceived);
                         auto& recvData = recvDataRef.get();
-                        for(int i = 0; i < bytesReceived;) {
+                        for(uint i = 0; i < bytesReceived;) {
                             switch(recvData.recvState) {
                             case MQTTClientConnection::PacketReceiveState::IDLE: {
                                 recvData = {};
@@ -106,6 +106,7 @@ void ReceiverThreadManager::addClientConnection(MQTTClientConnection& conn) {
     epoll_event ev = { 0 };
     ev.data.fd = conn.getTcpClient().getFd();
     ev.events = EPOLLET | EPOLLIN | EPOLLEXCLUSIVE;
+    // TODO save pointer to client
     if(epoll_ctl(mEpollFd, EPOLL_CTL_ADD, conn.getTcpClient().getFd(), &ev) < 0) {
         spdlog::critical("Failed to add fd to epoll: {}", util::errnoToString());
         exit(6);
@@ -119,7 +120,7 @@ void ReceiverThreadManager::removeClientConnection(MQTTClientConnection& conn) {
 void ReceiverThreadManager::handlePacketReceived(MQTTClientConnection& client, const MQTTClientConnection::PacketReceiveData& recvData) {
     spdlog::debug("Received packet of type {}", recvData.messageType);
 
-    util::BinaryDecoder decoder{recvData.currentReceiveBuffer};
+    util::BinaryDecoder decoder{recvData.currentReceiveBuffer, recvData.packetLength};
     switch(client.getState()) {
     case MQTTClientConnection::ConnectionState::INITIAL: {
         switch(recvData.messageType) {

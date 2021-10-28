@@ -58,8 +58,8 @@ void SenderThreadManager::senderThreadFunction() {
         } else {
             for(int i = 0; i < eventCount; ++i) {
                 try {
-                    if(events[i].events & EPOLLERR || events[i].events & EPOLLHUP) {
-                        spdlog::error("Socket error!"); // TODO handle
+                    if(events[i].events & EPOLLERR) {
+                        throw std::runtime_error{"Socket error!"};
                     } else if(events[i].events & EPOLLOUT) {
                         // we can write some data!
                         auto [clientRef, clientRefLock] = mBridge.getClient(events[i].data.fd);
@@ -104,7 +104,7 @@ void SenderThreadManager::sendData(MQTTClientConnection& conn, std::vector<uint8
     do {
         bytesSent = conn.getTcpClient().send(bytes.data() + totalBytesSent, bytes.size() - totalBytesSent);
         totalBytesSent += bytesSent;
-    } while(bytesSent > 0);
+    } while(totalBytesSent < bytes.size());
     if(totalBytesSent < bytes.size()) {
         auto [sendTasksRef, sendTasksRefLock] = conn.getSendTasks();
         auto& sendTasks = sendTasksRef.get();
