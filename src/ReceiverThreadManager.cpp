@@ -252,6 +252,16 @@ void ReceiverThreadManager::handlePacketReceived(MQTTClientConnection& client, c
             spdlog::debug("Replying to PINGREQ");
             break;
         }
+        case MQTTMessageType::DISCONNECT: {
+            if(recvData.firstByte != 0xE0) {
+                protocolViolation();
+            }
+            spdlog::info("Disconnecting...");
+            client.discardWill();
+            throw std::runtime_error{"Clean disconnect, no actual error"};
+
+            break;
+        }
         }
         break;
     }

@@ -14,6 +14,7 @@ enum class MQTTMessageType : uint8_t
     SUBACK = 9,
     PINGREQ = 12,
     PINGRESP = 13,
+    DISCONNECT = 14,
     Count = 15
 };
 

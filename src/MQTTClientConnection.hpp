@@ -60,13 +60,16 @@ public:
         return {mSendTasks, std::move(lock)};
     }
 
-public:
     void setWill(std::string&& topic, std::vector<uint8_t>&& msg, QoS qos) {
         std::lock_guard<std::mutex> lock{mRemaingingMutex};
         mWill.emplace();
         mWill->topic = std::move(topic);
         mWill->msg = std::move(msg);
         mWill->qos = qos;
+    }
+    void discardWill() {
+        std::lock_guard<std::mutex> lock{mRemaingingMutex};
+        mWill.reset();
     }
     auto getWill() {
         std::lock_guard<std::mutex> lock{mRemaingingMutex};
