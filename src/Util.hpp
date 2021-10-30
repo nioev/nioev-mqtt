@@ -15,7 +15,12 @@ namespace util {
 
 inline std::string errnoToString() {
     char buffer[1024] = { 0 };
+#ifdef __linux__
     return strerror_r(errno, buffer, 1024);
+#else
+    strerror_r(errno, buffer, 1024);
+    return buffer;
+#endif
 }
 
 inline void throwErrno(std::string msg) {

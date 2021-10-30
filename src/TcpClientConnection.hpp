@@ -3,6 +3,7 @@
 #include <string>
 #include <cstdint>
 #include <vector>
+#include "Util.hpp"
 
 namespace nioev {
 
