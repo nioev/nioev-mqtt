@@ -11,7 +11,7 @@ namespace nioev {
 
 class SubscriptionsManager {
 public:
-    void addSubscription(MQTTClientConnection& conn, std::string topic, QoS qos);
+    void addSubscription(MQTTClientConnection& conn, std::string topic, QoS qos, std::function<void(const std::string&, const std::vector<uint8_t>&)>&& retainedMessageCallback);
     void deleteSubscription(MQTTClientConnection& conn, const std::string& topic);
     void deleteAllSubscriptions(MQTTClientConnection& conn);
 
@@ -25,11 +25,17 @@ public:
 
         }
     };
+
     void forEachSubscriber(const std::string& topic, std::function<void(Subscription&)> callback);
+    void retainMessage(std::string&& topic, std::vector<uint8_t>&& payload);
 private:
     std::unordered_multimap<std::string, Subscription> mSimpleSubscriptions;
     std::vector<Subscription> mWildcardSubscriptions;
     std::shared_mutex mMutex;
+    struct RetainedMessage {
+        std::vector<uint8_t> payload;
+    };
+    std::unordered_map<std::string, RetainedMessage> mRetainedMessages;
 };
 
 }

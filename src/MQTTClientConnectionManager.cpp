@@ -47,11 +47,11 @@ void MQTTClientConnectionManager::notifyConnectionError(int connFd) {
 
     mClients.erase(client);
 }
-void MQTTClientConnectionManager::publish(const std::string& topic, std::vector<uint8_t>& msg) {
+void MQTTClientConnectionManager::publish(const std::string& topic, const std::vector<uint8_t>& msg) {
     std::shared_lock<std::shared_mutex> lock{mClientsMutex};
     publishWithoutAcquiringLock(topic, msg);
 }
-void MQTTClientConnectionManager::publishWithoutAcquiringLock(const std::string& topic, std::vector<uint8_t>& msg) {
+void MQTTClientConnectionManager::publishWithoutAcquiringLock(const std::string& topic, const std::vector<uint8_t>& msg) {
 #ifndef NDEBUG
     {
         std::string dataAsStr{msg.begin(), msg.end()};
@@ -59,13 +59,20 @@ void MQTTClientConnectionManager::publishWithoutAcquiringLock(const std::string&
     }
 #endif
     mSubscriptions.forEachSubscriber(topic, [this, &topic, &msg] (auto& sub) {
-        mSenderManager.sendPublish(sub.conn, topic, msg, sub.qos);
+        mSenderManager.sendPublish(sub.conn, topic, msg, sub.qos, Retained::No);
     });
 }
 void MQTTClientConnectionManager::addSubscription(MQTTClientConnection& conn, std::string&& topic, QoS qos) {
-    mSubscriptions.addSubscription(conn, std::move(topic), qos);
+    std::shared_lock<std::shared_mutex> lock{mClientsMutex};
+    mSubscriptions.addSubscription(conn, std::move(topic), qos, [&](const auto& topic, const auto& payload) {
+        // this callback gets called for each retained message that we now need to publish
+        mSenderManager.sendPublish(conn, topic, payload, qos, Retained::Yes);
+    });
 }
 void MQTTClientConnectionManager::deleteSubscription(MQTTClientConnection& conn, const std::string& topic) {
     mSubscriptions.deleteSubscription(conn, topic);
+}
+void MQTTClientConnectionManager::retainMessage(std::string&& topic, std::vector<uint8_t>&& payload) {
+    mSubscriptions.retainMessage(std::move(topic), std::move(payload));
 }
 }

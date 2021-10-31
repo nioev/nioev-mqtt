@@ -28,4 +28,10 @@ enum class QoS : uint8_t
     QoS2 = 2,
 };
 
+enum class Retained
+{
+    Yes,
+    No
+};
+
 }

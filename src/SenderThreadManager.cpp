@@ -86,10 +86,13 @@ void SenderThreadManager::senderThreadFunction() {
         }
     }
 }
-void SenderThreadManager::sendPublish(MQTTClientConnection& conn, const std::string& topic, const std::vector<uint8_t>& msg, QoS qos) {
+void SenderThreadManager::sendPublish(MQTTClientConnection& conn, const std::string& topic, const std::vector<uint8_t>& msg, QoS qos, Retained retained) {
     util::BinaryEncoder encoder;
     uint8_t firstByte = static_cast<uint8_t>(QoS::QoS0) << 1; //FIXME use actual qos
     // TODO retain, dup
+    if(retained == Retained::Yes) {
+        firstByte |= 1;
+    }
     firstByte |= static_cast<uint8_t>(MQTTMessageType::PUBLISH) << 4;
     encoder.encodeByte(firstByte);
     encoder.encodeString(topic);

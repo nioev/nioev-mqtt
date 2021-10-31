@@ -222,6 +222,9 @@ void ReceiverThreadManager::handlePacketReceived(MQTTClientConnection& client, c
             }
             std::vector<uint8_t> data = decoder.getRemainingBytes();
             mBridge.publish(topic, data);
+            if(retain) {
+                mBridge.retainMessage(std::move(topic), std::move(data));
+            }
             break;
         }
         case MQTTMessageType::SUBSCRIBE: {

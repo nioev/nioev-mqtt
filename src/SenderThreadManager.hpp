@@ -22,7 +22,7 @@ public:
     // Build up a packet and send it immediately in this thread. If not all data can be send,
     // the rest will be send by the sender threads.
     void sendData(MQTTClientConnection& client, std::vector<uint8_t>&& data);
-    void sendPublish(MQTTClientConnection& conn, const std::string& topic, const std::vector<uint8_t>& msg, QoS qos);
+    void sendPublish(MQTTClientConnection& conn, const std::string& topic, const std::vector<uint8_t>& msg, QoS qos, Retained retain);
 private:
     void senderThreadFunction();
 private:
