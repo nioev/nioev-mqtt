@@ -211,6 +211,14 @@ void ReceiverThreadManager::handlePacketReceived(MQTTClientConnection& client, c
             auto topic = decoder.decodeString(); // TODO check for allowed chars
             if(qos == QoS::QoS1 || qos == QoS::QoS2) {
                 auto id = decoder.decode2Bytes(); // TODO use
+                if(qos == QoS::QoS1) {
+                    // send PUBACK
+                    util::BinaryEncoder encoder;
+                    encoder.encodeByte(static_cast<uint8_t>(MQTTMessageType::PUBACK) << 4);
+                    encoder.encode2Bytes(id);
+                    encoder.insertPacketLength();
+                    mBridge.sendData(client, encoder.moveData());
+                }
             }
             std::vector<uint8_t> data = decoder.getRemainingBytes();
             mBridge.publish(topic, data, qos);
