@@ -63,5 +63,7 @@ void MQTTClientConnectionManager::publishWithoutAcquiringLock(const std::string&
 void MQTTClientConnectionManager::addSubscription(MQTTClientConnection& conn, std::string&& topic, QoS qos) {
     mSubscriptions.addSubscription(conn, std::move(topic), qos);
 }
-
+void MQTTClientConnectionManager::deleteSubscription(MQTTClientConnection& conn, const std::string& topic) {
+    mSubscriptions.deleteSubscription(conn, topic);
+}
 }

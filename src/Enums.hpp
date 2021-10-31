@@ -12,6 +12,8 @@ enum class MQTTMessageType : uint8_t
     PUBLISH = 3,
     SUBSCRIBE = 8,
     SUBACK = 9,
+    UNSUBSCRIBE = 10,
+    UNSUBACK = 11,
     PINGREQ = 12,
     PINGRESP = 13,
     DISCONNECT = 14,

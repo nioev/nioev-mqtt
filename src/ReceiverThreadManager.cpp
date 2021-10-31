@@ -241,6 +241,25 @@ void ReceiverThreadManager::handlePacketReceived(MQTTClientConnection& client, c
 
             break;
         }
+        case MQTTMessageType::UNSUBSCRIBE: {
+            if(recvData.firstByte != 0xA2) {
+                protocolViolation();
+            }
+            auto packetIdentifier = decoder.decode2Bytes();
+            do {
+                auto topic = decoder.decodeString();
+                mBridge.deleteSubscription(client, topic);
+            } while(!decoder.empty());
+
+            // prepare SUBACK
+            util::BinaryEncoder encoder;
+            encoder.encodeByte(static_cast<uint8_t>(MQTTMessageType::UNSUBACK) << 4);
+            encoder.encode2Bytes(packetIdentifier);
+            encoder.insertPacketLength();
+            mBridge.sendData(client, encoder.moveData());
+
+            break;
+        }
         case MQTTMessageType::PINGREQ: {
             if(recvData.firstByte != 0xC0) {
                 protocolViolation();

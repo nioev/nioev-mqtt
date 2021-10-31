@@ -29,6 +29,7 @@ public:
     void notifyConnectionError(int connFd) override;
     void publish(const std::string& topic, std::vector<uint8_t>& msg, QoS qos) override;
     void addSubscription(MQTTClientConnection& conn, std::string&& topic, QoS qos) override;
+    void deleteSubscription(MQTTClientConnection& conn, const std::string& topic) override;
 
     std::shared_mutex mClientsMutex;
 };
