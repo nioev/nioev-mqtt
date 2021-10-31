@@ -9,6 +9,7 @@ MQTTClientConnectionManager::MQTTClientConnectionManager()
 }
 
 void MQTTClientConnectionManager::handleNewClientConnection(TcpClientConnection&& conn) {
+    spdlog::info("New Client {}:{}", conn.getRemoteIp(), conn.getRemotePort());
     std::lock_guard<std::shared_mutex> lock{mClientsMutex};
     int fd = conn.getFd();
     auto newClient = mClients.emplace(
@@ -37,7 +38,8 @@ void MQTTClientConnectionManager::notifyConnectionError(int connFd) {
     spdlog::debug("Deleting connection {}", connFd);
     auto willMsg = client->second.getWill();
     if(willMsg) {
-        publishWithoutAcquiringLock(willMsg->topic, willMsg->msg, willMsg->qos);
+        // FIXME maybe we should do something with the QoS level? currently we always respect the subscriber's wish
+        publishWithoutAcquiringLock(willMsg->topic, willMsg->msg);
     }
     mReceiverManager.removeClientConnection(client->second);
     mSenderManager.removeClientConnection(client->second);
@@ -45,19 +47,19 @@ void MQTTClientConnectionManager::notifyConnectionError(int connFd) {
 
     mClients.erase(client);
 }
-void MQTTClientConnectionManager::publish(const std::string& topic, std::vector<uint8_t>& msg, QoS qos) {
+void MQTTClientConnectionManager::publish(const std::string& topic, std::vector<uint8_t>& msg) {
     std::shared_lock<std::shared_mutex> lock{mClientsMutex};
-    publishWithoutAcquiringLock(topic, msg, qos);
+    publishWithoutAcquiringLock(topic, msg);
 }
-void MQTTClientConnectionManager::publishWithoutAcquiringLock(const std::string& topic, std::vector<uint8_t>& msg, QoS qos) {
+void MQTTClientConnectionManager::publishWithoutAcquiringLock(const std::string& topic, std::vector<uint8_t>& msg) {
 #ifndef NDEBUG
     {
         std::string dataAsStr{msg.begin(), msg.end()};
-        spdlog::debug("Publishing on '{}' data '{}'", topic, dataAsStr);
+        spdlog::info("Publishing on '{}' data '{}'", topic, dataAsStr);
     }
 #endif
-    mSubscriptions.forEachSubscriber(topic, [this, &topic, &msg, qos] (auto& sub) {
-        mSenderManager.sendPublish(sub.conn, topic, msg, qos);
+    mSubscriptions.forEachSubscriber(topic, [this, &topic, &msg] (auto& sub) {
+        mSenderManager.sendPublish(sub.conn, topic, msg, sub.qos);
     });
 }
 void MQTTClientConnectionManager::addSubscription(MQTTClientConnection& conn, std::string&& topic, QoS qos) {

@@ -88,7 +88,7 @@ void SenderThreadManager::senderThreadFunction() {
 }
 void SenderThreadManager::sendPublish(MQTTClientConnection& conn, const std::string& topic, const std::vector<uint8_t>& msg, QoS qos) {
     util::BinaryEncoder encoder;
-    uint8_t firstByte = static_cast<uint8_t>(qos) << 1;
+    uint8_t firstByte = static_cast<uint8_t>(QoS::QoS0) << 1; //FIXME use actual qos
     // TODO retain, dup
     firstByte |= static_cast<uint8_t>(MQTTMessageType::PUBLISH) << 4;
     encoder.encodeByte(firstByte);

@@ -20,14 +20,14 @@ private:
     SenderThreadManager mSenderManager;
     SubscriptionsManager mSubscriptions;
 
-    void publishWithoutAcquiringLock(const std::string& topic, std::vector<uint8_t>& msg, QoS qos);
+    void publishWithoutAcquiringLock(const std::string& topic, std::vector<uint8_t>& msg);
 public:
     MQTTClientConnectionManager();
     void handleNewClientConnection(TcpClientConnection&&) override;
     std::pair<std::reference_wrapper<MQTTClientConnection>, std::shared_lock<std::shared_mutex>> getClient(int fd) override;
     void sendData(MQTTClientConnection& conn, std::vector<uint8_t>&& data) override;
     void notifyConnectionError(int connFd) override;
-    void publish(const std::string& topic, std::vector<uint8_t>& msg, QoS qos) override;
+    void publish(const std::string& topic, std::vector<uint8_t>& msg) override;
     void addSubscription(MQTTClientConnection& conn, std::string&& topic, QoS qos) override;
     void deleteSubscription(MQTTClientConnection& conn, const std::string& topic) override;
 

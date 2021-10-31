@@ -221,7 +221,7 @@ void ReceiverThreadManager::handlePacketReceived(MQTTClientConnection& client, c
                 }
             }
             std::vector<uint8_t> data = decoder.getRemainingBytes();
-            mBridge.publish(topic, data, qos);
+            mBridge.publish(topic, data);
             break;
         }
         case MQTTMessageType::SUBSCRIBE: {
@@ -231,6 +231,7 @@ void ReceiverThreadManager::handlePacketReceived(MQTTClientConnection& client, c
             auto packetIdentifier = decoder.decode2Bytes();
             do {
                 auto topic = decoder.decodeString();
+                spdlog::info("Client {}:{} subscribing to {}", client.getTcpClient().getRemotePort(), client.getTcpClient().getRemoteIp(), topic);
                 uint8_t qosInt = decoder.decodeByte();
                 if(qosInt >= 3) {
                     protocolViolation();
@@ -238,6 +239,7 @@ void ReceiverThreadManager::handlePacketReceived(MQTTClientConnection& client, c
                 auto qos = static_cast<QoS>(qosInt);
                 mBridge.addSubscription(client, std::move(topic), qos);
             } while(!decoder.empty());
+
 
             // prepare SUBACK
             util::BinaryEncoder encoder;
