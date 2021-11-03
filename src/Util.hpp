@@ -45,6 +45,7 @@ public:
     }
     void insertPacketLength() {
         uint32_t packetLength = mData.size() - 1; // exluding first byte
+        int offset = 1;
         do {
             uint8_t encodeByte = packetLength % 128;
             packetLength = packetLength / 128;
@@ -52,7 +53,8 @@ public:
             if(packetLength > 0) {
                 encodeByte |= 128;
             }
-            mData.insert(mData.begin() + 1, encodeByte);
+            mData.insert(mData.begin() + offset, encodeByte);
+            offset += 1;
         } while(packetLength > 0);
     }
     std::vector<uint8_t>&& moveData() {
