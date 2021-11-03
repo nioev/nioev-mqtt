@@ -1,23 +1,20 @@
 #pragma once
 
+#include "ClientThreadManager.hpp"
+#include "ClientThreadManagerExternalBridgeInterface.hpp"
 #include "MQTTClientConnection.hpp"
-#include "ReceiverThreadManager.hpp"
-#include "ReceiverThreadManagerExternalBridgeInterface.hpp"
-#include "SenderThreadManager.hpp"
-#include "SenderThreadManagerExternalBridgeInterface.hpp"
+#include "SubscriptionsManager.hpp"
 #include "TcpClientHandlerInterface.hpp"
 #include <thread>
 #include <unordered_map>
 #include <vector>
-#include "SubscriptionsManager.hpp"
 
 namespace nioev {
 
-class MQTTClientConnectionManager : public TcpClientHandlerInterface, public ReceiverThreadManagerExternalBridgeInterface, public SenderThreadManagerExternalBridgeInterface {
+class MQTTClientConnectionManager : public TcpClientHandlerInterface, public ClientThreadManagerExternalBridgeInterface {
 private:
     std::unordered_map<int, MQTTClientConnection> mClients;
-    ReceiverThreadManager mReceiverManager;
-    SenderThreadManager mSenderManager;
+    ClientThreadManager mReceiverManager;
     SubscriptionsManager mSubscriptions;
 
     void publishWithoutAcquiringLock(const std::string& topic, const std::vector<uint8_t>& msg);

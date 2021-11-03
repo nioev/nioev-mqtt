@@ -1,13 +1,13 @@
-#include "ReceiverThreadManager.hpp"
-#include <sys/epoll.h>
-#include <spdlog/spdlog.h>
+#include "ClientThreadManager.hpp"
 #include "Util.hpp"
+#include <spdlog/spdlog.h>
+#include <sys/epoll.h>
 
 #include "Enums.hpp"
 
 namespace nioev {
 
-ReceiverThreadManager::ReceiverThreadManager(ReceiverThreadManagerExternalBridgeInterface& bridge, uint threadCount)
+ClientThreadManager::ClientThreadManager(ClientThreadManagerExternalBridgeInterface& bridge, uint threadCount)
 : mBridge(bridge) {
     mEpollFd = epoll_create1(EPOLL_CLOEXEC);
     if(mEpollFd < 0) {
@@ -16,13 +16,13 @@ ReceiverThreadManager::ReceiverThreadManager(ReceiverThreadManagerExternalBridge
     }
     for(uint i = 0; i < threadCount; ++i) {
         mReceiverThreads.emplace_back([this, i] {
-            std::string threadName = "R-" + std::to_string(i);
+            std::string threadName = "C-" + std::to_string(i);
             pthread_setname_np(pthread_self(), threadName.c_str());
             receiverThreadFunction();
         });
     }
 }
-void ReceiverThreadManager::receiverThreadFunction() {
+void ClientThreadManager::receiverThreadFunction() {
     std::vector<uint8_t> bytes;
     bytes.resize(64 * 1024);
     while(!mShouldQuit) {
@@ -35,10 +35,42 @@ void ReceiverThreadManager::receiverThreadFunction() {
             try {
                 if(events[i].events & EPOLLERR) {
                     throw std::runtime_error{"Socket error!"};
-                } else if(events[i].events & EPOLLIN) {
-                    spdlog::debug("Socket EPOLLIN!");
-                    auto [clientRef, clientRefLock] = mBridge.getClient(events[i].data.fd);
-                    auto& client = clientRef.get();
+                }
+                auto [clientRef, clientRefLock] = mBridge.getClient(events[i].data.fd);
+                auto& client = clientRef.get();
+                if(events[i].events & EPOLLOUT) {
+                    // we can write some data!
+                    auto [sendTasksRef, sendTasksRefLock] = client.getSendTasks();
+                    auto& sendTasks = sendTasksRef.get();
+                    if(sendTasks.empty()) {
+                        continue;
+                    }
+                    // send data
+                    for(auto it = sendTasks.begin(); it != sendTasks.end();) {
+                        uint bytesSend = 0;
+                        do {
+                            bytesSend = client.getTcpClient().send(it->data.data() + it->offset, it->data.size() - it->offset);
+                            it->offset += bytesSend;
+                        } while(bytesSend > 0);
+
+                        if(it->offset >= it->data.size()) {
+                            if(sendTasks.size() == 1) {
+                                epoll_event ev = { 0 };
+                                ev.data.fd = client.getTcpClient().getFd();
+                                ev.events = /* EPOLLET |*/ EPOLLIN | EPOLLEXCLUSIVE;
+                                if(epoll_ctl(mEpollFd, EPOLL_CTL_MOD, client.getTcpClient().getFd(), &ev) < 0) {
+                                    spdlog::critical("epoll_ctl(): " + util::errnoToString());
+                                    exit(9);
+                                }
+                            }
+                            it = sendTasks.erase(it);
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                if(events[i].events & EPOLLIN) {
+                    // we can read some data!
                     // We receive bytes until there are none left (EAGAIN/EWOULDBLOCK). This is
                     // the recommended way of doing io if one uses the edge-triggered mode of epoll.
                     // This ensures that we don't hang somewhere when we couldn't receive all the data.
@@ -112,22 +144,22 @@ void ReceiverThreadManager::receiverThreadFunction() {
         }
     }
 }
-void ReceiverThreadManager::addClientConnection(MQTTClientConnection& conn) {
+void ClientThreadManager::addClientConnection(MQTTClientConnection& conn) {
     epoll_event ev = { 0 };
     ev.data.fd = conn.getTcpClient().getFd();
-    ev.events = EPOLLET | EPOLLIN | EPOLLEXCLUSIVE;
+    ev.events = /* EPOLLET |*/ EPOLLIN | EPOLLEXCLUSIVE;
     // TODO save pointer to client
     if(epoll_ctl(mEpollFd, EPOLL_CTL_ADD, conn.getTcpClient().getFd(), &ev) < 0) {
         spdlog::critical("Failed to add fd to epoll: {}", util::errnoToString());
         exit(6);
     }
 }
-void ReceiverThreadManager::removeClientConnection(MQTTClientConnection& conn) {
+void ClientThreadManager::removeClientConnection(MQTTClientConnection& conn) {
     if(epoll_ctl(mEpollFd, EPOLL_CTL_DEL, conn.getTcpClient().getFd(), nullptr) < 0) {
         spdlog::critical("Failed to remove fd from epoll: {}", util::errnoToString());
     }
 }
-void ReceiverThreadManager::handlePacketReceived(MQTTClientConnection& client, const MQTTClientConnection::PacketReceiveData& recvData) {
+void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, const MQTTClientConnection::PacketReceiveData& recvData) {
     spdlog::debug("Received packet of type {}", recvData.messageType);
 
     util::BinaryDecoder decoder{recvData.currentReceiveBuffer, recvData.packetLength};
@@ -234,7 +266,7 @@ void ReceiverThreadManager::handlePacketReceived(MQTTClientConnection& client, c
             auto packetIdentifier = decoder.decode2Bytes();
             do {
                 auto topic = decoder.decodeString();
-                spdlog::info("Client {}:{} subscribing to {}", client.getTcpClient().getRemotePort(), client.getTcpClient().getRemoteIp(), topic);
+                spdlog::info("Client {}:{} subscribing to {}", client.getTcpClient().getRemoteIp(), client.getTcpClient().getRemotePort(), topic);
                 uint8_t qosInt = decoder.decodeByte();
                 if(qosInt >= 3) {
                     protocolViolation();
@@ -299,8 +331,52 @@ void ReceiverThreadManager::handlePacketReceived(MQTTClientConnection& client, c
     }
     }
 }
-void ReceiverThreadManager::protocolViolation() {
+void ClientThreadManager::protocolViolation() {
     throw std::runtime_error{"Protocol violation"};
+}
+
+void ClientThreadManager::sendPublish(MQTTClientConnection& conn, const std::string& topic, const std::vector<uint8_t>& msg, QoS qos, Retained retained) {
+    util::BinaryEncoder encoder;
+    uint8_t firstByte = static_cast<uint8_t>(QoS::QoS0) << 1; //FIXME use actual qos
+    // TODO retain, dup
+    if(retained == Retained::Yes) {
+        firstByte |= 1;
+    }
+    firstByte |= static_cast<uint8_t>(MQTTMessageType::PUBLISH) << 4;
+    encoder.encodeByte(firstByte);
+    encoder.encodeString(topic);
+    if(qos != QoS::QoS0) {
+        // TODO add id
+        assert(false);
+    }
+    encoder.encodeBytes(msg);
+    encoder.insertPacketLength();
+    sendData(conn, encoder.moveData());
+}
+void ClientThreadManager::sendData(MQTTClientConnection& conn, std::vector<uint8_t>&& bytes) {
+    uint totalBytesSent = 0;
+    uint bytesSent = 0;
+    auto [sendTasksRef, sendLock] = conn.getSendTasks();
+    auto& sendTasks = sendTasksRef.get();
+    do {
+        bytesSent = conn.getTcpClient().send(bytes.data() + totalBytesSent, bytes.size() - totalBytesSent);
+        totalBytesSent += bytesSent;
+    } while(bytesSent > 0 && totalBytesSent < bytes.size());
+    //spdlog::warn("Bytes sent: {}, Total bytes sent: {}", bytesSent, totalBytesSent);
+
+    if(totalBytesSent < bytes.size()) {
+        sendTasks.emplace_back(MQTTClientConnection::SendTask{ std::move(bytes), totalBytesSent });
+
+        // listen for EPOLLOUT
+        epoll_event ev = { 0 };
+        ev.data.fd = conn.getTcpClient().getFd();
+        ev.events = /* EPOLLET |*/ EPOLLIN | EPOLLOUT | EPOLLEXCLUSIVE;
+        // TODO save pointer to client
+        if(epoll_ctl(mEpollFd, EPOLL_CTL_MOD, conn.getTcpClient().getFd(), &ev) < 0) {
+            spdlog::critical("Failed to mod fd to epoll: {}", util::errnoToString());
+            exit(6);
+        }
+    }
 }
 
 }

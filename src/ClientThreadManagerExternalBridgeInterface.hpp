@@ -2,10 +2,12 @@
 
 #include "Forward.hpp"
 #include <shared_mutex>
+#include <vector>
+#include "Enums.hpp"
 
 namespace nioev {
 
-class ReceiverThreadManagerExternalBridgeInterface {
+class ClientThreadManagerExternalBridgeInterface {
 public:
     virtual std::pair<std::reference_wrapper<MQTTClientConnection>, std::shared_lock<std::shared_mutex>> getClient(int fd) = 0;
     virtual void sendData(MQTTClientConnection& conn, std::vector<uint8_t>&& data) = 0;

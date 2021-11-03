@@ -4,7 +4,7 @@
 namespace nioev {
 
 MQTTClientConnectionManager::MQTTClientConnectionManager()
-: mReceiverManager(*this, 4), mSenderManager(*this, 2) {
+: mReceiverManager(*this, 4) {
 
 }
 
@@ -17,14 +17,13 @@ void MQTTClientConnectionManager::handleNewClientConnection(TcpClientConnection&
         std::make_tuple(fd),
         std::make_tuple(std::move(conn)));
     mReceiverManager.addClientConnection(newClient.first->second);
-    mSenderManager.addClientConnection(newClient.first->second);
 }
 std::pair<std::reference_wrapper<MQTTClientConnection>, std::shared_lock<std::shared_mutex>> MQTTClientConnectionManager::getClient(int fd) {
     std::shared_lock<std::shared_mutex> lock{mClientsMutex};
     return {mClients.at(fd), std::move(lock)};
 }
 void MQTTClientConnectionManager::sendData(MQTTClientConnection& conn, std::vector<uint8_t>&& data) {
-    mSenderManager.sendData(conn, std::move(data));
+    mReceiverManager.sendData(conn, std::move(data));
 }
 void MQTTClientConnectionManager::notifyConnectionError(int connFd) {
     std::lock_guard<std::shared_mutex> lock{mClientsMutex};
@@ -42,7 +41,6 @@ void MQTTClientConnectionManager::notifyConnectionError(int connFd) {
         publishWithoutAcquiringLock(willMsg->topic, willMsg->msg);
     }
     mReceiverManager.removeClientConnection(client->second);
-    mSenderManager.removeClientConnection(client->second);
     mSubscriptions.deleteAllSubscriptions(client->second);
 
     mClients.erase(client);
@@ -59,14 +57,14 @@ void MQTTClientConnectionManager::publishWithoutAcquiringLock(const std::string&
     }
 #endif
     mSubscriptions.forEachSubscriber(topic, [this, &topic, &msg] (auto& sub) {
-        mSenderManager.sendPublish(sub.conn, topic, msg, sub.qos, Retained::No);
+        mReceiverManager.sendPublish(sub.conn, topic, msg, sub.qos, Retained::No);
     });
 }
 void MQTTClientConnectionManager::addSubscription(MQTTClientConnection& conn, std::string&& topic, QoS qos) {
     std::shared_lock<std::shared_mutex> lock{mClientsMutex};
     mSubscriptions.addSubscription(conn, std::move(topic), qos, [&](const auto& topic, const auto& payload) {
         // this callback gets called for each retained message that we now need to publish
-        mSenderManager.sendPublish(conn, topic, payload, qos, Retained::Yes);
+        mReceiverManager.sendPublish(conn, topic, payload, qos, Retained::Yes);
     });
 }
 void MQTTClientConnectionManager::deleteSubscription(MQTTClientConnection& conn, const std::string& topic) {
