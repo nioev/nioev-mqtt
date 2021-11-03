@@ -59,8 +59,8 @@ void ClientThreadManager::receiverThreadFunction() {
                                 ev.data.fd = client.getTcpClient().getFd();
                                 ev.events = /* EPOLLET |*/ EPOLLIN | EPOLLEXCLUSIVE;
                                 if(epoll_ctl(mEpollFd, EPOLL_CTL_MOD, client.getTcpClient().getFd(), &ev) < 0) {
-                                    spdlog::critical("epoll_ctl(): " + util::errnoToString());
-                                    exit(9);
+                                    spdlog::warn("epoll_ctl(): {}", util::errnoToString());
+                                    throw std::runtime_error{"epoll_ctl(): " + util::errnoToString()};
                                 }
                             }
                             it = sendTasks.erase(it);
@@ -373,8 +373,8 @@ void ClientThreadManager::sendData(MQTTClientConnection& conn, std::vector<uint8
         ev.events = /* EPOLLET |*/ EPOLLIN | EPOLLOUT | EPOLLEXCLUSIVE;
         // TODO save pointer to client
         if(epoll_ctl(mEpollFd, EPOLL_CTL_MOD, conn.getTcpClient().getFd(), &ev) < 0) {
-            spdlog::critical("Failed to mod fd to epoll: {}", util::errnoToString());
-            exit(6);
+            spdlog::warn("epoll_ctl(): {}", util::errnoToString());
+            throw std::runtime_error{"epoll_ctl(): " + util::errnoToString()};
         }
     }
 }
