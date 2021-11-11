@@ -57,10 +57,10 @@ void ClientThreadManager::receiverThreadFunction() {
                             if(sendTasks.size() == 1) {
                                 epoll_event ev = { 0 };
                                 ev.data.fd = client.getTcpClient().getFd();
-                                ev.events = /* EPOLLET |*/ EPOLLIN | EPOLLEXCLUSIVE;
+                                ev.events = EPOLLET | EPOLLIN | EPOLLEXCLUSIVE;
                                 if(epoll_ctl(mEpollFd, EPOLL_CTL_MOD, client.getTcpClient().getFd(), &ev) < 0) {
-                                    spdlog::critical("epoll_ctl(): " + util::errnoToString());
-                                    exit(9);
+                                    spdlog::warn("epoll_ctl(): {}", util::errnoToString());
+                                    throw std::runtime_error{"epoll_ctl(): " + util::errnoToString()};
                                 }
                             }
                             it = sendTasks.erase(it);
@@ -147,7 +147,7 @@ void ClientThreadManager::receiverThreadFunction() {
 void ClientThreadManager::addClientConnection(MQTTClientConnection& conn) {
     epoll_event ev = { 0 };
     ev.data.fd = conn.getTcpClient().getFd();
-    ev.events = /* EPOLLET |*/ EPOLLIN | EPOLLEXCLUSIVE;
+    ev.events = EPOLLET | EPOLLIN | EPOLLEXCLUSIVE;
     // TODO save pointer to client
     if(epoll_ctl(mEpollFd, EPOLL_CTL_ADD, conn.getTcpClient().getFd(), &ev) < 0) {
         spdlog::critical("Failed to add fd to epoll: {}", util::errnoToString());
@@ -370,11 +370,11 @@ void ClientThreadManager::sendData(MQTTClientConnection& conn, std::vector<uint8
         // listen for EPOLLOUT
         epoll_event ev = { 0 };
         ev.data.fd = conn.getTcpClient().getFd();
-        ev.events = /* EPOLLET |*/ EPOLLIN | EPOLLOUT | EPOLLEXCLUSIVE;
+        ev.events = EPOLLET | EPOLLIN | EPOLLOUT | EPOLLEXCLUSIVE;
         // TODO save pointer to client
         if(epoll_ctl(mEpollFd, EPOLL_CTL_MOD, conn.getTcpClient().getFd(), &ev) < 0) {
-            spdlog::critical("Failed to mod fd to epoll: {}", util::errnoToString());
-            exit(6);
+            spdlog::warn("epoll_ctl(): {}", util::errnoToString());
+            throw std::runtime_error{"epoll_ctl(): " + util::errnoToString()};
         }
     }
 }
