@@ -4,6 +4,7 @@
 #include <cstring>
 #include <arpa/inet.h>
 #include <cstring>
+#include <optional>
 
 #include "spdlog/spdlog.h"
 
@@ -111,6 +112,28 @@ private:
     const std::vector<uint8_t>& mData;
     uint mOffset = 0;
     uint mUsableSize = 0;
+};
+
+template<typename T>
+class DestructWrapper final {
+public:
+    explicit DestructWrapper(T func)
+    : mFunc(std::move(func)) {
+
+    }
+    ~DestructWrapper() {
+        execute();
+    }
+
+    void execute() {
+        if(mFunc) {
+            mFunc.value()();
+            mFunc.reset();
+        }
+    }
+
+private:
+    std::optional<T> mFunc;
 };
 }
 }

@@ -30,8 +30,9 @@ enum class QoS : uint8_t
 
 enum class Retained
 {
-    Yes,
-    No
+    No,
+    Yes
 };
+using Retain = Retained;
 
 }
