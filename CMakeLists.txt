@@ -25,7 +25,7 @@ add_executable(nioev
         src/ClientThreadManager.hpp
         src/Forward.hpp
         src/Enums.hpp
-        src/SubscriptionsManager.cpp
-        src/SubscriptionsManager.hpp src/scripting/ScriptContainerManager.cpp src/scripting/ScriptContainerManager.hpp src/scripting/ScriptContainer.cpp src/scripting/ScriptContainer.hpp src/scripting/ScriptContainerJS.cpp src/scripting/ScriptContainerJS.hpp)
+        src/MQTTPersistentState.cpp
+        src/MQTTPersistentState.hpp src/scripting/ScriptContainerManager.cpp src/scripting/ScriptContainerManager.hpp src/scripting/ScriptContainer.cpp src/scripting/ScriptContainer.hpp src/scripting/ScriptContainerJS.cpp src/scripting/ScriptContainerJS.hpp)
 
 target_link_libraries(nioev spdlog quickjs pthread dl)

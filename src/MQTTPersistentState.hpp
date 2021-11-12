@@ -9,7 +9,7 @@
 
 namespace nioev {
 
-class SubscriptionsManager {
+class MQTTPersistentState {
 public:
     void addSubscription(MQTTClientConnection& conn, std::string topic, QoS qos, std::function<void(const std::string&, const std::vector<uint8_t>&)>&& retainedMessageCallback);
     void deleteSubscription(MQTTClientConnection& conn, const std::string& topic);

@@ -2,7 +2,7 @@
 
 #include "ClientThreadManager.hpp"
 #include "MQTTClientConnection.hpp"
-#include "SubscriptionsManager.hpp"
+#include "MQTTPersistentState.hpp"
 #include "TcpClientHandlerInterface.hpp"
 #include <thread>
 #include <unordered_map>
@@ -13,8 +13,8 @@ namespace nioev {
 class Application : public TcpClientHandlerInterface {
 private:
     std::unordered_map<int, MQTTClientConnection> mClients;
-    ClientThreadManager mReceiverManager;
-    SubscriptionsManager mSubscriptions;
+    ClientThreadManager mClientManager;
+    MQTTPersistentState mPersistentState;
 
     void publishWithoutAcquiringLock(std::string&& topic, std::vector<uint8_t>&& msg, std::optional<QoS> qos, Retain retain);
 public:

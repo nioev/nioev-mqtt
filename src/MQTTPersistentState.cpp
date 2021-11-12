@@ -1,4 +1,4 @@
-#include "SubscriptionsManager.hpp"
+#include "MQTTPersistentState.hpp"
 #include "MQTTClientConnection.hpp"
 
 namespace nioev {
@@ -20,7 +20,7 @@ static void splitString(const std::string& str, T callback) {
     } while(nextOffset != std::string::npos);
 }
 
-static bool doesTopicMatchSubscription(const std::string& topic, const SubscriptionsManager::Subscription& sub) {
+static bool doesTopicMatchSubscription(const std::string& topic, const MQTTPersistentState::Subscription& sub) {
     size_t partIndex = 0;
     bool doesMatch = true;
     splitString(topic, [&] (const auto& actualPart) {
@@ -39,7 +39,7 @@ static bool doesTopicMatchSubscription(const std::string& topic, const Subscript
     return doesMatch && partIndex == sub.topicSplit.size();
 }
 
-void SubscriptionsManager::addSubscription(MQTTClientConnection& conn, std::string topic, QoS qos, std::function<void(const std::string&, const std::vector<uint8_t>&)>&& retainedMessageCallback) {
+void MQTTPersistentState::addSubscription(MQTTClientConnection& conn, std::string topic, QoS qos, std::function<void(const std::string&, const std::vector<uint8_t>&)>&& retainedMessageCallback) {
     std::lock_guard<std::shared_mutex> lock{mMutex};
     auto hasWildcard = std::any_of(topic.begin(), topic.end(), [](char c) {
                            return c == '#' || c == '+';
@@ -66,7 +66,7 @@ void SubscriptionsManager::addSubscription(MQTTClientConnection& conn, std::stri
         }
     }
 }
-void SubscriptionsManager::deleteSubscription(MQTTClientConnection& conn, const std::string& topic) {
+void MQTTPersistentState::deleteSubscription(MQTTClientConnection& conn, const std::string& topic) {
     std::lock_guard<std::shared_mutex> lock{mMutex};
     auto[start, end] = mSimpleSubscriptions.equal_range(topic);
     if(start != end) {
@@ -83,7 +83,7 @@ void SubscriptionsManager::deleteSubscription(MQTTClientConnection& conn, const 
         });
     }
 }
-void SubscriptionsManager::deleteAllSubscriptions(MQTTClientConnection& conn) {
+void MQTTPersistentState::deleteAllSubscriptions(MQTTClientConnection& conn) {
     std::lock_guard<std::shared_mutex> lock{mMutex};
     for(auto it = mSimpleSubscriptions.begin(); it != mSimpleSubscriptions.end();) {
         if(&it->second.conn.get() == &conn) {
@@ -97,7 +97,7 @@ void SubscriptionsManager::deleteAllSubscriptions(MQTTClientConnection& conn) {
     });
 }
 
-void SubscriptionsManager::forEachSubscriber(const std::string& topic, std::function<void(Subscription&)> callback) {
+void MQTTPersistentState::forEachSubscriber(const std::string& topic, std::function<void(Subscription&)> callback) {
     std::shared_lock<std::shared_mutex> lock{mMutex};
     auto[start, end] = mSimpleSubscriptions.equal_range(topic);
     for(auto it = start; it != end; ++it) {
@@ -109,7 +109,7 @@ void SubscriptionsManager::forEachSubscriber(const std::string& topic, std::func
         }
     }
 }
-void SubscriptionsManager::retainMessage(std::string&& topic, std::vector<uint8_t>&& payload) {
+void MQTTPersistentState::retainMessage(std::string&& topic, std::vector<uint8_t>&& payload) {
     std::lock_guard<std::shared_mutex> lock{mMutex};
     mRetainedMessages.erase(topic);
     if(!payload.empty()) {
