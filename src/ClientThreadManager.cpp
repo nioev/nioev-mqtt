@@ -4,11 +4,12 @@
 #include <sys/epoll.h>
 
 #include "Enums.hpp"
+#include "Application.hpp"
 
 namespace nioev {
 
-ClientThreadManager::ClientThreadManager(ClientThreadManagerExternalBridgeInterface& bridge, uint threadCount)
-: mBridge(bridge) {
+ClientThreadManager::ClientThreadManager(Application& app, uint threadCount)
+: mApp(app) {
     mEpollFd = epoll_create1(EPOLL_CLOEXEC);
     if(mEpollFd < 0) {
         spdlog::critical("Failed to create epoll fd: " + util::errnoToString());
@@ -36,7 +37,7 @@ void ClientThreadManager::receiverThreadFunction() {
                 if(events[i].events & EPOLLERR) {
                     throw std::runtime_error{"Socket error!"};
                 }
-                auto [clientRef, clientRefLock] = mBridge.getClient(events[i].data.fd);
+                auto [clientRef, clientRefLock] = mApp.getClient(events[i].data.fd);
                 auto& client = clientRef.get();
                 if(events[i].events & EPOLLOUT) {
                     // we can write some data!
@@ -139,7 +140,7 @@ void ClientThreadManager::receiverThreadFunction() {
                 }
             } catch(std::exception& e) {
                 spdlog::error("Caught: {}", e.what());
-                mBridge.notifyConnectionError(events[i].data.fd);
+                mApp.notifyConnectionError(events[i].data.fd);
             }
         }
     }
@@ -184,7 +185,7 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
                 response.push_back(1); // invalid protocol version
                 client.setState(MQTTClientConnection::ConnectionState::INVALID_PROTOCOL_VERSION);
                 spdlog::error("Invalid protocol version requested by client: {}", protocolLevel);
-                mBridge.sendData(client, std::move(response));
+                sendData(client, std::move(response));
                 break;
             }
             uint8_t connectFlags = decoder.decodeByte();
@@ -202,10 +203,11 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
                 auto willTopic = decoder.decodeString();
                 auto willMessage = decoder.decodeBytesWithPrefixLength();
                 auto willQos = (connectFlags & 0x18) >> 3;
+                auto willRetain = static_cast<Retain>(!!(connectFlags & 0x20));
                 if(willQos >= 3) {
                     protocolViolation();
                 }
-                client.setWill(std::move(willTopic), std::move(willMessage), static_cast<QoS>(willQos));
+                client.setWill(std::move(willTopic), std::move(willMessage), static_cast<QoS>(willQos), willRetain);
             }
             if(connectFlags & 0x80) {
                 // username
@@ -220,7 +222,7 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
             spdlog::debug("Sent response!");
 
 
-            mBridge.sendData(client, std::move(response));
+            sendData(client, std::move(response));
             client.setState(MQTTClientConnection::ConnectionState::CONNECTED);
             break;
         }
@@ -239,7 +241,7 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
                 protocolViolation();
             }
             QoS qos = static_cast<QoS>(qosInt);
-            bool retain = recvData.firstByte & 0x1;
+            auto retain = static_cast<Retain>(!!(recvData.firstByte & 0x1));
             auto topic = decoder.decodeString(); // TODO check for allowed chars
             if(qos == QoS::QoS1 || qos == QoS::QoS2) {
                 auto id = decoder.decode2Bytes(); // TODO use
@@ -249,14 +251,12 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
                     encoder.encodeByte(static_cast<uint8_t>(MQTTMessageType::PUBACK) << 4);
                     encoder.encode2Bytes(id);
                     encoder.insertPacketLength();
-                    mBridge.sendData(client, encoder.moveData());
+                    sendData(client, encoder.moveData());
                 }
             }
             std::vector<uint8_t> data = decoder.getRemainingBytes();
-            mBridge.publish(topic, data);
-            if(retain) {
-                mBridge.retainMessage(std::move(topic), std::move(data));
-            }
+            // we need to go through the app to 1. save retained messages 2. interact with scripts
+            mApp.publish(std::move(topic), std::move(data), qos, retain);
             break;
         }
         case MQTTMessageType::SUBSCRIBE: {
@@ -272,7 +272,7 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
                     protocolViolation();
                 }
                 auto qos = static_cast<QoS>(qosInt);
-                mBridge.addSubscription(client, std::move(topic), qos);
+                mApp.addSubscription(client, std::move(topic), qos);
             } while(!decoder.empty());
 
 
@@ -282,7 +282,7 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
             encoder.encode2Bytes(packetIdentifier);
             encoder.encodeByte(0); // maximum QoS 0 TODO support more
             encoder.insertPacketLength();
-            mBridge.sendData(client, encoder.moveData());
+            sendData(client, encoder.moveData());
 
             break;
         }
@@ -293,7 +293,7 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
             auto packetIdentifier = decoder.decode2Bytes();
             do {
                 auto topic = decoder.decodeString();
-                mBridge.deleteSubscription(client, topic);
+                mApp.deleteSubscription(client, topic);
             } while(!decoder.empty());
 
             // prepare SUBACK
@@ -301,7 +301,7 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
             encoder.encodeByte(static_cast<uint8_t>(MQTTMessageType::UNSUBACK) << 4);
             encoder.encode2Bytes(packetIdentifier);
             encoder.insertPacketLength();
-            mBridge.sendData(client, encoder.moveData());
+            sendData(client, encoder.moveData());
 
             break;
         }
@@ -312,7 +312,7 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
             util::BinaryEncoder encoder;
             encoder.encodeByte(static_cast<uint8_t>(MQTTMessageType::PINGRESP) << 4);
             encoder.insertPacketLength();
-            mBridge.sendData(client, encoder.moveData());
+            sendData(client, encoder.moveData());
             spdlog::debug("Replying to PINGREQ");
             break;
         }

@@ -60,20 +60,21 @@ public:
         return {mSendTasks, std::move(lock)};
     }
 
-    void setWill(std::string&& topic, std::vector<uint8_t>&& msg, QoS qos) {
+    void setWill(std::string&& topic, std::vector<uint8_t>&& msg, QoS qos, Retain retain) {
         std::lock_guard<std::mutex> lock{mRemaingingMutex};
         mWill.emplace();
         mWill->topic = std::move(topic);
         mWill->msg = std::move(msg);
         mWill->qos = qos;
+        mWill->retain = retain;
     }
     void discardWill() {
         std::lock_guard<std::mutex> lock{mRemaingingMutex};
         mWill.reset();
     }
-    auto getWill() {
+    auto moveWill() {
         std::lock_guard<std::mutex> lock{mRemaingingMutex};
-        return mWill;
+        return std::move(mWill);
     }
 private:
     TcpClientConnection mConn;
@@ -90,6 +91,7 @@ private:
         std::string topic;
         std::vector<uint8_t> msg;
         QoS qos;
+        Retain retain;
     };
     std::optional<WillStruct> mWill;
 };

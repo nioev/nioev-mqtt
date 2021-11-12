@@ -1,16 +1,16 @@
 #pragma once
 
-#include "ClientThreadManagerExternalBridgeInterface.hpp"
 #include "MQTTClientConnection.hpp"
 #include "Util.hpp"
 #include <thread>
 #include <vector>
+#include "Forward.hpp"
 
 namespace nioev {
 
 class ClientThreadManager {
 public:
-    explicit ClientThreadManager(ClientThreadManagerExternalBridgeInterface& bridge, uint threadCount);
+    explicit ClientThreadManager(Application& bridge, uint threadCount);
     void addClientConnection(MQTTClientConnection& conn);
     void removeClientConnection(MQTTClientConnection& connection);
     void sendData(MQTTClientConnection& client, std::vector<uint8_t>&& data);
@@ -23,7 +23,7 @@ private:
     std::vector<std::thread> mReceiverThreads;
     std::atomic<bool> mShouldQuit = false;
     int mEpollFd = -1;
-    ClientThreadManagerExternalBridgeInterface& mBridge;
+    Application& mApp;
 };
 
 }

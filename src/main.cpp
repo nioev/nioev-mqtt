@@ -1,6 +1,6 @@
 #include "spdlog/spdlog.h"
 
-#include "MQTTClientConnectionManager.hpp"
+#include "Application.hpp"
 #include "scripting/ScriptContainerJS.hpp"
 #include "scripting/ScriptContainerManager.hpp"
 #include "TcpServer.hpp"
@@ -57,8 +57,8 @@ initArgs)--" });
     sleep(1);
     mScripts.deleteScript("test");
 
-    MQTTClientConnectionManager clientManager;
+    Application clientManager;
     TcpServer server{ 1883 };
-    spdlog::info("TcpServer started");
+    spdlog::info("MQTT TcpServer started");
     server.loop(clientManager);
 }

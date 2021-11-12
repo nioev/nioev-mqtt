@@ -15,15 +15,14 @@ add_executable(nioev
         src/TcpServer.hpp
         src/Util.hpp
         src/TcpClientHandlerInterface.hpp
-        src/MQTTClientConnectionManager.cpp
-        src/MQTTClientConnectionManager.hpp
+        src/Application.cpp
+        src/Application.hpp
         src/MQTTClientConnection.cpp
         src/MQTTClientConnection.hpp
         src/TcpClientConnection.cpp
         src/TcpClientConnection.hpp
         src/ClientThreadManager.cpp
         src/ClientThreadManager.hpp
-        src/ClientThreadManagerExternalBridgeInterface.hpp
         src/Forward.hpp
         src/Enums.hpp
         src/SubscriptionsManager.cpp
