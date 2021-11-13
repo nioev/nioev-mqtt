@@ -30,16 +30,20 @@ enum class SyncAction {
 };
 
 struct ScriptOutputArgs {
-    std::function<void(const std::string& topic, std::vector<uint8_t>&& payload, QoS qos, Retain retain)> publish;
+    std::function<void(std::string&& topic, std::vector<uint8_t>&& payload, QoS qos, Retain retain)> publish;
     std::function<void(const std::string& topic)> subscribe;
     std::function<void(const std::string& topic)> unsubscribe;
     std::function<void(const std::string& error)> error;
     std::function<void(SyncAction action)> syncAction;
+    // Gets called last and only once, confirms that everything completed successfully. Either this
+    // callback or error gets called.
+    std::function<void()> success;
 };
 
 struct ScriptInitOutputArgs {
     std::function<void(const std::string& reason)> error;
     std::function<void(const ScriptInitReturn&)> success;
+    ScriptOutputArgs initialActionsOutput;
 };
 
 class ScriptContainer {

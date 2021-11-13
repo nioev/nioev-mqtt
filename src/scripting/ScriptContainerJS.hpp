@@ -18,6 +18,10 @@ public:
     void forceQuit() override;
 private:
     void scriptThreadFunc(const ScriptInitOutputArgs&);
+    void performRun(const ScriptOutputArgs&);
+    std::string getJSException();
+    void handleScriptActions(const JSValue& actions, const ScriptOutputArgs& output);
+    std::optional<std::string> getJSStringProperty(const JSValue& obj, std::string_view name);
 
     std::atomic<bool> mShouldAbort = false;
     JSRuntime* mJSRuntime;

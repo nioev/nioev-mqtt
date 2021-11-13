@@ -52,7 +52,8 @@ void Application::publishWithoutAcquiringLock(std::string&& topic, std::vector<u
         spdlog::info("Publishing on '{}' data '{}'", topic, dataAsStr);
     }
 #endif
-    mPersistentState.forEachSubscriber(topic, [this, &topic, &msg] (auto& sub) { mClientManager.sendPublish(sub.conn, topic, msg, sub.qos, Retained::No);
+    mPersistentState.forEachSubscriber(topic, [this, &topic, &msg] (auto& sub) {
+        mClientManager.sendPublish(sub.conn, topic, msg, sub.qos, Retained::No);
     });
     if(retain == Retain::Yes) {
         mPersistentState.retainMessage(std::move(topic), std::move(msg));
@@ -67,5 +68,23 @@ void Application::addSubscription(MQTTClientConnection& conn, std::string&& topi
 }
 void Application::deleteSubscription(MQTTClientConnection& conn, const std::string& topic) {
     mPersistentState.deleteSubscription(conn, topic);
+}
+ScriptOutputArgs Application::getScriptOutputArgs(std::function<void()> onSuccess, std::function<void(const std::string&)> onError) {
+    return ScriptOutputArgs{
+        .publish = [this](auto&& topic, auto&& payload, auto qos, auto retain) {
+            publish(std::move(topic), std::move(payload), qos, retain);
+        },
+        .subscribe = [this](const auto&) {
+
+        },
+        .unsubscribe = [this](const auto&) {
+
+        },
+        .error = std::move(onError),
+        .syncAction = [](auto) {
+
+        },
+        .success = std::move(onSuccess)
+    };
 }
 }
