@@ -78,34 +78,34 @@ void MQTTPersistentState::addSubscriptionInternal(
     }
 }
 
-void MQTTPersistentState::deleteSubscription(MQTTClientConnection& conn, const std::string& topic) {
+void MQTTPersistentState::deleteSubscription(std::variant<std::reference_wrapper<MQTTClientConnection>, ScriptName> client, const std::string& topic) {
     std::lock_guard<std::shared_mutex> lock{mMutex};
     auto[start, end] = mSimpleSubscriptions.equal_range(topic);
     if(start != end) {
         for(auto it = start; it != end;) {
-            if(it->second.subscriber.index() == 0 && &std::get<std::reference_wrapper<MQTTClientConnection>>(it->second.subscriber).get() == &conn) {
+            if(it->second.subscriber == client) {
                 it = mSimpleSubscriptions.erase(it);
             } else {
                 it++;
             }
         }
     } else {
-        erase_if(mWildcardSubscriptions, [&conn, &topic](auto& sub) {
-            return sub.subscriber.index() == 0 && &std::get<std::reference_wrapper<MQTTClientConnection>>(sub.subscriber).get() == &conn && sub.topic == topic;
+        erase_if(mWildcardSubscriptions, [&client, &topic](auto& sub) {
+            return sub.subscriber == client && sub.topic == topic;
         });
     }
 }
-void MQTTPersistentState::deleteAllSubscriptions(MQTTClientConnection& conn) {
+void MQTTPersistentState::deleteAllSubscriptions(std::variant<std::reference_wrapper<MQTTClientConnection>, ScriptName> client) {
     std::lock_guard<std::shared_mutex> lock{mMutex};
     for(auto it = mSimpleSubscriptions.begin(); it != mSimpleSubscriptions.end();) {
-        if(it->second.subscriber.index() == 0 && &std::get<std::reference_wrapper<MQTTClientConnection>>(it->second.subscriber).get() == &conn) {
+        if(it->second.subscriber == client) {
             it = mSimpleSubscriptions.erase(it);
         } else {
             it++;
         }
     }
-    erase_if(mWildcardSubscriptions, [&conn](auto& sub) {
-        return sub.subscriber.index() == 0 && &std::get<std::reference_wrapper<MQTTClientConnection>>(sub.subscriber).get() == &conn;
+    erase_if(mWildcardSubscriptions, [&client](auto& sub) {
+        return sub.subscriber == client;
     });
 }
 

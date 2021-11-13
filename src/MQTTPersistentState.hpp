@@ -12,13 +12,17 @@
 
 namespace nioev {
 
+static inline bool operator==(const std::reference_wrapper<MQTTClientConnection>& a, const std::reference_wrapper<MQTTClientConnection>& b) {
+    return &a.get() == &b.get();
+}
+
 class MQTTPersistentState {
 public:
     using ScriptName = std::string;
     void addSubscription(MQTTClientConnection& conn, std::string topic, QoS qos, std::function<void(const std::string&, const std::vector<uint8_t>&)>&& retainedMessageCallback);
     void addSubscription(std::string scriptName, std::string topic, std::function<void(const std::string&, const std::vector<uint8_t>&)>&& retainedMessageCallback);
-    void deleteSubscription(MQTTClientConnection& conn, const std::string& topic);
-    void deleteAllSubscriptions(MQTTClientConnection& conn);
+    void deleteSubscription(std::variant<std::reference_wrapper<MQTTClientConnection>, ScriptName> subscriber, const std::string& topic);
+    void deleteAllSubscriptions(std::variant<std::reference_wrapper<MQTTClientConnection>, ScriptName> subscriber);
 
     struct Subscription {
         std::variant<std::reference_wrapper<MQTTClientConnection>, ScriptName> subscriber;

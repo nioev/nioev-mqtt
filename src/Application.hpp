@@ -43,6 +43,7 @@ public:
         mScripts.addScript<T>(name, scriptInitOutput, std::forward<Args>(args)...);
     }
     void deleteScript(const std::string& name) {
+        mPersistentState.deleteAllSubscriptions(name);
         mScripts.deleteScript(name);
     }
 };

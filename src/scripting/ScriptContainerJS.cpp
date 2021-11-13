@@ -91,7 +91,8 @@ void ScriptContainerJS::scriptThreadFunc(const ScriptInitOutputArgs& initOutput)
 void ScriptContainerJS::forceQuit() {
     mShouldAbort = true;
     mTasksCV.notify_all();
-    mScriptThread->join();
+    if(mScriptThread)
+        mScriptThread->join();
     mScriptThread.reset();
 }
 void ScriptContainerJS::performRun(const ScriptOutputArgs& output) {
@@ -109,6 +110,8 @@ void ScriptContainerJS::performRun(const ScriptOutputArgs& output) {
     util::DestructWrapper destructRunResult{[&]{ JS_FreeValue(mJSContext, runResult); }};
 
     destructGlobalObj.execute();
+
+    handleScriptActions(runResult, output);
 }
 
 std::string ScriptContainerJS::getJSException() {
@@ -207,6 +210,23 @@ void ScriptContainerJS::handleScriptActions(const JSValue& actions, const Script
                 payload = std::vector<uint8_t>{payloadBytes, payloadBytes + bytesSize};
             }
             output.publish(std::move(*topic), std::move(payload), qos, retain);
+
+        } else if(actionType == "subscribe") {
+            auto topic = getJSStringProperty(action, "topic");
+            if(!topic) {
+                output.error("topic field is missing");
+                break;
+            }
+            output.subscribe(*topic);
+
+        } else if(actionType == "unsubscribe") {
+            auto topic = getJSStringProperty(action, "topic");
+            if(!topic) {
+                output.error("topic field is missing");
+                break;
+            }
+            output.unsubscribe(*topic);
+
         }
         i += 1;
     }

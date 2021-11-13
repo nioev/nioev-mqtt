@@ -96,8 +96,8 @@ ScriptOutputArgs Application::getDefaultScriptOutputArgs(const std::string& scri
                 runScriptWithPublishedMessage(scriptName, recvTopic, recvPayload, Retained::Yes);
             });
         },
-        .unsubscribe = [this](const auto& topic) {
-
+        .unsubscribe = [this, scriptName](const auto& topic) {
+            mPersistentState.deleteSubscription(MQTTPersistentState::ScriptName{scriptName}, topic);
         },
         .error = [scriptName](const auto& msg) {
             spdlog::error("Script '{}' failed with: {}", scriptName, msg);
