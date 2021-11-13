@@ -30,19 +30,21 @@ function run(args) {
     }];
 }
 
-while(true) {
-
-}
-
 initArgs = {}
 initArgs.runType = 'async'
-initArgs.actions = [{
-    type: 'publish',
-    topic: 'helloIntial',
-    payloadStr: "test",
-    qos: 0,
-    retain: false
-}]
+initArgs.actions = [
+    {
+        type: 'publish',
+        topic: 'helloInitial',
+        payloadStr: "test",
+        qos: 0,
+        retain: false
+    },
+    {
+        type: 'subscribe',
+        topic: 'scriptTest'
+    }
+]
 initArgs)--" });
     sleep(1);
     clientManager.deleteScript("test");

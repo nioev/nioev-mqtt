@@ -52,8 +52,25 @@ void Application::publishWithoutAcquiringLock(std::string&& topic, std::vector<u
         spdlog::info("Publishing on '{}' data '{}'", topic, dataAsStr);
     }
 #endif
+    // first run scripts
+    auto action = SyncAction::Continue;
+    mPersistentState.forEachSubscriber(topic, [this, &topic, &msg, &action] (auto& sub) {
+        if(sub.subscriber.index() != 1)
+            return;
+        if(runScriptWithPublishedMessage(std::get<MQTTPersistentState::ScriptName>(sub.subscriber), topic, msg, Retained::No) == SyncAction::AbortPublish) {
+            action = SyncAction::AbortPublish;
+        }
+    });
+    if(action == SyncAction::AbortPublish) {
+        return;
+    }
+    // then send to clients
+    // this order is neccessary to allow the scripts to abort the message delivery to clients
     mPersistentState.forEachSubscriber(topic, [this, &topic, &msg] (auto& sub) {
-        mClientManager.sendPublish(sub.conn, topic, msg, sub.qos, Retained::No);
+        if(sub.subscriber.index() != 0)
+            return;
+        assert(sub.qos);
+        mClientManager.sendPublish(std::get<std::reference_wrapper<MQTTClientConnection>>(sub.subscriber), topic, msg, *sub.qos, Retained::No);
     });
     if(retain == Retain::Yes) {
         mPersistentState.retainMessage(std::move(topic), std::move(msg));
@@ -69,22 +86,35 @@ void Application::addSubscription(MQTTClientConnection& conn, std::string&& topi
 void Application::deleteSubscription(MQTTClientConnection& conn, const std::string& topic) {
     mPersistentState.deleteSubscription(conn, topic);
 }
-ScriptOutputArgs Application::getScriptOutputArgs(std::function<void()> onSuccess, std::function<void(const std::string&)> onError) {
+ScriptOutputArgs Application::getDefaultScriptOutputArgs(const std::string& scriptName) {
     return ScriptOutputArgs{
         .publish = [this](auto&& topic, auto&& payload, auto qos, auto retain) {
             publish(std::move(topic), std::move(payload), qos, retain);
         },
-        .subscribe = [this](const auto&) {
+        .subscribe = [this, scriptName](const auto& topic) {
+            mPersistentState.addSubscription(scriptName, topic, [this, &scriptName](const auto& recvTopic, const auto& recvPayload) {
+                runScriptWithPublishedMessage(scriptName, recvTopic, recvPayload, Retained::Yes);
+            });
+        },
+        .unsubscribe = [this](const auto& topic) {
 
         },
-        .unsubscribe = [this](const auto&) {
-
+        .error = [scriptName](const auto& msg) {
+            spdlog::error("Script '{}' failed with: {}", scriptName, msg);
         },
-        .error = std::move(onError),
         .syncAction = [](auto) {
 
         },
-        .success = std::move(onSuccess)
+        .success = []{}
     };
+}
+SyncAction Application::runScriptWithPublishedMessage(const std::string& scriptName, const std::string& topic, const std::vector<uint8_t>& payload, Retained retained) {
+    auto outputArgs = getDefaultScriptOutputArgs(scriptName);
+    auto ret = SyncAction::Continue;
+    outputArgs.syncAction = [&](auto syncAction) {
+        ret = syncAction;
+    };
+    mScripts.runScript(scriptName, ScriptRunArgsMqttMessage{topic, payload, retained}, outputArgs);
+    return ret;
 }
 }

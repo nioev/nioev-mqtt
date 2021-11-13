@@ -20,7 +20,9 @@ private:
     std::shared_mutex mClientsMutex;
 
     void publishWithoutAcquiringLock(std::string&& topic, std::vector<uint8_t>&& msg, std::optional<QoS> qos, Retain retain);
-    ScriptOutputArgs getScriptOutputArgs(std::function<void()> onSuccess, std::function<void(const std::string&)> onError);
+    ScriptOutputArgs getDefaultScriptOutputArgs(const std::string& scriptName);
+
+    SyncAction runScriptWithPublishedMessage(const std::string& scriptName, const std::string& topic, const std::vector<uint8_t>& payload, Retained retained);
 
 public:
     Application();
@@ -32,11 +34,13 @@ public:
     void deleteSubscription(MQTTClientConnection& conn, const std::string& topic);
 
     template<typename T, typename... Args>
-    void addScript(const std::string& name, std::function<void()> onSuccess, const std::function<void(const std::string&)>& onError, Args... args) {
-        ScriptInitOutputArgs scriptOutput{ .error = onError,
+    void addScript(const std::string& name, const std::function<void()>& onSuccess, const std::function<void(const std::string&)>& onError, Args... args) {
+        auto scriptOutput = getDefaultScriptOutputArgs(name);
+        scriptOutput.error = onError;
+        ScriptInitOutputArgs scriptInitOutput{ .error = onError,
                                            .success = [onSuccess](const auto& initArgs) { onSuccess(); },
-                                           .initialActionsOutput = getScriptOutputArgs([] {}, onError) };
-        mScripts.addScript<T>(name, scriptOutput, std::forward<Args>(args)...);
+                                           .initialActionsOutput = scriptOutput};
+        mScripts.addScript<T>(name, scriptInitOutput, std::forward<Args>(args)...);
     }
     void deleteScript(const std::string& name) {
         mScripts.deleteScript(name);

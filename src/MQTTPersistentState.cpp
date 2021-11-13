@@ -40,17 +40,28 @@ static bool doesTopicMatchSubscription(const std::string& topic, const MQTTPersi
 }
 
 void MQTTPersistentState::addSubscription(MQTTClientConnection& conn, std::string topic, QoS qos, std::function<void(const std::string&, const std::vector<uint8_t>&)>&& retainedMessageCallback) {
+    addSubscriptionInternal(conn, std::move(topic), qos, std::move(retainedMessageCallback));
+}
+
+void MQTTPersistentState::addSubscription(std::string scriptName, std::string topic, std::function<void(const std::string&, const std::vector<uint8_t>&)>&& retainedMessageCallback) {
+    addSubscriptionInternal(std::move(scriptName), std::move(topic), {}, std::move(retainedMessageCallback));
+
+}
+void MQTTPersistentState::addSubscriptionInternal(
+    std::variant<std::reference_wrapper<MQTTClientConnection>, ScriptName> subscriber, std::string topic, std::optional<QoS> qos,
+    std::function<void(const std::string&, const std::vector<uint8_t>&)>&& retainedMessageCallback) {
+
     std::lock_guard<std::shared_mutex> lock{mMutex};
     auto hasWildcard = std::any_of(topic.begin(), topic.end(), [](char c) {
-                           return c == '#' || c == '+';
-                       });
+        return c == '#' || c == '+';
+    });
     if(hasWildcard) {
         std::vector<std::string> parts;
         splitString(topic, [&parts](const std::string_view& part) {
             parts.emplace_back(part);
             return IterationDecision::Continue;
         });
-        auto& sub = mWildcardSubscriptions.emplace_back(conn, std::move(topic), std::move(parts), qos);
+        auto& sub = mWildcardSubscriptions.emplace_back(std::move(subscriber), std::move(topic), std::move(parts), qos);
         for(auto& retainedMessage: mRetainedMessages) {
             if(doesTopicMatchSubscription(retainedMessage.first, sub)) {
                 retainedMessageCallback(retainedMessage.first, retainedMessage.second.payload);
@@ -59,19 +70,20 @@ void MQTTPersistentState::addSubscription(MQTTClientConnection& conn, std::strin
     } else {
         mSimpleSubscriptions.emplace(std::piecewise_construct,
                                      std::make_tuple(topic),
-                                     std::make_tuple(std::reference_wrapper<MQTTClientConnection>(conn), topic, std::vector<std::string>{}, qos));
+                                     std::make_tuple(std::variant<std::reference_wrapper<MQTTClientConnection>, ScriptName>(std::move(subscriber)), topic, std::vector<std::string>{}, qos));
         auto retainedMessage = mRetainedMessages.find(topic);
         if(retainedMessage != mRetainedMessages.end()) {
             retainedMessageCallback(retainedMessage->first, retainedMessage->second.payload);
         }
     }
 }
+
 void MQTTPersistentState::deleteSubscription(MQTTClientConnection& conn, const std::string& topic) {
     std::lock_guard<std::shared_mutex> lock{mMutex};
     auto[start, end] = mSimpleSubscriptions.equal_range(topic);
     if(start != end) {
         for(auto it = start; it != end;) {
-            if(&it->second.conn.get() == &conn) {
+            if(it->second.subscriber.index() == 0 && &std::get<std::reference_wrapper<MQTTClientConnection>>(it->second.subscriber).get() == &conn) {
                 it = mSimpleSubscriptions.erase(it);
             } else {
                 it++;
@@ -79,21 +91,21 @@ void MQTTPersistentState::deleteSubscription(MQTTClientConnection& conn, const s
         }
     } else {
         erase_if(mWildcardSubscriptions, [&conn, &topic](auto& sub) {
-            return &sub.conn.get() == &conn && sub.topic == topic;
+            return sub.subscriber.index() == 0 && &std::get<std::reference_wrapper<MQTTClientConnection>>(sub.subscriber).get() == &conn && sub.topic == topic;
         });
     }
 }
 void MQTTPersistentState::deleteAllSubscriptions(MQTTClientConnection& conn) {
     std::lock_guard<std::shared_mutex> lock{mMutex};
     for(auto it = mSimpleSubscriptions.begin(); it != mSimpleSubscriptions.end();) {
-        if(&it->second.conn.get() == &conn) {
+        if(it->second.subscriber.index() == 0 && &std::get<std::reference_wrapper<MQTTClientConnection>>(it->second.subscriber).get() == &conn) {
             it = mSimpleSubscriptions.erase(it);
         } else {
             it++;
         }
     }
     erase_if(mWildcardSubscriptions, [&conn](auto& sub) {
-        return &sub.conn.get() == &conn;
+        return sub.subscriber.index() == 0 && &std::get<std::reference_wrapper<MQTTClientConnection>>(sub.subscriber).get() == &conn;
     });
 }
 

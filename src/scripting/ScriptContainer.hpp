@@ -21,6 +21,7 @@ struct ScriptInitReturn {
 struct ScriptRunArgsMqttMessage {
     std::string topic;
     std::vector<uint8_t> payload;
+    Retained retained;
 };
 using ScriptInputArgs = std::variant<ScriptRunArgsMqttMessage>;
 
