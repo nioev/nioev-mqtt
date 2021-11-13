@@ -85,7 +85,7 @@ void ScriptContainerJS::scriptThreadFunc(const ScriptInitOutputArgs& initOutput)
         auto[input, output] = std::move(mTasks.front());
         mTasks.pop();
         lock.unlock();
-        performRun(output);
+        performRun(input, output);
     }
 }
 void ScriptContainerJS::forceQuit() {
@@ -95,7 +95,7 @@ void ScriptContainerJS::forceQuit() {
         mScriptThread->join();
     mScriptThread.reset();
 }
-void ScriptContainerJS::performRun(const ScriptOutputArgs& output) {
+void ScriptContainerJS::performRun(const ScriptInputArgs& input, const ScriptOutputArgs& output) {
 
     auto globalObj = JS_GetGlobalObject(mJSContext);
     util::DestructWrapper destructGlobalObj{[&]{ JS_FreeValue(mJSContext, globalObj); }};
@@ -106,7 +106,32 @@ void ScriptContainerJS::performRun(const ScriptOutputArgs& output) {
         output.error("no run function defined!");
         return;
     }
-    auto runResult = JS_Call(mJSContext, runFunction, globalObj, 0, nullptr);
+    auto paramObj = JS_NewObject(mJSContext);
+    util::DestructWrapper destructParamObj{[&]{ JS_FreeValue(mJSContext, paramObj); }};
+
+    switch(input.index()) {
+    case 0: {
+        auto& cppParams = std::get<ScriptRunArgsMqttMessage>(input);
+        JS_SetPropertyStr(mJSContext, paramObj, "type", JS_NewString(mJSContext, "publish"));
+        JS_SetPropertyStr(mJSContext, paramObj, "topic", JS_NewString(mJSContext, cppParams.topic.c_str()));
+
+        auto arrayBuffer = JS_NewArrayBufferCopy(mJSContext, cppParams.payload.data(), cppParams.payload.size());
+        util::DestructWrapper destructArrayBuffer{[&]{ JS_FreeValue(mJSContext, arrayBuffer); }};
+
+        auto uint8ArrayFunc = JS_GetPropertyStr(mJSContext, globalObj, "Uint8Array");
+        util::DestructWrapper destructUint8ArrayFunc{[&]{ JS_FreeValue(mJSContext, uint8ArrayFunc); }};
+
+        JS_SetPropertyStr(mJSContext, paramObj, "payloadBytes", JS_CallConstructor(mJSContext, uint8ArrayFunc, 1, &arrayBuffer));
+        if(cppParams.payload.empty()) {
+            JS_SetPropertyStr(mJSContext, paramObj, "payloadStr", JS_NewString(mJSContext, ""));
+        } else {
+            JS_SetPropertyStr(mJSContext, paramObj, "payloadStr", JS_NewString(mJSContext, (char*)cppParams.payload.data()));
+        }
+        break;
+    }
+    }
+
+    auto runResult = JS_Call(mJSContext, runFunction, globalObj, 1, &paramObj);
     util::DestructWrapper destructRunResult{[&]{ JS_FreeValue(mJSContext, runResult); }};
 
     destructGlobalObj.execute();

@@ -18,7 +18,7 @@ public:
     void forceQuit() override;
 private:
     void scriptThreadFunc(const ScriptInitOutputArgs&);
-    void performRun(const ScriptOutputArgs&);
+    void performRun(const ScriptInputArgs&, const ScriptOutputArgs&);
     std::string getJSException();
     void handleScriptActions(const JSValue& actions, const ScriptOutputArgs& output);
     std::optional<std::string> getJSStringProperty(const JSValue& obj, std::string_view name);

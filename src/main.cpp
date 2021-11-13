@@ -17,7 +17,7 @@ int main() {
 
     clientManager.addScript<ScriptContainerJS>(
         "test",
-        []() { spdlog::info("Success!"); },
+        []() { spdlog::info("Successfully added testscript!"); },
         [](const auto& error) { spdlog::error("{}", error); },
         std::string{ R"--(
 i = 0
@@ -27,13 +27,9 @@ function run(args) {
         {
             type: 'publish',
             topic: 'hello',
-            payloadStr: "Index: " + (i++),
+            payloadBytes: args.payloadBytes,
             qos: 0,
             retain: false
-        },
-        {
-            type: 'unsubscribe',
-            topic: 'scriptTest'
         }];
 }
 
@@ -49,7 +45,7 @@ initArgs.actions = [
     },
     {
         type: 'subscribe',
-        topic: 'scriptTest'
+        topic: 'scriptTest/#'
     }
 ]
 initArgs)--" });
