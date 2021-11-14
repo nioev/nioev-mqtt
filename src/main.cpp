@@ -49,7 +49,7 @@ function run(args) {
                 topic: 'random2',
                 payloadStr: String(Math.random()),
                 qos: 0,
-                retain: false // TODO fix deadlock caused by settings this to true
+                retain: true
             }],
         }
     }

@@ -41,12 +41,13 @@ private:
 
     void addSubscriptionInternal(std::variant<std::reference_wrapper<MQTTClientConnection>, ScriptName> subscriber, std::string topic, std::optional<QoS> qos, std::function<void(const std::string&, const std::vector<uint8_t>&)>&& retainedMessageCallback);
 
+    std::shared_mutex mSubscriptionsMutex;
     std::unordered_multimap<std::string, Subscription> mSimpleSubscriptions;
     std::vector<Subscription> mWildcardSubscriptions;
-    std::shared_mutex mMutex;
     struct RetainedMessage {
         std::vector<uint8_t> payload;
     };
+    std::shared_mutex mRetainedMessagesMutex;
     std::unordered_map<std::string, RetainedMessage> mRetainedMessages;
 };
 

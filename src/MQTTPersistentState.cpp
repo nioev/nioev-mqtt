@@ -51,7 +51,8 @@ void MQTTPersistentState::addSubscriptionInternal(
     std::variant<std::reference_wrapper<MQTTClientConnection>, ScriptName> subscriber, std::string topic, std::optional<QoS> qos,
     std::function<void(const std::string&, const std::vector<uint8_t>&)>&& retainedMessageCallback) {
 
-    std::lock_guard<std::shared_mutex> lock{mMutex};
+    std::shared_lock<std::shared_mutex> lock1{ mRetainedMessagesMutex };
+    std::lock_guard<std::shared_mutex> lock{ mSubscriptionsMutex };
     auto hasWildcard = std::any_of(topic.begin(), topic.end(), [](char c) {
         return c == '#' || c == '+';
     });
@@ -79,7 +80,7 @@ void MQTTPersistentState::addSubscriptionInternal(
 }
 
 void MQTTPersistentState::deleteSubscription(std::variant<std::reference_wrapper<MQTTClientConnection>, ScriptName> client, const std::string& topic) {
-    std::lock_guard<std::shared_mutex> lock{mMutex};
+    std::lock_guard<std::shared_mutex> lock{ mSubscriptionsMutex };
     auto[start, end] = mSimpleSubscriptions.equal_range(topic);
     if(start != end) {
         for(auto it = start; it != end;) {
@@ -96,7 +97,7 @@ void MQTTPersistentState::deleteSubscription(std::variant<std::reference_wrapper
     }
 }
 void MQTTPersistentState::deleteAllSubscriptions(std::variant<std::reference_wrapper<MQTTClientConnection>, ScriptName> client) {
-    std::lock_guard<std::shared_mutex> lock{mMutex};
+    std::lock_guard<std::shared_mutex> lock{ mSubscriptionsMutex };
     for(auto it = mSimpleSubscriptions.begin(); it != mSimpleSubscriptions.end();) {
         if(it->second.subscriber == client) {
             it = mSimpleSubscriptions.erase(it);
@@ -110,7 +111,7 @@ void MQTTPersistentState::deleteAllSubscriptions(std::variant<std::reference_wra
 }
 
 void MQTTPersistentState::forEachSubscriber(const std::string& topic, std::function<void(Subscription&)> callback) {
-    std::shared_lock<std::shared_mutex> lock{mMutex};
+    std::shared_lock<std::shared_mutex> lock{ mSubscriptionsMutex };
     auto[start, end] = mSimpleSubscriptions.equal_range(topic);
     for(auto it = start; it != end; ++it) {
         callback(it->second);
@@ -122,7 +123,7 @@ void MQTTPersistentState::forEachSubscriber(const std::string& topic, std::funct
     }
 }
 void MQTTPersistentState::retainMessage(std::string&& topic, std::vector<uint8_t>&& payload) {
-    std::lock_guard<std::shared_mutex> lock{mMutex};
+    std::lock_guard<std::shared_mutex> lock{ mRetainedMessagesMutex };
     mRetainedMessages.erase(topic);
     if(!payload.empty()) {
         mRetainedMessages.emplace(std::piecewise_construct,
