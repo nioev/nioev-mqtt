@@ -50,7 +50,7 @@ struct ScriptInitOutputArgs {
 class ScriptContainer {
 public:
     virtual ~ScriptContainer() = default;
-    virtual void init(const ScriptInitOutputArgs&) = 0;
+    virtual void init(ScriptInitOutputArgs&&) = 0;
     virtual void run(const ScriptInputArgs&, const ScriptOutputArgs&) = 0;
     [[nodiscard]] const ScriptInitReturn& getInitArgs() const {
         return mScriptInitReturn;

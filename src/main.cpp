@@ -23,29 +23,49 @@ int main() {
 i = 0
 
 function run(args) {
-    return [
-        {
-            type: 'publish',
-            topic: 'hello',
-            payloadBytes: args.payloadBytes,
-            qos: 0,
-            retain: false
-        }];
+    if(args.topic === "night_mode") {
+        let payload = "";
+        if(args.payloadStr == "0") {
+            payload = "on";
+        } else if(args.payloadStr == "1") {
+            payload = "off";
+        }
+        if(payload != "") {
+            return {
+                actions: [{
+                    type: 'publish',
+                    topic: 'shellies/shellyplug-s-DD7977/relay/0/command',
+                    payloadStr: payload,
+                    qos: 0,
+                    retain: true
+                }],
+            }
+        }
+    } else if(args.topic == "random") {
+        return {
+            syncAction: "abortPublish",
+            actions: [{
+                type: 'publish',
+                topic: 'random2',
+                payloadStr: String(Math.random()),
+                qos: 0,
+                retain: false // TODO fix deadlock caused by settings this to true
+            }],
+        }
+    }
+    return {};
 }
 
 initArgs = {}
-initArgs.runType = 'async'
+initArgs.runType = 'sync'
 initArgs.actions = [
     {
-        type: 'publish',
-        topic: 'helloInitial',
-        payloadStr: "test",
-        qos: 0,
-        retain: false
+        type: 'subscribe',
+        topic: 'night_mode'
     },
     {
         type: 'subscribe',
-        topic: 'scriptTest/#'
+        topic: 'random'
     }
 ]
 initArgs)--" });

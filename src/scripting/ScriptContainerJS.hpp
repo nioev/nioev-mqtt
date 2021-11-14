@@ -13,7 +13,7 @@ class ScriptContainerJS final : public ScriptContainer {
 public:
     ScriptContainerJS(const std::string& scriptName, std::string&& scriptCode);
     ~ScriptContainerJS();
-    void init(const ScriptInitOutputArgs&) override;
+    void init(ScriptInitOutputArgs&&) override;
     void run(const ScriptInputArgs&, const ScriptOutputArgs&) override;
     void forceQuit() override;
 private:

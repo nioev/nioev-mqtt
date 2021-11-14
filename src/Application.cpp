@@ -1,4 +1,5 @@
 #include "Application.hpp"
+#include <condition_variable>
 #include <spdlog/spdlog.h>
 
 namespace nioev {
@@ -110,11 +111,32 @@ ScriptOutputArgs Application::getDefaultScriptOutputArgs(const std::string& scri
 }
 SyncAction Application::runScriptWithPublishedMessage(const std::string& scriptName, const std::string& topic, const std::vector<uint8_t>& payload, Retained retained) {
     auto outputArgs = getDefaultScriptOutputArgs(scriptName);
-    auto ret = SyncAction::Continue;
-    outputArgs.syncAction = [&](auto syncAction) {
-        ret = syncAction;
-    };
-    mScripts.runScript(scriptName, ScriptRunArgsMqttMessage{topic, payload, retained}, outputArgs);
-    return ret;
+    std::atomic<SyncAction> ret = SyncAction::Continue;
+
+    if(mScripts.getScriptInitReturn(scriptName).runType == ScriptRunType::Sync) {
+        std::condition_variable cv;
+
+        outputArgs.syncAction = [&](auto syncAction) {
+            ret = syncAction;
+        };
+        auto oldError = std::move(outputArgs.error);
+        outputArgs.error = [&](auto& msg) {
+            cv.notify_all();
+            oldError(msg);
+        };
+        auto oldSuccess = std::move(outputArgs.success);
+        outputArgs.success = [&]() {
+            cv.notify_all();
+            oldSuccess();
+        };
+        mScripts.runScript(scriptName, ScriptRunArgsMqttMessage{topic, payload, retained}, outputArgs);
+        std::mutex m;
+        std::unique_lock<std::mutex> l{m};
+        cv.wait(l);
+        return ret;
+    } else {
+        mScripts.runScript(scriptName, ScriptRunArgsMqttMessage{topic, payload, retained}, outputArgs);
+        return SyncAction::Continue;
+    }
 }
 }

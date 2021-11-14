@@ -24,8 +24,8 @@ ScriptContainerJS::~ScriptContainerJS() {
     mJSRuntime = nullptr;
 }
 
-void ScriptContainerJS::init(const ScriptInitOutputArgs& initOutput) {
-    mScriptThread.emplace([this, initOutput] { // copy initOutput here to avoid memory corruption
+void ScriptContainerJS::init(ScriptInitOutputArgs&& initOutput) {
+    mScriptThread.emplace([this, initOutput = std::move(initOutput)] { // copy initOutput here to avoid memory corruption
         scriptThreadFunc(initOutput);
     });
 }
@@ -115,6 +115,7 @@ void ScriptContainerJS::performRun(const ScriptInputArgs& input, const ScriptOut
         JS_SetPropertyStr(mJSContext, paramObj, "type", JS_NewString(mJSContext, "publish"));
         JS_SetPropertyStr(mJSContext, paramObj, "topic", JS_NewString(mJSContext, cppParams.topic.c_str()));
 
+        // TODO avoid copy
         auto arrayBuffer = JS_NewArrayBufferCopy(mJSContext, cppParams.payload.data(), cppParams.payload.size());
         util::DestructWrapper destructArrayBuffer{[&]{ JS_FreeValue(mJSContext, arrayBuffer); }};
 
@@ -125,18 +126,39 @@ void ScriptContainerJS::performRun(const ScriptInputArgs& input, const ScriptOut
         if(cppParams.payload.empty()) {
             JS_SetPropertyStr(mJSContext, paramObj, "payloadStr", JS_NewString(mJSContext, ""));
         } else {
-            JS_SetPropertyStr(mJSContext, paramObj, "payloadStr", JS_NewString(mJSContext, (char*)cppParams.payload.data()));
+            JS_SetPropertyStr(mJSContext, paramObj, "payloadStr", JS_NewStringLen(mJSContext, (char*)cppParams.payload.data(), cppParams.payload.size()));
         }
         break;
     }
+    default:
+        assert(false);
     }
 
     auto runResult = JS_Call(mJSContext, runFunction, globalObj, 1, &paramObj);
     util::DestructWrapper destructRunResult{[&]{ JS_FreeValue(mJSContext, runResult); }};
 
+    auto actions = JS_GetPropertyStr(mJSContext, runResult, "actions");
+    util::DestructWrapper destructActions{[&]{ JS_FreeValue(mJSContext, actions); }};
+
     destructGlobalObj.execute();
 
-    handleScriptActions(runResult, output);
+    if(mScriptInitReturn.runType == ScriptRunType::Sync) {
+        auto syncActionStr = getJSStringProperty(runResult, "syncAction");
+        if(syncActionStr) {
+            if(syncActionStr == "continue") {
+                output.syncAction(SyncAction::Continue);
+            } else if(syncActionStr == "abortPublish") {
+                output.syncAction(SyncAction::AbortPublish);
+            } else {
+                output.error("syncAction must be 'continue' or 'abortPublish'");
+                return;
+            }
+        } else {
+            output.syncAction(SyncAction::Continue);
+        }
+    }
+    handleScriptActions(actions, output);
+
 }
 
 std::string ScriptContainerJS::getJSException() {
@@ -149,12 +171,16 @@ std::string ScriptContainerJS::getJSException() {
 }
 
 void ScriptContainerJS::handleScriptActions(const JSValue& actions, const ScriptOutputArgs& output) {
+    if(JS_IsUndefined(actions)) {
+        output.success();
+        return;
+    }
     if(!JS_IsArray(mJSContext, actions)) {
         if(JS_IsException(actions)) {
             output.error(getJSException());
             return;
         }
-        output.error("run function didn't return an array!");
+        output.error("Function didn't return an array!");
         return;
     }
 
@@ -168,34 +194,34 @@ void ScriptContainerJS::handleScriptActions(const JSValue& actions, const Script
         }
         if(!JS_IsObject(action)) {
             output.error("One returned action wasn't an object!");
-            break;
+            return;
         }
         auto maybeActionTypeStr = getJSStringProperty(action, "type");
         if(!maybeActionTypeStr) {
             output.error("type property is not a string");
-            break;
+            return;
         }
         auto actionType = *maybeActionTypeStr;
         if(actionType == "publish") {
             auto topic = getJSStringProperty(action, "topic");
             if(!topic) {
                 output.error("topic property is not a string");
-                break;
+                return;
             }
             auto qosVal = JS_GetPropertyStr(mJSContext, action, "qos");
             util::DestructWrapper destructQosVal{[&]{ JS_FreeValue(mJSContext, qosVal); }};
             if(!JS_IsNumber(qosVal)) {
                 output.error("qos must be a number");
-                break;
+                return;
             }
             int32_t qosNum;
             if(JS_ToInt32(mJSContext, &qosNum, qosVal) < 0) {
                 output.error("qos must be a number");
-                break;
+                return;
             }
             if(qosNum < 0 || qosNum >= 3) {
                 output.error("qos must be between 0 and 2");
-                break;
+                return;
             }
             QoS qos = static_cast<QoS>(qosNum);
 
@@ -203,13 +229,13 @@ void ScriptContainerJS::handleScriptActions(const JSValue& actions, const Script
             util::DestructWrapper destructRetainObj{[&]{ JS_FreeValue(mJSContext, retainObj); }};
             if(!JS_IsBool(retainObj)) {
                 output.error("retain must be a bool");
-                break;
+                return;
             }
 
             int retainInt = 0;
             if((retainInt = JS_ToBool(mJSContext, retainObj)) < 0) {
                 output.error("retain must be a bool");
-                break;
+                return;
             }
 
             Retain retain = retainInt == 0 ? Retain::No : Retain::Yes;
