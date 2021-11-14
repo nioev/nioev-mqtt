@@ -115,8 +115,7 @@ void ScriptContainerJS::performRun(const ScriptInputArgs& input, const ScriptOut
         JS_SetPropertyStr(mJSContext, paramObj, "type", JS_NewString(mJSContext, "publish"));
         JS_SetPropertyStr(mJSContext, paramObj, "topic", JS_NewString(mJSContext, cppParams.topic.c_str()));
 
-        // TODO avoid copy
-        auto arrayBuffer = JS_NewArrayBufferCopy(mJSContext, cppParams.payload.data(), cppParams.payload.size());
+        auto arrayBuffer = JS_NewArrayBuffer(mJSContext, const_cast<uint8_t*>(cppParams.payload.data()), cppParams.payload.size(), [](JSRuntime*, void*, void*) {}, nullptr, true);
         util::DestructWrapper destructArrayBuffer{[&]{ JS_FreeValue(mJSContext, arrayBuffer); }};
 
         auto uint8ArrayFunc = JS_GetPropertyStr(mJSContext, globalObj, "Uint8Array");
