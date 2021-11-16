@@ -368,13 +368,18 @@ void ClientThreadManager::sendData(MQTTClientConnection& conn, std::vector<uint8
         sendTasks.emplace_back(MQTTClientConnection::SendTask{ std::move(bytes), totalBytesSent });
 
         // listen for EPOLLOUT
+        // if we specify EPOLLEXCLUSIVE, we need to delete and readd the FD
+        if(epoll_ctl(mEpollFd, EPOLL_CTL_DEL, conn.getTcpClient().getFd(), nullptr) < 0) {
+            spdlog::warn("epoll_ctl(EPOLL_CTL_DEL): {}", util::errnoToString());
+            throw std::runtime_error{"epoll_ctl(EPOLL_CTL_DEL): " + util::errnoToString()};
+        }
         epoll_event ev = { 0 };
         ev.data.fd = conn.getTcpClient().getFd();
         ev.events = EPOLLET | EPOLLIN | EPOLLOUT | EPOLLEXCLUSIVE;
         // TODO save pointer to client
-        if(epoll_ctl(mEpollFd, EPOLL_CTL_MOD, conn.getTcpClient().getFd(), &ev) < 0) {
-            spdlog::warn("epoll_ctl(): {}", util::errnoToString());
-            throw std::runtime_error{"epoll_ctl(): " + util::errnoToString()};
+        if(epoll_ctl(mEpollFd, EPOLL_CTL_ADD, conn.getTcpClient().getFd(), &ev) < 0) {
+            spdlog::warn("epoll_ctl(EPOLL_CTL_ADD): {}", util::errnoToString());
+            throw std::runtime_error{"epoll_ctl(EPOLL_CTL_ADD): " + util::errnoToString()};
         }
     }
 }
