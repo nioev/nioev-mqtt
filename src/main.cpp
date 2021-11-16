@@ -66,12 +66,22 @@ function run(args) {
                 retain: true
             }],
         }
+    } else if(args.topic == "testI") {
+        return {
+            actions: [{
+                type: 'publish',
+                topic: 'testO',
+                payloadBytes: args.payloadBytes,
+                qos: 0,
+                retain: true
+            }],
+        }
     }
     return {};
 }
 
 initArgs = {}
-initArgs.runType = 'sync'
+initArgs.runType = 'async'
 initArgs.actions = [
     {
         type: 'subscribe',
@@ -80,6 +90,10 @@ initArgs.actions = [
     {
         type: 'subscribe',
         topic: 'random'
+    },
+    {
+        type: 'subscribe',
+        topic: 'testI'
     }
 ]
 initArgs)--" });

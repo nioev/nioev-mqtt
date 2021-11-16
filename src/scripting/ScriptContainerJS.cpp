@@ -246,14 +246,19 @@ void ScriptContainerJS::handleScriptActions(const JSValue& actions, const Script
             } else {
                 // we need either payloadStr or payloadBytes, so check now
                 auto payloadBytesObj = JS_GetPropertyStr(mJSContext, action, "payloadBytes");
+                //spdlog::info("Payload: '{}'", JS_ToCString(mJSContext, JS_JSONStringify(mJSContext, payloadBytesObj, JS_NewString(mJSContext, ""), JS_NewString(mJSContext, ""))));
                 util::DestructWrapper destructPayloadBytesObj{[&]{ JS_FreeValue(mJSContext, payloadBytesObj); }};
                 size_t bytesSize = 0;
                 size_t bytesPerElement = 0;
                 size_t bytesOffset = 0;
                 auto payloadBytesValue = JS_GetTypedArrayBuffer(mJSContext, payloadBytesObj, &bytesOffset, &bytesSize, &bytesPerElement);
                 util::DestructWrapper destructPayloadBytesValue{[&]{ JS_FreeValue(mJSContext, payloadBytesValue); }};
+                if(JS_IsException(payloadBytesValue)) {
+                    output.error("missing either a payloadStr (string) or payloadBytes (Uint8Array)");
+                    break;
+                }
                 auto payloadBytes = JS_GetArrayBuffer(mJSContext, &bytesSize, payloadBytesValue);
-                if(bytesPerElement != 1 || payloadBytes == nullptr) {
+                if(bytesPerElement != 1 || (payloadBytes == nullptr && bytesSize != 0)) {
                     output.error("missing either a payloadStr (string) or payloadBytes (Uint8Array)");
                     break;
                 }
