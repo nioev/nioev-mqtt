@@ -11,16 +11,16 @@ namespace nioev {
 
 class ScriptContainerJS final : public ScriptContainer {
 public:
-    ScriptContainerJS(const std::string& scriptName, std::string&& scriptCode);
+    ScriptContainerJS(ScriptActionPerformer& p, const std::string& scriptName, std::string&& scriptCode);
     ~ScriptContainerJS();
-    void init(ScriptInitOutputArgs&&) override;
-    void run(const ScriptInputArgs&, const ScriptOutputArgs&) override;
+    void init(ScriptStatusOutput&&) override;
+    void run(const ScriptInputArgs&, ScriptStatusOutput&&) override;
     void forceQuit() override;
 private:
-    void scriptThreadFunc(const ScriptInitOutputArgs&);
-    void performRun(const ScriptInputArgs&, const ScriptOutputArgs&);
+    void scriptThreadFunc(ScriptStatusOutput&&);
+    void performRun(const ScriptInputArgs&, ScriptStatusOutput&&);
     std::string getJSException();
-    void handleScriptActions(const JSValue& actions, const ScriptOutputArgs& output);
+    void handleScriptActions(const JSValue& actions, ScriptStatusOutput&& status);
     std::optional<std::string> getJSStringProperty(const JSValue& obj, std::string_view name);
 
     std::atomic<bool> mShouldAbort = false;
@@ -33,7 +33,7 @@ private:
 
     std::mutex mTasksMutex;
     std::condition_variable mTasksCV;
-    std::queue<std::pair<ScriptInputArgs, ScriptOutputArgs>> mTasks;
+    std::queue<std::pair<ScriptInputArgs, ScriptStatusOutput>> mTasks;
 };
 
 }

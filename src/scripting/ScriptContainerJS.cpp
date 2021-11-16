@@ -2,11 +2,12 @@
 #include "quickjs.h"
 #include "../Util.hpp"
 #include "spdlog/spdlog.h"
+#include "ScriptActionPerformer.hpp"
 
 namespace nioev {
 
-ScriptContainerJS::ScriptContainerJS(const std::string& scriptName, std::string&& scriptCode)
-: mName(scriptName), mCode(std::move(scriptCode)) {
+ScriptContainerJS::ScriptContainerJS(ScriptActionPerformer& p, const std::string& scriptName, std::string&& scriptCode)
+: ScriptContainer(p), mName(scriptName), mCode(std::move(scriptCode)) {
     mJSRuntime = JS_NewRuntime();
     mJSContext = JS_NewContext(mJSRuntime);
     JS_SetInterruptHandler(
@@ -24,31 +25,31 @@ ScriptContainerJS::~ScriptContainerJS() {
     mJSRuntime = nullptr;
 }
 
-void ScriptContainerJS::init(ScriptInitOutputArgs&& initOutput) {
-    mScriptThread.emplace([this, initOutput = std::move(initOutput)] { // copy initOutput here to avoid memory corruption
-        scriptThreadFunc(initOutput);
+void ScriptContainerJS::init(ScriptStatusOutput&& status) {
+    mScriptThread.emplace([this, status = std::move(status)] mutable { // copy initOutput here to avoid memory corruption
+        scriptThreadFunc(std::move(status));
     });
 }
 
-void ScriptContainerJS::run(const ScriptInputArgs& in, const ScriptOutputArgs& out) {
+void ScriptContainerJS::run(const ScriptInputArgs& in, ScriptStatusOutput&& status) {
     std::unique_lock<std::mutex> lock{mTasksMutex};
-    mTasks.emplace(in, out);
+    mTasks.emplace(in, std::move(status));
     lock.unlock();
     mTasksCV.notify_all();
 }
 
-void ScriptContainerJS::scriptThreadFunc(const ScriptInitOutputArgs& initOutput) {
+void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
     JS_UpdateStackTop(mJSRuntime);
     auto ret = JS_Eval(mJSContext, mCode.c_str(), mCode.size(), mName.c_str(), 0);
 
     util::DestructWrapper destructRet{[&]{ JS_FreeValue(mJSContext, ret); }};
     if(JS_IsException(ret)) {
-        initOutput.error(std::string{"Script error: "} + getJSException());
+        initStatus.error(mName, std::string{"Script error: "} + getJSException());
         return;
     }
     auto runType = getJSStringProperty(ret, "runType");
     if(!runType) {
-        initOutput.error("Init return runType is not a string");
+        initStatus.error(mName, "Init return runType is not a string");
         return;
     }
     if(runType == "sync") {
@@ -56,22 +57,20 @@ void ScriptContainerJS::scriptThreadFunc(const ScriptInitOutputArgs& initOutput)
     } else if(runType == "async") {
         mScriptInitReturn.runType = ScriptRunType::Async;
     } else {
-        initOutput.error(std::string{"Init return runType should be 'sync' or 'async', not '"} + *runType + "'");
+        initStatus.error(mName, std::string{"Init return runType should be 'sync' or 'async', not '"} + *runType + "'");
         return;
     }
 
     auto actionsObj = JS_GetPropertyStr(mJSContext, ret, "actions");
     util::DestructWrapper destructActionsObj{[&]{ JS_FreeValue(mJSContext, actionsObj); }};
     if(JS_IsArray(mJSContext, actionsObj)) {
-        handleScriptActions(actionsObj, initOutput.initialActionsOutput);
+        handleScriptActions(actionsObj, std::move(initStatus));
     } else if(!JS_IsUndefined(actionsObj)) {
-        initOutput.error("Initial actions must be an array!");
+        initStatus.error(mName, "Initial actions must be an array!");
         return;
     }
 
     destructRet.execute();
-
-    initOutput.success(mScriptInitReturn);
 
     // start run loop
     while(!mShouldAbort) {
@@ -82,10 +81,10 @@ void ScriptContainerJS::scriptThreadFunc(const ScriptInitOutputArgs& initOutput)
         if(mShouldAbort) {
             break;
         }
-        auto[input, output] = std::move(mTasks.front());
+        auto[input, status] = std::move(mTasks.front());
         mTasks.pop();
         lock.unlock();
-        performRun(input, output);
+        performRun(input, std::move(status));
     }
 }
 void ScriptContainerJS::forceQuit() {
@@ -95,7 +94,7 @@ void ScriptContainerJS::forceQuit() {
         mScriptThread->join();
     mScriptThread.reset();
 }
-void ScriptContainerJS::performRun(const ScriptInputArgs& input, const ScriptOutputArgs& output) {
+void ScriptContainerJS::performRun(const ScriptInputArgs& input, ScriptStatusOutput&& status) {
 
     auto globalObj = JS_GetGlobalObject(mJSContext);
     util::DestructWrapper destructGlobalObj{[&]{ JS_FreeValue(mJSContext, globalObj); }};
@@ -103,7 +102,7 @@ void ScriptContainerJS::performRun(const ScriptInputArgs& input, const ScriptOut
     auto runFunction = JS_GetPropertyStr(mJSContext, globalObj, "run");
     util::DestructWrapper destructRunFunction{[&]{ JS_FreeValue(mJSContext, runFunction); }};
     if(!JS_IsFunction(mJSContext, runFunction)) {
-        output.error("no run function defined!");
+        status.error(mName, "no run function defined!");
         return;
     }
     auto paramObj = JS_NewObject(mJSContext);
@@ -145,19 +144,18 @@ void ScriptContainerJS::performRun(const ScriptInputArgs& input, const ScriptOut
         auto syncActionStr = getJSStringProperty(runResult, "syncAction");
         if(syncActionStr) {
             if(syncActionStr == "continue") {
-                output.syncAction(SyncAction::Continue);
+                status.syncAction(mName, SyncAction::Continue);
             } else if(syncActionStr == "abortPublish") {
-                output.syncAction(SyncAction::AbortPublish);
+                status.syncAction(mName, SyncAction::AbortPublish);
             } else {
-                output.error("syncAction must be 'continue' or 'abortPublish'");
+                status.error(mName, "syncAction must be 'continue' or 'abortPublish'");
                 return;
             }
         } else {
-            output.syncAction(SyncAction::Continue);
+            status.syncAction(mName, SyncAction::Continue);
         }
     }
-    handleScriptActions(actions, output);
-
+    handleScriptActions(actions, std::move(status));
 }
 
 std::string ScriptContainerJS::getJSException() {
@@ -169,17 +167,17 @@ std::string ScriptContainerJS::getJSException() {
     return ret;
 }
 
-void ScriptContainerJS::handleScriptActions(const JSValue& actions, const ScriptOutputArgs& output) {
+void ScriptContainerJS::handleScriptActions(const JSValue& actions, ScriptStatusOutput&& status) {
     if(JS_IsUndefined(actions)) {
-        output.success();
+        status.success(mName);
         return;
     }
     if(!JS_IsArray(mJSContext, actions)) {
         if(JS_IsException(actions)) {
-            output.error(getJSException());
+            status.error(mName, getJSException());
             return;
         }
-        output.error("Function didn't return an array!");
+        status.error(mName, "Function didn't return an array!");
         return;
     }
 
@@ -192,34 +190,34 @@ void ScriptContainerJS::handleScriptActions(const JSValue& actions, const Script
             break;
         }
         if(!JS_IsObject(action)) {
-            output.error("One returned action wasn't an object!");
+            status.error(mName, "One returned action wasn't an object!");
             return;
         }
         auto maybeActionTypeStr = getJSStringProperty(action, "type");
         if(!maybeActionTypeStr) {
-            output.error("type property is not a string");
+            status.error(mName, "type property is not a string");
             return;
         }
         auto actionType = *maybeActionTypeStr;
         if(actionType == "publish") {
             auto topic = getJSStringProperty(action, "topic");
             if(!topic) {
-                output.error("topic property is not a string");
+                status.error(mName, "topic property is not a string");
                 return;
             }
             auto qosVal = JS_GetPropertyStr(mJSContext, action, "qos");
             util::DestructWrapper destructQosVal{[&]{ JS_FreeValue(mJSContext, qosVal); }};
             if(!JS_IsNumber(qosVal)) {
-                output.error("qos must be a number");
+                status.error(mName, "qos must be a number");
                 return;
             }
             int32_t qosNum;
             if(JS_ToInt32(mJSContext, &qosNum, qosVal) < 0) {
-                output.error("qos must be a number");
+                status.error(mName, "qos must be a number");
                 return;
             }
             if(qosNum < 0 || qosNum >= 3) {
-                output.error("qos must be between 0 and 2");
+                status.error(mName, "qos must be between 0 and 2");
                 return;
             }
             QoS qos = static_cast<QoS>(qosNum);
@@ -227,13 +225,13 @@ void ScriptContainerJS::handleScriptActions(const JSValue& actions, const Script
             auto retainObj = JS_GetPropertyStr(mJSContext, action, "retain");
             util::DestructWrapper destructRetainObj{[&]{ JS_FreeValue(mJSContext, retainObj); }};
             if(!JS_IsBool(retainObj)) {
-                output.error("retain must be a bool");
+                status.error(mName, "retain must be a bool");
                 return;
             }
 
             int retainInt = 0;
             if((retainInt = JS_ToBool(mJSContext, retainObj)) < 0) {
-                output.error("retain must be a bool");
+                status.error(mName, "retain must be a bool");
                 return;
             }
 
@@ -254,38 +252,38 @@ void ScriptContainerJS::handleScriptActions(const JSValue& actions, const Script
                 auto payloadBytesValue = JS_GetTypedArrayBuffer(mJSContext, payloadBytesObj, &bytesOffset, &bytesSize, &bytesPerElement);
                 util::DestructWrapper destructPayloadBytesValue{[&]{ JS_FreeValue(mJSContext, payloadBytesValue); }};
                 if(JS_IsException(payloadBytesValue)) {
-                    output.error("missing either a payloadStr (string) or payloadBytes (Uint8Array)");
+                    status.error(mName, "missing either a payloadStr (string) or payloadBytes (Uint8Array)");
                     break;
                 }
                 auto payloadBytes = JS_GetArrayBuffer(mJSContext, &bytesSize, payloadBytesValue);
                 if(bytesPerElement != 1 || (payloadBytes == nullptr && bytesSize != 0)) {
-                    output.error("missing either a payloadStr (string) or payloadBytes (Uint8Array)");
+                    status.error(mName, "missing either a payloadStr (string) or payloadBytes (Uint8Array)");
                     break;
                 }
                 payload = std::vector<uint8_t>{payloadBytes, payloadBytes + bytesSize};
             }
-            output.publish(std::move(*topic), std::move(payload), qos, retain);
+            mActionPerformer.enqueueAction(ScriptActionPerformer{mName, std::move(*topic), std::move(payload), qos, retain});
 
         } else if(actionType == "subscribe") {
             auto topic = getJSStringProperty(action, "topic");
             if(!topic) {
-                output.error("topic field is missing");
+                status.error(mName, "topic field is missing");
                 break;
             }
-            output.subscribe(*topic);
+            mActionPerformer.enqueueAction(ScriptActionSubscribe{mName, *topic});
 
         } else if(actionType == "unsubscribe") {
             auto topic = getJSStringProperty(action, "topic");
             if(!topic) {
-                output.error("topic field is missing");
+                status.error(mName, "topic field is missing");
                 break;
             }
-            output.unsubscribe(*topic);
+            mActionPerformer.enqueueAction(ScriptActionUnsubscribe{mName, *topic});
 
         }
         i += 1;
     }
-    output.success();
+    status.success(mName);
 }
 
 std::optional<std::string> ScriptContainerJS::getJSStringProperty(const JSValue& obj, std::string_view name) {

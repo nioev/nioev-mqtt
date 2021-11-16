@@ -6,6 +6,7 @@
 #include <variant>
 #include <functional>
 #include "../Enums.hpp"
+#include "../Forward.hpp"
 
 namespace nioev {
 
@@ -47,11 +48,21 @@ struct ScriptInitOutputArgs {
     ScriptOutputArgs initialActionsOutput;
 };
 
+struct ScriptStatusOutput {
+    std::function<void(const std::string& scriptName, const std::string& reason)> error;
+    std::function<void(const std::string& scriptName)> success;
+    std::function<void(const std::string& scriptName, SyncAction action)> syncAction;
+};
+
 class ScriptContainer {
 public:
+    explicit ScriptContainer(ScriptActionPerformer& p)
+    : mActionPerformer(p) {
+
+    }
     virtual ~ScriptContainer() = default;
-    virtual void init(ScriptInitOutputArgs&&) = 0;
-    virtual void run(const ScriptInputArgs&, const ScriptOutputArgs&) = 0;
+    virtual void init(ScriptStatusOutput&&) = 0;
+    virtual void run(const ScriptInputArgs&, ScriptStatusOutput&&) = 0;
     [[nodiscard]] const ScriptInitReturn& getInitArgs() const {
         return mScriptInitReturn;
     }
@@ -59,6 +70,7 @@ public:
 
 protected:
     ScriptInitReturn mScriptInitReturn;
+    ScriptActionPerformer& mActionPerformer;
 };
 
 }
