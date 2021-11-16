@@ -378,5 +378,11 @@ void ClientThreadManager::sendData(MQTTClientConnection& conn, std::vector<uint8
         }
     }
 }
+ClientThreadManager::~ClientThreadManager() {
+    mShouldQuit = true;
+    for(auto& t : mReceiverThreads) {
+        t.join();
+    }
+}
 
 }

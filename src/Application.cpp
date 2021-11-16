@@ -5,7 +5,7 @@
 namespace nioev {
 
 Application::Application()
-: mClientManager(*this, 4) {
+: mClientManager(*this, 4), mScriptActionPerformer(*this) {
 
 }
 
@@ -84,58 +84,53 @@ void Application::addSubscription(MQTTClientConnection& conn, std::string&& topi
         mClientManager.sendPublish(conn, topic, payload, qos, Retained::Yes);
     });
 }
+void Application::addSubscription(std::string&& scriptName, std::string&& topic) {
+    mPersistentState.addSubscription(scriptName, std::move(topic), [this, &scriptName](const auto& recvTopic, const auto& recvPayload) {
+        runScriptWithPublishedMessage(scriptName, recvTopic, recvPayload, Retained::Yes);
+    });
+}
 void Application::deleteSubscription(MQTTClientConnection& conn, const std::string& topic) {
     mPersistentState.deleteSubscription(conn, topic);
 }
-ScriptOutputArgs Application::getDefaultScriptOutputArgs(const std::string& scriptName) {
-    return ScriptOutputArgs{
-        .publish = [this](auto&& topic, auto&& payload, auto qos, auto retain) {
-            publish(std::move(topic), std::move(payload), qos, retain);
-        },
-        .subscribe = [this, scriptName](const auto& topic) {
-            mPersistentState.addSubscription(scriptName, topic, [this, &scriptName](const auto& recvTopic, const auto& recvPayload) {
-                runScriptWithPublishedMessage(scriptName, recvTopic, recvPayload, Retained::Yes);
-            });
-        },
-        .unsubscribe = [this, scriptName](const auto& topic) {
-            mPersistentState.deleteSubscription(MQTTPersistentState::ScriptName{scriptName}, topic);
-        },
-        .error = [scriptName](const auto& msg) {
-            spdlog::error("Script '{}' failed with: {}", scriptName, msg);
-        },
-        .syncAction = [](auto) {
-
-        },
-        .success = []{}
-    };
+void Application::deleteSubscription(std::string&& scriptName, std::string&& topic) {
+    mPersistentState.deleteSubscription(std::move(scriptName), topic);
 }
 SyncAction Application::runScriptWithPublishedMessage(const std::string& scriptName, const std::string& topic, const std::vector<uint8_t>& payload, Retained retained) {
-    auto outputArgs = getDefaultScriptOutputArgs(scriptName);
     std::atomic<SyncAction> ret = SyncAction::Continue;
 
     if(mScripts.getScriptInitReturn(scriptName).runType == ScriptRunType::Sync) {
         std::condition_variable cv;
+        std::mutex m;
 
-        outputArgs.syncAction = [&](auto syncAction) {
+        ScriptStatusOutput statusOutput;
+        bool done = false;
+        statusOutput.syncAction = [&](auto&, auto syncAction) {
             ret = syncAction;
         };
-        auto oldError = std::move(outputArgs.error);
-        outputArgs.error = [&](auto& msg) {
+        statusOutput.error = [&](auto&, auto& msg) {
+            std::unique_lock<std::mutex> lock{m};
+            done = true;
+            lock.unlock();
             cv.notify_all();
-            oldError(msg);
         };
-        auto oldSuccess = std::move(outputArgs.success);
-        outputArgs.success = [&]() {
+        statusOutput.success = [&](auto&) {
+            std::unique_lock<std::mutex> lock{m};
+            done = true;
+            lock.unlock();
             cv.notify_all();
-            oldSuccess();
         };
-        mScripts.runScript(scriptName, ScriptRunArgsMqttMessage{topic, payload, retained}, outputArgs);
-        std::mutex m;
+        mScripts.runScript(scriptName, ScriptRunArgsMqttMessage{topic, payload, retained}, std::move(statusOutput));
         std::unique_lock<std::mutex> l{m};
-        cv.wait(l);
+        while(!done) {
+            cv.wait(l);
+        }
         return ret;
     } else {
-        mScripts.runScript(scriptName, ScriptRunArgsMqttMessage{topic, payload, retained}, outputArgs);
+        ScriptStatusOutput statusOutput;
+        statusOutput.error = [](auto& name, auto& msg) {
+            spdlog::warn("Script '{}' failed with '{}'", name, msg);
+        };
+        mScripts.runScript(scriptName, ScriptRunArgsMqttMessage{topic, payload, retained}, std::move(statusOutput));
         return SyncAction::Continue;
     }
 }

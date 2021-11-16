@@ -31,8 +31,8 @@ int main() {
 
     clientManager.addScript<ScriptContainerJS>(
         "test",
-        []() { spdlog::info("Successfully added testscript!"); },
-        [](const auto& error) { spdlog::error("{}", error); },
+        [](auto&) { spdlog::info("Successfully added testscript!"); },
+        [](auto&, const auto& error) { spdlog::error("{}", error); },
         std::string{ R"--(
 i = 0
 

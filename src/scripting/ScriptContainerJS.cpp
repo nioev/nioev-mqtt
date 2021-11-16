@@ -26,7 +26,7 @@ ScriptContainerJS::~ScriptContainerJS() {
 }
 
 void ScriptContainerJS::init(ScriptStatusOutput&& status) {
-    mScriptThread.emplace([this, status = std::move(status)] mutable { // copy initOutput here to avoid memory corruption
+    mScriptThread.emplace([this, status = std::move(status)] () mutable { // copy initOutput here to avoid memory corruption
         scriptThreadFunc(std::move(status));
     });
 }
@@ -75,11 +75,11 @@ void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
     // start run loop
     while(!mShouldAbort) {
         std::unique_lock<std::mutex> lock{mTasksMutex};
-        if(mTasks.empty()) {
+        while(mTasks.empty()) {
            mTasksCV.wait(lock);
-        }
-        if(mShouldAbort) {
-            break;
+           if(mShouldAbort) {
+               break;
+           }
         }
         auto[input, status] = std::move(mTasks.front());
         mTasks.pop();
@@ -131,7 +131,6 @@ void ScriptContainerJS::performRun(const ScriptInputArgs& input, ScriptStatusOut
     default:
         assert(false);
     }
-
     auto runResult = JS_Call(mJSContext, runFunction, globalObj, 1, &paramObj);
     util::DestructWrapper destructRunResult{[&]{ JS_FreeValue(mJSContext, runResult); }};
 
@@ -187,6 +186,7 @@ void ScriptContainerJS::handleScriptActions(const JSValue& actions, ScriptStatus
         auto action = JS_GetPropertyUint32(mJSContext, actions, i);
         util::DestructWrapper destructAction{[&]{ JS_FreeValue(mJSContext, action); }};
         if(JS_IsUndefined(action)) {
+            status.success(mName);
             break;
         }
         if(!JS_IsObject(action)) {
@@ -253,22 +253,22 @@ void ScriptContainerJS::handleScriptActions(const JSValue& actions, ScriptStatus
                 util::DestructWrapper destructPayloadBytesValue{[&]{ JS_FreeValue(mJSContext, payloadBytesValue); }};
                 if(JS_IsException(payloadBytesValue)) {
                     status.error(mName, "missing either a payloadStr (string) or payloadBytes (Uint8Array)");
-                    break;
+                    return;
                 }
                 auto payloadBytes = JS_GetArrayBuffer(mJSContext, &bytesSize, payloadBytesValue);
                 if(bytesPerElement != 1 || (payloadBytes == nullptr && bytesSize != 0)) {
                     status.error(mName, "missing either a payloadStr (string) or payloadBytes (Uint8Array)");
-                    break;
+                    return;
                 }
                 payload = std::vector<uint8_t>{payloadBytes, payloadBytes + bytesSize};
             }
-            mActionPerformer.enqueueAction(ScriptActionPerformer{mName, std::move(*topic), std::move(payload), qos, retain});
+            mActionPerformer.enqueueAction(ScriptActionPublish{mName, std::move(*topic), std::move(payload), qos, retain});
 
         } else if(actionType == "subscribe") {
             auto topic = getJSStringProperty(action, "topic");
             if(!topic) {
                 status.error(mName, "topic field is missing");
-                break;
+                return;
             }
             mActionPerformer.enqueueAction(ScriptActionSubscribe{mName, *topic});
 
@@ -276,14 +276,13 @@ void ScriptContainerJS::handleScriptActions(const JSValue& actions, ScriptStatus
             auto topic = getJSStringProperty(action, "topic");
             if(!topic) {
                 status.error(mName, "topic field is missing");
-                break;
+                return;
             }
             mActionPerformer.enqueueAction(ScriptActionUnsubscribe{mName, *topic});
 
         }
         i += 1;
     }
-    status.success(mName);
 }
 
 std::optional<std::string> ScriptContainerJS::getJSStringProperty(const JSValue& obj, std::string_view name) {

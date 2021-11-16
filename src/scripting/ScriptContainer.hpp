@@ -31,27 +31,10 @@ enum class SyncAction {
     AbortPublish
 };
 
-struct ScriptOutputArgs {
-    std::function<void(std::string&& topic, std::vector<uint8_t>&& payload, QoS qos, Retain retain)> publish;
-    std::function<void(const std::string& topic)> subscribe;
-    std::function<void(const std::string& topic)> unsubscribe;
-    std::function<void(const std::string& error)> error;
-    std::function<void(SyncAction action)> syncAction;
-    // Gets called last and only once, confirms that everything completed successfully. Either this
-    // callback or error gets called.
-    std::function<void()> success;
-};
-
-struct ScriptInitOutputArgs {
-    std::function<void(const std::string& reason)> error;
-    std::function<void(const ScriptInitReturn&)> success;
-    ScriptOutputArgs initialActionsOutput;
-};
-
 struct ScriptStatusOutput {
-    std::function<void(const std::string& scriptName, const std::string& reason)> error;
-    std::function<void(const std::string& scriptName)> success;
-    std::function<void(const std::string& scriptName, SyncAction action)> syncAction;
+    std::function<void(const std::string& scriptName, const std::string& reason)> error = [](auto&, auto&) {};
+    std::function<void(const std::string& scriptName)> success = [](auto&) {};
+    std::function<void(const std::string& scriptName, SyncAction action)> syncAction = [](auto&, auto) {};
 };
 
 class ScriptContainer {

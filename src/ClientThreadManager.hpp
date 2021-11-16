@@ -11,6 +11,7 @@ namespace nioev {
 class ClientThreadManager {
 public:
     explicit ClientThreadManager(Application& bridge, uint threadCount);
+    ~ClientThreadManager();
     void addClientConnection(MQTTClientConnection& conn);
     void removeClientConnection(MQTTClientConnection& connection);
     void sendData(MQTTClientConnection& client, std::vector<uint8_t>&& data);
