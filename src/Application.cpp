@@ -10,7 +10,7 @@ Application::Application()
 }
 
 void Application::handleNewClientConnection(TcpClientConnection&& conn) {
-    spdlog::info("New Client {}:{}", conn.getRemoteIp(), conn.getRemotePort());
+    spdlog::info("[{}:{}] Connecting...", conn.getRemoteIp(), conn.getRemotePort());
     std::lock_guard<std::shared_mutex> lock{mClientsMutex};
     int fd = conn.getFd();
     auto newClient = mClients.emplace(

@@ -5,6 +5,7 @@
 
 #include "Enums.hpp"
 #include "Application.hpp"
+#include "Util.hpp"
 
 namespace nioev {
 
@@ -138,6 +139,8 @@ void ClientThreadManager::receiverThreadFunction() {
                         }
                     } while(bytesReceived > 0);
                 }
+            } catch(CleanDisconnectException&) {
+                mApp.notifyConnectionError(events[i].data.fd);
             } catch(std::exception& e) {
                 spdlog::error("Caught: {}", e.what());
                 mApp.notifyConnectionError(events[i].data.fd);
@@ -266,7 +269,7 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
             auto packetIdentifier = decoder.decode2Bytes();
             do {
                 auto topic = decoder.decodeString();
-                spdlog::info("Client {}:{} subscribing to {}", client.getTcpClient().getRemoteIp(), client.getTcpClient().getRemotePort(), topic);
+                spdlog::info("[{}:{}] Subscribing to {}", client.getTcpClient().getRemoteIp(), client.getTcpClient().getRemotePort(), topic);
                 uint8_t qosInt = decoder.decodeByte();
                 if(qosInt >= 3) {
                     protocolViolation();
@@ -320,9 +323,9 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
             if(recvData.firstByte != 0xE0) {
                 protocolViolation();
             }
-            spdlog::info("Disconnecting...");
+            spdlog::info("[{}:{}] Disconnecting...", client.getTcpClient().getRemoteIp(), client.getTcpClient().getRemotePort());
             client.discardWill();
-            throw std::runtime_error{"Clean disconnect, no actual error"};
+            throw CleanDisconnectException{};
 
             break;
         }
