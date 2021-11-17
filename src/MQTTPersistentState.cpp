@@ -124,12 +124,11 @@ void MQTTPersistentState::forEachSubscriber(const std::string& topic, std::funct
 }
 void MQTTPersistentState::retainMessage(std::string&& topic, std::vector<uint8_t>&& payload) {
     std::lock_guard<std::shared_mutex> lock{ mRetainedMessagesMutex };
-    mRetainedMessages.erase(topic);
-    if(!payload.empty()) {
-        mRetainedMessages.emplace(std::piecewise_construct,
-                                  std::make_tuple(std::move(topic)),
-                                  std::make_tuple(RetainedMessage{std::move(payload)}));
+    if(payload.empty()) {
+       mRetainedMessages.erase(topic);
+       return;
     }
+    mRetainedMessages.insert_or_assign(topic, RetainedMessage{std::move(payload)});
 }
 
 }
