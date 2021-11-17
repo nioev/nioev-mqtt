@@ -13,7 +13,10 @@ namespace nioev {
 
 class MQTTClientConnection {
 public:
-    MQTTClientConnection(TcpClientConnection&& conn);
+    MQTTClientConnection(TcpClientConnection&& conn)
+    : mConn(std::move(conn)) {
+
+    }
 
     [[nodiscard]] TcpClientConnection& getTcpClient() {
         return mConn;
