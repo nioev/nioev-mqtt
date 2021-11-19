@@ -19,6 +19,13 @@ ScriptContainerJS::ScriptContainerJS(ScriptActionPerformer& p, const std::string
         this);
 }
 ScriptContainerJS::~ScriptContainerJS() {
+    if(mScriptThread) {
+        std::unique_lock<std::mutex> lock{mTasksMutex};
+        mShouldAbort = true;
+        mTasksCV.notify_all();
+        lock.unlock();
+        mScriptThread->join();
+    }
     JS_FreeContext(mJSContext);
     mJSContext = nullptr;
     JS_FreeRuntime(mJSRuntime);
@@ -41,8 +48,8 @@ void ScriptContainerJS::run(const ScriptInputArgs& in, ScriptStatusOutput&& stat
 void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
     JS_UpdateStackTop(mJSRuntime);
     auto ret = JS_Eval(mJSContext, mCode.c_str(), mCode.size(), mName.c_str(), 0);
-
     util::DestructWrapper destructRet{[&]{ JS_FreeValue(mJSContext, ret); }};
+
     if(JS_IsException(ret)) {
         initStatus.error(mName, std::string{"Script error: "} + getJSException());
         return;
@@ -70,6 +77,7 @@ void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
         return;
     }
 
+    destructActionsObj.execute();
     destructRet.execute();
 
     // start run loop
@@ -78,7 +86,7 @@ void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
         while(mTasks.empty()) {
            mTasksCV.wait(lock);
            if(mShouldAbort) {
-               break;
+               return;
            }
         }
         auto[input, status] = std::move(mTasks.front());

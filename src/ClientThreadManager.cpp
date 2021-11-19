@@ -2,6 +2,7 @@
 #include "Util.hpp"
 #include <spdlog/spdlog.h>
 #include <sys/epoll.h>
+#include <signal.h>
 
 #include "Enums.hpp"
 #include "Application.hpp"
@@ -386,7 +387,11 @@ void ClientThreadManager::sendData(MQTTClientConnection& conn, std::vector<uint8
 ClientThreadManager::~ClientThreadManager() {
     mShouldQuit = true;
     for(auto& t : mReceiverThreads) {
+        pthread_kill(t.native_handle(), SIGUSR1);
         t.join();
+    }
+    if(close(mEpollFd)) {
+        spdlog::error("close(): {}", util::errnoToString());
     }
 }
 

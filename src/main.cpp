@@ -10,8 +10,22 @@
 
 using namespace nioev;
 
+
+std::atomic<TcpServer*> gTcpServer = nullptr;
+
+void onExitSignal(int) {
+    if(gTcpServer) {
+        gTcpServer.load()->stopLoop();
+        gTcpServer = nullptr;
+    }
+}
+
 int main() {
+
     signal(SIGUSR1, [](int) {});
+    signal(SIGINT, onExitSignal);
+    signal(SIGTERM, onExitSignal);
+
     spdlog::set_level(spdlog::level::info);
     spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] %^[%-5l]%$ [%-15N] %v");
 
@@ -27,9 +41,8 @@ int main() {
         }
     }
 
-    Application clientManager;
-
-    clientManager.addScript<ScriptContainerJS>(
+    Application app;
+    app.addScript<ScriptContainerJS>(
         "test",
         [](auto&) { spdlog::info("Successfully added testscript!"); },
         [](auto&, const auto& error) { spdlog::error("{}", error); },
@@ -101,5 +114,6 @@ initArgs)--" });
 
     TcpServer server{ 1883 };
     spdlog::info("MQTT TcpServer started");
-    server.loop(clientManager);
+    gTcpServer = &server;
+    server.loop(app);
 }

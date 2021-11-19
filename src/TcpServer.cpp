@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <string_view>
 #include <arpa/inet.h>
+#include "poll.h"
 
 #include "Util.hpp"
 #include "TcpClientConnection.hpp"
@@ -52,10 +53,26 @@ TcpServer::~TcpServer() {
     close(mSockFd);
 }
 
-[[noreturn]] void TcpServer::loop(TcpClientHandlerInterface& handler) {
-    while(true) {
+void TcpServer::loop(TcpClientHandlerInterface& handler) {
+    mMainThreadHandle = pthread_self();
+    while(mShouldRun) {
         struct sockaddr_in clientAddr;
         socklen_t len = sizeof(clientAddr);
+
+        struct pollfd pollInfo;
+        pollInfo.fd = mSockFd;
+        pollInfo.events = POLLIN;
+        if(poll(&pollInfo, 1, -1) < 0) {
+            if(!mShouldRun) {
+                spdlog::info("Safely aborted TcpServer accept loop");
+                return;
+            }
+            spdlog::error("poll(): {}", util::errnoToString());
+            continue;
+        }
+        if(!mShouldRun) {
+            return;
+        }
         auto clientFd = accept4(mSockFd, (struct sockaddr*)&clientAddr, &len, SOCK_NONBLOCK | SOCK_CLOEXEC);
         if(clientFd < 0) {
             spdlog::error("Failed to accept client: {}", util::errnoToString());
@@ -67,6 +84,15 @@ TcpServer::~TcpServer() {
         TcpClientConnection conn{clientFd, ipAsStr, clientAddr.sin_port};
         handler.handleNewClientConnection(std::move(conn));
     }
+}
+void TcpServer::stopLoop() {
+    if(!mShouldRun) {
+        return;
+    }
+    if(mMainThreadHandle) {
+        pthread_kill(mMainThreadHandle, SIGUSR1);
+    }
+    mShouldRun = false;
 }
 
 }
