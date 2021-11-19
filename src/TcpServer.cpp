@@ -18,7 +18,7 @@
 
 namespace nioev {
 
-TcpServer::TcpServer(uint16_t port) {
+TcpServer::TcpServer(uint16_t port, TcpClientHandlerInterface& handler) {
     struct sockaddr_in servaddr = { 0 };
 
     mSockFd = socket(AF_INET, SOCK_STREAM, 0);
@@ -47,14 +47,19 @@ TcpServer::TcpServer(uint16_t port) {
         exit(3);
     }
     spdlog::trace("Socket listening");
+
+    mLoopThread.emplace([this, &handler] {
+        pthread_setname_np(pthread_self(), "TcpServer");
+        loopThreadFunc(handler);
+    });
 }
 
 TcpServer::~TcpServer() {
+    requestStop();
     close(mSockFd);
 }
 
-void TcpServer::loop(TcpClientHandlerInterface& handler) {
-    mMainThreadHandle = pthread_self();
+void TcpServer::loopThreadFunc(TcpClientHandlerInterface& handler) {
     while(mShouldRun) {
         struct sockaddr_in clientAddr;
         socklen_t len = sizeof(clientAddr);
@@ -85,14 +90,15 @@ void TcpServer::loop(TcpClientHandlerInterface& handler) {
         handler.handleNewClientConnection(std::move(conn));
     }
 }
-void TcpServer::stopLoop() {
+void TcpServer::requestStop() {
     if(!mShouldRun) {
         return;
     }
-    if(mMainThreadHandle) {
-        pthread_kill(mMainThreadHandle, SIGUSR1);
-    }
     mShouldRun = false;
+    pthread_kill(mLoopThread->native_handle(), SIGUSR1);
+}
+void TcpServer::join() {
+    mLoopThread->join();
 }
 
 }

@@ -4,19 +4,22 @@
 #include "TcpClientHandlerInterface.hpp"
 #include <atomic>
 #include <csignal>
+#include <thread>
+#include <optional>
 
 namespace nioev {
 
 class TcpServer {
     int mSockFd;
     std::atomic<bool> mShouldRun = true;
-    std::atomic<pthread_t> mMainThreadHandle = 0;
-public:
-    explicit TcpServer(uint16_t port);
-    ~TcpServer();
+    std::optional<std::thread> mLoopThread;
 
-    void loop(TcpClientHandlerInterface& handler);
-    void stopLoop();
+    void loopThreadFunc(TcpClientHandlerInterface& handler);
+public:
+    explicit TcpServer(uint16_t port, TcpClientHandlerInterface& handler);
+    ~TcpServer();
+    void requestStop();
+    void join();
 };
 
 }

@@ -15,7 +15,7 @@ std::atomic<TcpServer*> gTcpServer = nullptr;
 
 void onExitSignal(int) {
     if(gTcpServer) {
-        gTcpServer.load()->stopLoop();
+        gTcpServer.load()->requestStop();
         gTcpServer = nullptr;
     }
 }
@@ -101,8 +101,8 @@ initArgs.actions = [
 initArgs)--" });
     //clientManager.deleteScript("test");
 
-    TcpServer server{ 1883 };
-    spdlog::info("MQTT TcpServer started");
+    TcpServer server{ 1883, app };
     gTcpServer = &server;
-    server.loop(app);
+    spdlog::info("MQTT TcpServer started");
+    server.join();
 }
