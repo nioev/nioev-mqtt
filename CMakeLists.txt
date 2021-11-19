@@ -17,7 +17,6 @@ add_executable(nioev
         src/TcpClientHandlerInterface.hpp
         src/Application.cpp
         src/Application.hpp
-        src/MQTTClientConnection.cpp
         src/MQTTClientConnection.hpp
         src/TcpClientConnection.cpp
         src/TcpClientConnection.hpp
@@ -27,9 +26,7 @@ add_executable(nioev
         src/Enums.hpp
         src/MQTTPersistentState.cpp
         src/MQTTPersistentState.hpp
-        src/scripting/ScriptContainerManager.cpp
         src/scripting/ScriptContainerManager.hpp
-        src/scripting/ScriptContainer.cpp
         src/scripting/ScriptContainer.hpp
         src/scripting/ScriptContainerJS.cpp
         src/scripting/ScriptContainerJS.hpp

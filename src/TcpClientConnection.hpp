@@ -7,6 +7,11 @@
 
 namespace nioev {
 
+// used to tell the catcher that there is no need to log the error
+class CleanDisconnectException : public std::exception {
+
+};
+
 class TcpClientConnection final {
 public:
     TcpClientConnection(int sockFd, std::string remoteIp, uint16_t remotePort);

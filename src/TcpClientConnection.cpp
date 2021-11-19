@@ -28,7 +28,7 @@ uint TcpClientConnection::recv(std::vector<uint8_t>& buffer) {
     assert(buffer.size() > 0);
     auto result = ::recv(mSockFd, buffer.data(), buffer.size(), MSG_NOSIGNAL | MSG_DONTWAIT);
     if(result == 0) {
-        throw std::runtime_error{"recv(): Remote closed connection"};
+        throw CleanDisconnectException{};
     }
     if(result < 0) {
         if(errno == EWOULDBLOCK || errno == EAGAIN) {
@@ -43,7 +43,7 @@ uint TcpClientConnection::send(const uint8_t* data, uint len) {
     assert(len > 0);
     auto result = ::send(mSockFd, data, len, MSG_NOSIGNAL | MSG_DONTWAIT);
     if(result == 0) {
-        throw std::runtime_error{"send(): Remote closed connection"};
+        throw CleanDisconnectException{};
     }
     if(result < 0) {
         if(errno == EWOULDBLOCK || errno == EAGAIN) {

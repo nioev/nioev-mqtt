@@ -29,17 +29,6 @@ int main() {
     spdlog::set_level(spdlog::level::info);
     spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] %^[%-5l]%$ [%-15N] %v");
 
-    {
-       BigString<16> test{"Hallo schöne Welt"};
-       spdlog::info("Test is: {}, Optimized: {}", test.c_str(), test.isShortOptimized());
-    }
-    {
-        int data[5] = { 0 };
-        BigVector<int, 4> test{data, 5};
-        for(int i = 0; i < 5; ++i) {
-            spdlog::info("{}: {}", i, test[i]);
-        }
-    }
 
     Application app;
     app.addScript<ScriptContainerJS>(
