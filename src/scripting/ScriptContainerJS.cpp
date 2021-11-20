@@ -46,6 +46,10 @@ void ScriptContainerJS::run(const ScriptInputArgs& in, ScriptStatusOutput&& stat
 }
 
 void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
+    {
+        std::string threadName = "S-" + mName;
+        pthread_setname_np(pthread_self(), threadName.c_str());
+    }
     JS_UpdateStackTop(mJSRuntime);
     auto ret = JS_Eval(mJSContext, mCode.c_str(), mCode.size(), mName.c_str(), 0);
     util::DestructWrapper destructRet{[&]{ JS_FreeValue(mJSContext, ret); }};

@@ -13,7 +13,7 @@ Timers::~Timers() {
     mThread.join();
 }
 void Timers::tasksThreadFunc() {
-    pthread_setname_np(pthread_self(), "script-action-performer");
+    pthread_setname_np(pthread_self(), "timer");
     while(mShouldRun) {
         std::unique_lock<std::mutex> lock{ mTasksMutex };
         while(mTasks.empty()) {

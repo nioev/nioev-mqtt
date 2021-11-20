@@ -27,7 +27,7 @@ ClientThreadManager::ClientThreadManager(Application& app, uint threadCount)
 }
 void ClientThreadManager::receiverThreadFunction() {
     std::vector<uint8_t> bytes;
-    bytes.resize(64 * 1024);
+    bytes.resize(64 * 1024 * 4);
     while(!mShouldQuit) {
         epoll_event events[128] = { 0 };
         int eventCount = epoll_wait(mEpollFd, events, 128, -1);

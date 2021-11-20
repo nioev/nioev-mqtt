@@ -8,7 +8,6 @@ Application::Application()
 : mScriptActionPerformer(*this), mClientManager(*this, 4) {
     mTimer.addPeriodicTask(std::chrono::seconds (10), [this] {
        cleanupDisconnectedClients();
-       spdlog::info("Cleaning up!");
     });
 }
 
