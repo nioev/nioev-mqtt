@@ -5,8 +5,11 @@
 namespace nioev {
 
 Application::Application()
-: mClientManager(*this, 4), mScriptActionPerformer(*this) {
-
+: mScriptActionPerformer(*this), mClientManager(*this, 4) {
+    mTimer.addPeriodicTask(std::chrono::seconds (10), [this] {
+       cleanupDisconnectedClients();
+       spdlog::info("Cleaning up!");
+    });
 }
 
 void Application::handleNewClientConnection(TcpClientConnection&& conn) {
@@ -21,9 +24,13 @@ void Application::handleNewClientConnection(TcpClientConnection&& conn) {
 }
 std::pair<std::reference_wrapper<MQTTClientConnection>, std::shared_lock<std::shared_mutex>> Application::getClient(int fd) {
     std::shared_lock<std::shared_mutex> lock{mClientsMutex};
-    return {mClients.at(fd), std::move(lock)};
+    auto &c = mClients.at(fd);
+    if(c.shouldBeDisconnected())
+        throw std::runtime_error{"Client not found!"};
+    return {c, std::move(lock)};
 }
-void Application::cleanupDisconnectedClientsWithoutAcquiringLock() {
+void Application::cleanupDisconnectedClients() {
+    std::shared_lock<std::shared_mutex> lock{mClientsMutex};
     for(auto it = mClients.begin(); it != mClients.end();) {
         if(it->second.shouldBeDisconnected()) {
             auto willMsg = it->second.moveWill();
@@ -33,7 +40,11 @@ void Application::cleanupDisconnectedClientsWithoutAcquiringLock() {
             mClientManager.removeClientConnection(it->second);
             mPersistentState.deleteAllSubscriptions(it->second);
 
+            lock.unlock();
+            std::unique_lock<std::shared_mutex> rwLock{mClientsMutex};
             it = mClients.erase(it);
+            rwLock.unlock();
+            lock.lock();
         } else {
             it++;
         }
@@ -74,7 +85,6 @@ void Application::publishWithoutAcquiringLock(std::string&& topic, std::vector<u
     if(retain == Retain::Yes) {
         mPersistentState.retainMessage(std::move(topic), std::move(msg));
     }
-    cleanupDisconnectedClientsWithoutAcquiringLock();
 }
 void Application::addSubscription(MQTTClientConnection& conn, std::string&& topic, QoS qos) {
     std::shared_lock<std::shared_mutex> lock{mClientsMutex};

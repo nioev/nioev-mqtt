@@ -29,8 +29,8 @@ void ClientThreadManager::receiverThreadFunction() {
     std::vector<uint8_t> bytes;
     bytes.resize(64 * 1024);
     while(!mShouldQuit) {
-        epoll_event events[20] = { 0 };
-        int eventCount = epoll_wait(mEpollFd, events, 20, -1);
+        epoll_event events[128] = { 0 };
+        int eventCount = epoll_wait(mEpollFd, events, 128, -1);
         if(eventCount < 0) {
             spdlog::critical("epoll_wait(): {}", util::errnoToString());
         }
@@ -54,9 +54,10 @@ void ClientThreadManager::receiverThreadFunction() {
                         do {
                             bytesSend = client.getTcpClient().send(it->data.data() + it->offset, it->data.size() - it->offset);
                             it->offset += bytesSend;
-                        } while(bytesSend > 0);
+                        } while(bytesSend > 0 && it->offset < it->data.size());
 
                         if(it->offset >= it->data.size()) {
+                            it = sendTasks.erase(it);
                             if(sendTasks.size() == 1) {
                                 epoll_event ev = { 0 };
                                 ev.data.fd = client.getTcpClient().getFd();
@@ -66,7 +67,6 @@ void ClientThreadManager::receiverThreadFunction() {
                                     throw std::runtime_error{"epoll_ctl(): " + util::errnoToString()};
                                 }
                             }
-                            it = sendTasks.erase(it);
                         } else {
                             break;
                         }

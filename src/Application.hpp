@@ -9,23 +9,25 @@
 #include <thread>
 #include <unordered_map>
 #include <vector>
+#include "Timers.hpp"
 
 namespace nioev {
 
 class Application : public TcpClientHandlerInterface {
 private:
     std::unordered_map<int, MQTTClientConnection> mClients;
-    ClientThreadManager mClientManager;
     MQTTPersistentState mPersistentState;
     ScriptContainerManager mScripts;
     ScriptActionPerformer mScriptActionPerformer;
     std::shared_mutex mClientsMutex;
+    Timers mTimer;
+    // needs to initialized last because it starts a thread which calls us
+    ClientThreadManager mClientManager;
 
     void publishWithoutAcquiringLock(std::string&& topic, std::vector<uint8_t>&& msg, std::optional<QoS> qos, Retain retain);
 
     SyncAction runScriptWithPublishedMessage(const std::string& scriptName, const std::string& topic, const std::vector<uint8_t>& payload, Retained retained);
 
-    void cleanupDisconnectedClientsWithoutAcquiringLock();
 public:
     Application();
     void handleNewClientConnection(TcpClientConnection&&) override;
@@ -35,6 +37,7 @@ public:
     void addSubscription(std::string&& scriptName, std::string&& topic);
     void deleteSubscription(MQTTClientConnection& conn, const std::string& topic);
     void deleteSubscription(std::string&& scriptName, std::string&& topic);
+    void cleanupDisconnectedClients();
 
     template<typename T, typename... Args>
     void addScript(const std::string& name, std::function<void(const std::string& scriptName)>&& onSuccess, std::function<void(const std::string& scriptName, const std::string&)>&& onError, Args... args) {
