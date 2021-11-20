@@ -141,10 +141,20 @@ void ClientThreadManager::receiverThreadFunction() {
                     } while(bytesReceived > 0);
                 }
             } catch(CleanDisconnectException&) {
-                mApp.notifyConnectionError(events[i].data.fd);
+                try {
+                    auto[client, lock] = mApp.getClient(events[i].data.fd);
+                    client.get().notifyConnecionError();
+                } catch(...) {
+                    // ignore errors while fetching the client, it probably just means it has been disconnected already
+                }
             } catch(std::exception& e) {
                 spdlog::error("Caught: {}", e.what());
-                mApp.notifyConnectionError(events[i].data.fd);
+                try {
+                    auto[client, lock] = mApp.getClient(events[i].data.fd);
+                    client.get().notifyConnecionError();
+                } catch(...) {
+                    // ignore errors while fetching the client, it probably just means it has been disconnected already
+                }
             }
         }
     }
@@ -358,33 +368,38 @@ void ClientThreadManager::sendPublish(MQTTClientConnection& conn, const std::str
     sendData(conn, encoder.moveData());
 }
 void ClientThreadManager::sendData(MQTTClientConnection& conn, std::vector<uint8_t>&& bytes) {
-    uint totalBytesSent = 0;
-    uint bytesSent = 0;
-    auto [sendTasksRef, sendLock] = conn.getSendTasks();
-    auto& sendTasks = sendTasksRef.get();
-    do {
-        bytesSent = conn.getTcpClient().send(bytes.data() + totalBytesSent, bytes.size() - totalBytesSent);
-        totalBytesSent += bytesSent;
-    } while(bytesSent > 0 && totalBytesSent < bytes.size());
-    //spdlog::warn("Bytes sent: {}, Total bytes sent: {}", bytesSent, totalBytesSent);
+    try {
+        uint totalBytesSent = 0;
+        uint bytesSent = 0;
+        auto [sendTasksRef, sendLock] = conn.getSendTasks();
+        auto& sendTasks = sendTasksRef.get();
+        do {
+            bytesSent = conn.getTcpClient().send(bytes.data() + totalBytesSent, bytes.size() - totalBytesSent);
+            totalBytesSent += bytesSent;
+        } while(bytesSent > 0 && totalBytesSent < bytes.size());
+        //spdlog::warn("Bytes sent: {}, Total bytes sent: {}", bytesSent, totalBytesSent);
 
-    if(totalBytesSent < bytes.size()) {
-        sendTasks.emplace_back(MQTTClientConnection::SendTask{ std::move(bytes), totalBytesSent });
+        if(totalBytesSent < bytes.size()) {
+            sendTasks.emplace_back(MQTTClientConnection::SendTask{ std::move(bytes), totalBytesSent });
 
-        // listen for EPOLLOUT
-        // if we specify EPOLLEXCLUSIVE, we need to delete and readd the FD
-        if(epoll_ctl(mEpollFd, EPOLL_CTL_DEL, conn.getTcpClient().getFd(), nullptr) < 0) {
-            spdlog::warn("epoll_ctl(EPOLL_CTL_DEL): {}", util::errnoToString());
-            throw std::runtime_error{"epoll_ctl(EPOLL_CTL_DEL): " + util::errnoToString()};
+            // listen for EPOLLOUT
+            // if we specify EPOLLEXCLUSIVE, we need to delete and readd the FD
+            if(epoll_ctl(mEpollFd, EPOLL_CTL_DEL, conn.getTcpClient().getFd(), nullptr) < 0) {
+                spdlog::warn("epoll_ctl(EPOLL_CTL_DEL): {}", util::errnoToString());
+                throw std::runtime_error{"epoll_ctl(EPOLL_CTL_DEL): " + util::errnoToString()};
+            }
+            epoll_event ev = { 0 };
+            ev.data.fd = conn.getTcpClient().getFd();
+            ev.events = EPOLLET | EPOLLIN | EPOLLOUT | EPOLLEXCLUSIVE;
+            // TODO save pointer to client
+            if(epoll_ctl(mEpollFd, EPOLL_CTL_ADD, conn.getTcpClient().getFd(), &ev) < 0) {
+                spdlog::warn("epoll_ctl(EPOLL_CTL_ADD): {}", util::errnoToString());
+                throw std::runtime_error{"epoll_ctl(EPOLL_CTL_ADD): " + util::errnoToString()};
+            }
         }
-        epoll_event ev = { 0 };
-        ev.data.fd = conn.getTcpClient().getFd();
-        ev.events = EPOLLET | EPOLLIN | EPOLLOUT | EPOLLEXCLUSIVE;
-        // TODO save pointer to client
-        if(epoll_ctl(mEpollFd, EPOLL_CTL_ADD, conn.getTcpClient().getFd(), &ev) < 0) {
-            spdlog::warn("epoll_ctl(EPOLL_CTL_ADD): {}", util::errnoToString());
-            throw std::runtime_error{"epoll_ctl(EPOLL_CTL_ADD): " + util::errnoToString()};
-        }
+    } catch(std::exception& e) {
+        spdlog::error("Error while sending data: {}", e.what());
+        conn.notifyConnecionError();
     }
 }
 ClientThreadManager::~ClientThreadManager() {

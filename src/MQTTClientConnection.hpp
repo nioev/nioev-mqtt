@@ -79,6 +79,12 @@ public:
         std::lock_guard<std::mutex> lock{mRemaingingMutex};
         return std::move(mWill);
     }
+    void notifyConnecionError() {
+        mShouldBeDisconnected = true;
+    }
+    [[nodiscard]] bool shouldBeDisconnected() const {
+        return mShouldBeDisconnected;
+    }
 private:
     TcpClientConnection mConn;
 
@@ -97,6 +103,8 @@ private:
         Retain retain;
     };
     std::optional<WillStruct> mWill;
+
+    std::atomic<bool> mShouldBeDisconnected = false;
 };
 
 

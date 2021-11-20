@@ -23,24 +23,21 @@ std::pair<std::reference_wrapper<MQTTClientConnection>, std::shared_lock<std::sh
     std::shared_lock<std::shared_mutex> lock{mClientsMutex};
     return {mClients.at(fd), std::move(lock)};
 }
-void Application::notifyConnectionError(int connFd) {
-    std::lock_guard<std::shared_mutex> lock{mClientsMutex};
-    auto client = mClients.find(connFd);
-    if(client == mClients.end()) {
-        // Client was already deleted. This can happen if two receiver threads
-        // get notified at the same time that a connection was closed and
-        // both try to delete the connection at the same time.
-        return;
-    }
-    spdlog::debug("Deleting connection {}", connFd);
-    auto willMsg = client->second.moveWill();
-    if(willMsg) {
-        publishWithoutAcquiringLock(std::move(willMsg->topic), std::move(willMsg->msg), willMsg->qos, willMsg->retain);
-    }
-    mClientManager.removeClientConnection(client->second);
-    mPersistentState.deleteAllSubscriptions(client->second);
+void Application::cleanupDisconnectedClientsWithoutAcquiringLock() {
+    for(auto it = mClients.begin(); it != mClients.end();) {
+        if(it->second.shouldBeDisconnected()) {
+            auto willMsg = it->second.moveWill();
+            if(willMsg) {
+                publishWithoutAcquiringLock(std::move(willMsg->topic), std::move(willMsg->msg), willMsg->qos, willMsg->retain);
+            }
+            mClientManager.removeClientConnection(it->second);
+            mPersistentState.deleteAllSubscriptions(it->second);
 
-    mClients.erase(client);
+            it = mClients.erase(it);
+        } else {
+            it++;
+        }
+    }
 }
 void Application::publish(std::string&& topic, std::vector<uint8_t>&& msg, std::optional<QoS> qos, Retain retain) {
     std::shared_lock<std::shared_mutex> lock{mClientsMutex};
@@ -77,6 +74,7 @@ void Application::publishWithoutAcquiringLock(std::string&& topic, std::vector<u
     if(retain == Retain::Yes) {
         mPersistentState.retainMessage(std::move(topic), std::move(msg));
     }
+    cleanupDisconnectedClientsWithoutAcquiringLock();
 }
 void Application::addSubscription(MQTTClientConnection& conn, std::string&& topic, QoS qos) {
     std::shared_lock<std::shared_mutex> lock{mClientsMutex};

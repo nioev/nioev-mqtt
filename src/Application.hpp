@@ -25,11 +25,11 @@ private:
 
     SyncAction runScriptWithPublishedMessage(const std::string& scriptName, const std::string& topic, const std::vector<uint8_t>& payload, Retained retained);
 
+    void cleanupDisconnectedClientsWithoutAcquiringLock();
 public:
     Application();
     void handleNewClientConnection(TcpClientConnection&&) override;
     std::pair<std::reference_wrapper<MQTTClientConnection>, std::shared_lock<std::shared_mutex>> getClient(int fd);
-    void notifyConnectionError(int connFd);
     void publish(std::string&& topic, std::vector<uint8_t>&& msg, std::optional<QoS> qos, Retain retain);
     void addSubscription(MQTTClientConnection& conn, std::string&& topic, QoS qos);
     void addSubscription(std::string&& scriptName, std::string&& topic);
