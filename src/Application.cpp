@@ -54,6 +54,7 @@ void Application::publishWithoutAcquiringLock(std::string&& topic, std::vector<u
     }
 #endif
     // first run scripts
+    // TODO optimize forEachSubscriber so that it skips other subscriptions automatically, avoiding unnecessary work checking for all matches
     auto action = SyncAction::Continue;
     mPersistentState.forEachSubscriber(topic, [this, &topic, &msg, &action] (auto& sub) {
         if(sub.subscriber.index() != 1)
