@@ -36,7 +36,7 @@ int main() {
     spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] %^[%-5l]%$ [%-15N] %v");
 
     Application app;
-    app.addScript<ScriptContainerJS>(
+    /*app.addScript<ScriptContainerJS>(
         "test", [](auto&) { spdlog::info("Successfully added testscript!"); }, [](auto&, const auto& error) { spdlog::error("{}", error); },
         std::string{ R"--(
 i = 0
@@ -101,7 +101,7 @@ initArgs.actions = [
         topic: 'testI'
     }
 ]
-initArgs)--" });
+initArgs)--" });*/
     // clientManager.deleteScript("test");
 
     TcpServer server{ 1883, app };
@@ -109,7 +109,7 @@ initArgs)--" });
     spdlog::info("MQTT TcpServer started");
 
     uWS::App{}
-        .get(
+        .post(
             "/mqtt/*",
             [&app](uWS::HttpResponse<false>* res, uWS::HttpRequest* req) {
                 try {
