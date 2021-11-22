@@ -24,6 +24,10 @@ static bool doesTopicMatchSubscription(const std::string& topic, const MQTTPersi
     size_t partIndex = 0;
     bool doesMatch = true;
     splitString(topic, [&] (const auto& actualPart) {
+        if(sub.topicSplit.size() <= partIndex) {
+            doesMatch = false;
+            return IterationDecision::Stop;
+        }
         const auto& expectedPart = sub.topicSplit.at(partIndex);
         if(actualPart == expectedPart || expectedPart == "+") {
             partIndex += 1;
