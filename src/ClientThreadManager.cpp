@@ -215,6 +215,9 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
             if(connectFlags & 0x4) {
                 // will message exists
                 auto willTopic = decoder.decodeString();
+                if(willTopic.empty()) {
+                    protocolViolation();
+                }
                 auto willMessage = decoder.decodeBytesWithPrefixLength();
                 auto willQos = (connectFlags & 0x18) >> 3;
                 auto willRetain = static_cast<Retain>(!!(connectFlags & 0x20));
@@ -257,6 +260,9 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
             QoS qos = static_cast<QoS>(qosInt);
             auto retain = static_cast<Retain>(!!(recvData.firstByte & 0x1));
             auto topic = decoder.decodeString(); // TODO check for allowed chars
+            if(topic.empty()) {
+                protocolViolation();
+            }
             if(qos == QoS::QoS1 || qos == QoS::QoS2) {
                 auto id = decoder.decode2Bytes(); // TODO use
                 if(qos == QoS::QoS1) {
@@ -280,6 +286,9 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
             auto packetIdentifier = decoder.decode2Bytes();
             do {
                 auto topic = decoder.decodeString();
+                if(topic.empty()) {
+                    protocolViolation();
+                }
                 spdlog::info("[{}:{}] Subscribing to {}", client.getTcpClient().getRemoteIp(), client.getTcpClient().getRemotePort(), topic);
                 uint8_t qosInt = decoder.decodeByte();
                 if(qosInt >= 3) {

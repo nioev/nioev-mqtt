@@ -23,6 +23,9 @@ static void splitString(const std::string& str, T callback) {
 static bool doesTopicMatchSubscription(const std::string& topic, const MQTTPersistentState::Subscription& sub) {
     size_t partIndex = 0;
     bool doesMatch = true;
+    if((topic.at(0) == '$' && sub.topic.at(0) != '$') || (topic.at(0) != '$' && sub.topic.at(0) == '$')) {
+        return false;
+    }
     splitString(topic, [&] (const auto& actualPart) {
         if(sub.topicSplit.size() <= partIndex) {
             doesMatch = false;
