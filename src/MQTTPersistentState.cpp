@@ -168,7 +168,8 @@ SessionPresent MQTTPersistentState::loginClient(MQTTClientConnection& conn, std:
         if(existingSession != mPersistentClientStates.end()) {
             mPersistentClientStates.erase(existingSession);
         }
-        auto newState = mPersistentClientStates.emplace_hint(existingSession, std::piecewise_construct, std::make_tuple(std::move(clientId)), std::make_tuple());
+        auto newState = mPersistentClientStates.emplace_hint(existingSession, std::piecewise_construct, std::make_tuple(clientId), std::make_tuple());
+        newState->second.clientId = std::move(clientId);
         conn.setPersistentState(&newState->second);
         ret = SessionPresent::No;
     } else {
@@ -176,7 +177,8 @@ SessionPresent MQTTPersistentState::loginClient(MQTTClientConnection& conn, std:
             ret = SessionPresent::Yes;
             conn.setPersistentState(&existingSession->second);
         } else {
-            auto newState = mPersistentClientStates.emplace_hint(existingSession, std::piecewise_construct, std::make_tuple(std::move(clientId)), std::make_tuple());
+            auto newState = mPersistentClientStates.emplace_hint(existingSession, std::piecewise_construct, std::make_tuple(clientId), std::make_tuple());
+            newState->second.clientId = std::move(clientId);
             conn.setPersistentState(&newState->second);
             ret = SessionPresent::No;
         }

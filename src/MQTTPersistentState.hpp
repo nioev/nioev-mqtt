@@ -22,6 +22,7 @@ struct PersistentClientState {
     std::atomic<bool> isConnected = false;
     // when isConnected is true, requires the clients receive lock
     std::unordered_set<int16_t> qos3receivingPacketIds;
+    std::string clientId;
 };
 
 enum class SessionPresent {

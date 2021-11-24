@@ -235,6 +235,7 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
                 auto password = decoder.decodeString();
             }
             auto sesssionPresent = mApp.loginClient(client, std::move(clientId), cleanSession ? CleanSession::Yes : CleanSession::No);
+            spdlog::info("[{}] Connected", client.getPersistentState()->clientId);
             response.push_back(sesssionPresent == SessionPresent::Yes ? 1 : 0);
             response.push_back(0); // everything okay
 
@@ -289,7 +290,7 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
                 if(topic.empty()) {
                     protocolViolation();
                 }
-                spdlog::info("[{}:{}] Subscribing to {}", client.getTcpClient().getRemoteIp(), client.getTcpClient().getRemotePort(), topic);
+                spdlog::info("[{}] Subscribing to {}", client.getPersistentState()->clientId, topic);
                 uint8_t qosInt = decoder.decodeByte();
                 if(qosInt >= 3) {
                     protocolViolation();
@@ -343,7 +344,7 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
             if(recvData.firstByte != 0xE0) {
                 protocolViolation();
             }
-            spdlog::info("[{}:{}] Disconnecting...", client.getTcpClient().getRemoteIp(), client.getTcpClient().getRemotePort());
+            spdlog::info("[{}] Disconnecting...", client.getPersistentState()->clientId);
             client.discardWill();
             throw CleanDisconnectException{};
 
