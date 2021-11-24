@@ -2792,7 +2792,7 @@ int bf_mul_pow_radix(bf_t *r, const bf_t *T, limb_t radix,
             extra_bits = ceil_log2(e) * 2 + 1;
             ret = bf_pow_ui_ui(B, radix, e, prec1 + extra_bits, BF_RNDN | BF_FLAG_EXT_EXP);
             overflow = !bf_is_finite(B);
-            /* XXX: if bf_pow_ui_ui returns an exact result, can stop
+            /* XXX: if bf_pow_ui_ui returns an exact result, can requestStop
                after the next operation */
             if (expn_sign)
                 ret |= bf_div(r, T, B, prec1 + extra_bits, BF_RNDN | BF_FLAG_EXT_EXP);
@@ -4240,7 +4240,7 @@ static int bf_ziv_rounding(bf_t *r, const bf_t *a,
                    but we do not catch all the cases */
                 return ret;
             }
-            /* if the result is exact, we can stop */
+            /* if the result is exact, we can requestStop */
             if (!(ret & BF_ST_INEXACT)) {
                 ret = 0;
                 break;

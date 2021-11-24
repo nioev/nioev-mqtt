@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <string_view>
 #include <arpa/inet.h>
+#include "poll.h"
 
 #include "Util.hpp"
 #include "TcpClientConnection.hpp"
@@ -17,7 +18,7 @@
 
 namespace nioev {
 
-TcpServer::TcpServer(uint16_t port) {
+TcpServer::TcpServer(uint16_t port, TcpClientHandlerInterface& handler) {
     struct sockaddr_in servaddr = { 0 };
 
     mSockFd = socket(AF_INET, SOCK_STREAM, 0);
@@ -46,16 +47,37 @@ TcpServer::TcpServer(uint16_t port) {
         exit(3);
     }
     spdlog::trace("Socket listening");
+
+    mLoopThread.emplace([this, &handler] {
+        pthread_setname_np(pthread_self(), "TcpServer");
+        loopThreadFunc(handler);
+    });
 }
 
 TcpServer::~TcpServer() {
+    requestStop();
     close(mSockFd);
 }
 
-[[noreturn]] void TcpServer::loop(TcpClientHandlerInterface& handler) {
-    while(true) {
+void TcpServer::loopThreadFunc(TcpClientHandlerInterface& handler) {
+    while(mShouldRun) {
         struct sockaddr_in clientAddr;
         socklen_t len = sizeof(clientAddr);
+
+        struct pollfd pollInfo;
+        pollInfo.fd = mSockFd;
+        pollInfo.events = POLLIN;
+        if(poll(&pollInfo, 1, -1) < 0) {
+            if(!mShouldRun) {
+                spdlog::info("Safely aborted TcpServer accept loop");
+                return;
+            }
+            spdlog::error("poll(): {}", util::errnoToString());
+            continue;
+        }
+        if(!mShouldRun) {
+            return;
+        }
         auto clientFd = accept4(mSockFd, (struct sockaddr*)&clientAddr, &len, SOCK_NONBLOCK | SOCK_CLOEXEC);
         if(clientFd < 0) {
             spdlog::error("Failed to accept client: {}", util::errnoToString());
@@ -67,6 +89,16 @@ TcpServer::~TcpServer() {
         TcpClientConnection conn{clientFd, ipAsStr, clientAddr.sin_port};
         handler.handleNewClientConnection(std::move(conn));
     }
+}
+void TcpServer::requestStop() {
+    if(!mShouldRun) {
+        return;
+    }
+    mShouldRun = false;
+    pthread_kill(mLoopThread->native_handle(), SIGUSR1);
+}
+void TcpServer::join() {
+    mLoopThread->join();
 }
 
 }

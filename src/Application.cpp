@@ -5,8 +5,10 @@
 namespace nioev {
 
 Application::Application()
-: mClientManager(*this, 4), mScriptActionPerformer(*this) {
-
+: mScriptActionPerformer(*this), mClientManager(*this, 4) {
+    mTimer.addPeriodicTask(std::chrono::seconds (10), [this] {
+       cleanupDisconnectedClients();
+    });
 }
 
 void Application::handleNewClientConnection(TcpClientConnection&& conn) {
@@ -21,26 +23,31 @@ void Application::handleNewClientConnection(TcpClientConnection&& conn) {
 }
 std::pair<std::reference_wrapper<MQTTClientConnection>, std::shared_lock<std::shared_mutex>> Application::getClient(int fd) {
     std::shared_lock<std::shared_mutex> lock{mClientsMutex};
-    return {mClients.at(fd), std::move(lock)};
+    auto &c = mClients.at(fd);
+    if(c.shouldBeDisconnected())
+        throw std::runtime_error{"Client not found!"};
+    return {c, std::move(lock)};
 }
-void Application::notifyConnectionError(int connFd) {
-    std::lock_guard<std::shared_mutex> lock{mClientsMutex};
-    auto client = mClients.find(connFd);
-    if(client == mClients.end()) {
-        // Client was already deleted. This can happen if two receiver threads
-        // get notified at the same time that a connection was closed and
-        // both try to delete the connection at the same time.
-        return;
-    }
-    spdlog::debug("Deleting connection {}", connFd);
-    auto willMsg = client->second.moveWill();
-    if(willMsg) {
-        publishWithoutAcquiringLock(std::move(willMsg->topic), std::move(willMsg->msg), willMsg->qos, willMsg->retain);
-    }
-    mClientManager.removeClientConnection(client->second);
-    mPersistentState.deleteAllSubscriptions(client->second);
+void Application::cleanupDisconnectedClients() {
+    std::shared_lock<std::shared_mutex> lock{mClientsMutex};
+    for(auto it = mClients.begin(); it != mClients.end();) {
+        if(it->second.shouldBeDisconnected()) {
+            auto willMsg = it->second.moveWill();
+            if(willMsg) {
+                publishWithoutAcquiringLock(std::move(willMsg->topic), std::move(willMsg->msg), willMsg->qos, willMsg->retain);
+            }
+            mClientManager.removeClientConnection(it->second);
+            mPersistentState.deleteAllSubscriptions(it->second);
 
-    mClients.erase(client);
+            lock.unlock();
+            std::unique_lock<std::shared_mutex> rwLock{mClientsMutex};
+            it = mClients.erase(it);
+            rwLock.unlock();
+            lock.lock();
+        } else {
+            it++;
+        }
+    }
 }
 void Application::publish(std::string&& topic, std::vector<uint8_t>&& msg, std::optional<QoS> qos, Retain retain) {
     std::shared_lock<std::shared_mutex> lock{mClientsMutex};
@@ -54,6 +61,7 @@ void Application::publishWithoutAcquiringLock(std::string&& topic, std::vector<u
     }
 #endif
     // first run scripts
+    // TODO optimize forEachSubscriber so that it skips other subscriptions automatically, avoiding unnecessary work checking for all matches
     auto action = SyncAction::Continue;
     mPersistentState.forEachSubscriber(topic, [this, &topic, &msg, &action] (auto& sub) {
         if(sub.subscriber.index() != 1)

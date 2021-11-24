@@ -596,7 +596,7 @@ typedef struct JSFunctionBytecode {
     uint8_t super_allowed : 1;
     uint8_t arguments_allowed : 1;
     uint8_t has_debug : 1;
-    uint8_t backtrace_barrier : 1; /* stop backtrace on this function */
+    uint8_t backtrace_barrier : 1; /* requestStop backtrace on this function */
     uint8_t read_only_bytecode : 1;
     /* XXX: 4 bits available */
     uint8_t *byte_code_buf; /* (self pointer) */
@@ -6532,7 +6532,7 @@ static void build_backtrace(JSContext *ctx, JSValueConst error_obj,
             dbuf_printf(&dbuf, " (native)");
         }
         dbuf_putc(&dbuf, '\n');
-        /* stop backtrace if JS_EVAL_FLAG_BACKTRACE_BARRIER was used */
+        /* requestStop backtrace if JS_EVAL_FLAG_BACKTRACE_BARRIER was used */
         if (backtrace_barrier)
             break;
     }

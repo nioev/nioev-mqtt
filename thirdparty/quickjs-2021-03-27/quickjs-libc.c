@@ -2140,7 +2140,7 @@ static int js_os_poll(JSContext *ctx)
                 rh = list_entry(el, JSOSRWHandler, link);
                 if (rh->fd == console_fd && !JS_IsNull(rh->rw_func[0])) {
                     call_handler(ctx, rh->rw_func[0]);
-                    /* must stop because the list may have been modified */
+                    /* must requestStop because the list may have been modified */
                     break;
                 }
             }
@@ -2317,13 +2317,13 @@ static int js_os_poll(JSContext *ctx)
             if (!JS_IsNull(rh->rw_func[0]) &&
                 FD_ISSET(rh->fd, &rfds)) {
                 call_handler(ctx, rh->rw_func[0]);
-                /* must stop because the list may have been modified */
+                /* must requestStop because the list may have been modified */
                 goto done;
             }
             if (!JS_IsNull(rh->rw_func[1]) &&
                 FD_ISSET(rh->fd, &wfds)) {
                 call_handler(ctx, rh->rw_func[1]);
-                /* must stop because the list may have been modified */
+                /* must requestStop because the list may have been modified */
                 goto done;
             }
         }

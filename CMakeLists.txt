@@ -9,6 +9,10 @@ add_subdirectory(thirdparty/spdlog)
 add_subdirectory(thirdparty/quickjs-2021-03-27)
 include_directories(thirdparty/quickjs-2021-03-27)
 
+include_directories("thirdparty/uWebSockets/uSockets/src")
+include_directories(thirdparty/uWebSockets/src)
+add_subdirectory(thirdparty/uWebSockets-CMake)
+
 add_executable(nioev
         src/main.cpp
         src/TcpServer.cpp
@@ -33,6 +37,7 @@ add_executable(nioev
         src/BigString.hpp
         src/BigVector.hpp
         src/scripting/ScriptActionPerformer.cpp
-        src/scripting/ScriptActionPerformer.hpp)
+        src/scripting/ScriptActionPerformer.hpp
+        ${UWEBSOCKETS_FILES} src/Timers.cpp src/Timers.hpp)
 
-target_link_libraries(nioev spdlog quickjs pthread dl)
+target_link_libraries(nioev uWebSockets spdlog quickjs pthread dl)

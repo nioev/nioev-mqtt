@@ -88,6 +88,12 @@ public:
     PersistentClientState* getPersistentState() {
         return mPersistentState.load();
     }
+    void notifyConnecionError() {
+        mShouldBeDisconnected = true;
+    }
+    [[nodiscard]] bool shouldBeDisconnected() const {
+        return mShouldBeDisconnected;
+    }
 private:
     TcpClientConnection mConn;
 
@@ -108,6 +114,7 @@ private:
     std::optional<WillStruct> mWill;
 
     std::atomic<PersistentClientState*> mPersistentState = nullptr;
+    std::atomic<bool> mShouldBeDisconnected = false;
 };
 
 

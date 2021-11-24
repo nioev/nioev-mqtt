@@ -2,6 +2,7 @@
 #include "Util.hpp"
 #include <spdlog/spdlog.h>
 #include <sys/epoll.h>
+#include <signal.h>
 
 #include "Enums.hpp"
 #include "Application.hpp"
@@ -26,10 +27,10 @@ ClientThreadManager::ClientThreadManager(Application& app, uint threadCount)
 }
 void ClientThreadManager::receiverThreadFunction() {
     std::vector<uint8_t> bytes;
-    bytes.resize(64 * 1024);
+    bytes.resize(64 * 1024 * 4);
     while(!mShouldQuit) {
-        epoll_event events[20] = { 0 };
-        int eventCount = epoll_wait(mEpollFd, events, 20, -1);
+        epoll_event events[128] = { 0 };
+        int eventCount = epoll_wait(mEpollFd, events, 128, -1);
         if(eventCount < 0) {
             spdlog::critical("epoll_wait(): {}", util::errnoToString());
         }
@@ -53,9 +54,10 @@ void ClientThreadManager::receiverThreadFunction() {
                         do {
                             bytesSend = client.getTcpClient().send(it->data.data() + it->offset, it->data.size() - it->offset);
                             it->offset += bytesSend;
-                        } while(bytesSend > 0);
+                        } while(bytesSend > 0 && it->offset < it->data.size());
 
                         if(it->offset >= it->data.size()) {
+                            it = sendTasks.erase(it);
                             if(sendTasks.size() == 1) {
                                 epoll_event ev = { 0 };
                                 ev.data.fd = client.getTcpClient().getFd();
@@ -65,7 +67,6 @@ void ClientThreadManager::receiverThreadFunction() {
                                     throw std::runtime_error{"epoll_ctl(): " + util::errnoToString()};
                                 }
                             }
-                            it = sendTasks.erase(it);
                         } else {
                             break;
                         }
@@ -140,10 +141,20 @@ void ClientThreadManager::receiverThreadFunction() {
                     } while(bytesReceived > 0);
                 }
             } catch(CleanDisconnectException&) {
-                mApp.notifyConnectionError(events[i].data.fd);
+                try {
+                    auto[client, lock] = mApp.getClient(events[i].data.fd);
+                    client.get().notifyConnecionError();
+                } catch(...) {
+                    // ignore errors while fetching the client, it probably just means it has been disconnected already
+                }
             } catch(std::exception& e) {
                 spdlog::error("Caught: {}", e.what());
-                mApp.notifyConnectionError(events[i].data.fd);
+                try {
+                    auto[client, lock] = mApp.getClient(events[i].data.fd);
+                    client.get().notifyConnecionError();
+                } catch(...) {
+                    // ignore errors while fetching the client, it probably just means it has been disconnected already
+                }
             }
         }
     }
@@ -204,6 +215,9 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
             if(connectFlags & 0x4) {
                 // will message exists
                 auto willTopic = decoder.decodeString();
+                if(willTopic.empty()) {
+                    protocolViolation();
+                }
                 auto willMessage = decoder.decodeBytesWithPrefixLength();
                 auto willQos = (connectFlags & 0x18) >> 3;
                 auto willRetain = static_cast<Retain>(!!(connectFlags & 0x20));
@@ -246,6 +260,9 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
             QoS qos = static_cast<QoS>(qosInt);
             auto retain = static_cast<Retain>(!!(recvData.firstByte & 0x1));
             auto topic = decoder.decodeString(); // TODO check for allowed chars
+            if(topic.empty()) {
+                protocolViolation();
+            }
             if(qos == QoS::QoS1 || qos == QoS::QoS2) {
                 auto id = decoder.decode2Bytes(); // TODO use
                 if(qos == QoS::QoS1) {
@@ -269,6 +286,9 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
             auto packetIdentifier = decoder.decode2Bytes();
             do {
                 auto topic = decoder.decodeString();
+                if(topic.empty()) {
+                    protocolViolation();
+                }
                 spdlog::info("[{}:{}] Subscribing to {}", client.getTcpClient().getRemoteIp(), client.getTcpClient().getRemotePort(), topic);
                 uint8_t qosInt = decoder.decodeByte();
                 if(qosInt >= 3) {
@@ -357,39 +377,48 @@ void ClientThreadManager::sendPublish(MQTTClientConnection& conn, const std::str
     sendData(conn, encoder.moveData());
 }
 void ClientThreadManager::sendData(MQTTClientConnection& conn, std::vector<uint8_t>&& bytes) {
-    uint totalBytesSent = 0;
-    uint bytesSent = 0;
-    auto [sendTasksRef, sendLock] = conn.getSendTasks();
-    auto& sendTasks = sendTasksRef.get();
-    do {
-        bytesSent = conn.getTcpClient().send(bytes.data() + totalBytesSent, bytes.size() - totalBytesSent);
-        totalBytesSent += bytesSent;
-    } while(bytesSent > 0 && totalBytesSent < bytes.size());
-    //spdlog::warn("Bytes sent: {}, Total bytes sent: {}", bytesSent, totalBytesSent);
+    try {
+        uint totalBytesSent = 0;
+        uint bytesSent = 0;
+        auto [sendTasksRef, sendLock] = conn.getSendTasks();
+        auto& sendTasks = sendTasksRef.get();
+        do {
+            bytesSent = conn.getTcpClient().send(bytes.data() + totalBytesSent, bytes.size() - totalBytesSent);
+            totalBytesSent += bytesSent;
+        } while(bytesSent > 0 && totalBytesSent < bytes.size());
+        //spdlog::warn("Bytes sent: {}, Total bytes sent: {}", bytesSent, totalBytesSent);
 
-    if(totalBytesSent < bytes.size()) {
-        sendTasks.emplace_back(MQTTClientConnection::SendTask{ std::move(bytes), totalBytesSent });
+        if(totalBytesSent < bytes.size()) {
+            sendTasks.emplace_back(MQTTClientConnection::SendTask{ std::move(bytes), totalBytesSent });
 
-        // listen for EPOLLOUT
-        // if we specify EPOLLEXCLUSIVE, we need to delete and readd the FD
-        if(epoll_ctl(mEpollFd, EPOLL_CTL_DEL, conn.getTcpClient().getFd(), nullptr) < 0) {
-            spdlog::warn("epoll_ctl(EPOLL_CTL_DEL): {}", util::errnoToString());
-            throw std::runtime_error{"epoll_ctl(EPOLL_CTL_DEL): " + util::errnoToString()};
+            // listen for EPOLLOUT
+            // if we specify EPOLLEXCLUSIVE, we need to delete and readd the FD
+            if(epoll_ctl(mEpollFd, EPOLL_CTL_DEL, conn.getTcpClient().getFd(), nullptr) < 0) {
+                spdlog::warn("epoll_ctl(EPOLL_CTL_DEL): {}", util::errnoToString());
+                throw std::runtime_error{"epoll_ctl(EPOLL_CTL_DEL): " + util::errnoToString()};
+            }
+            epoll_event ev = { 0 };
+            ev.data.fd = conn.getTcpClient().getFd();
+            ev.events = EPOLLET | EPOLLIN | EPOLLOUT | EPOLLEXCLUSIVE;
+            // TODO save pointer to client
+            if(epoll_ctl(mEpollFd, EPOLL_CTL_ADD, conn.getTcpClient().getFd(), &ev) < 0) {
+                spdlog::warn("epoll_ctl(EPOLL_CTL_ADD): {}", util::errnoToString());
+                throw std::runtime_error{"epoll_ctl(EPOLL_CTL_ADD): " + util::errnoToString()};
+            }
         }
-        epoll_event ev = { 0 };
-        ev.data.fd = conn.getTcpClient().getFd();
-        ev.events = EPOLLET | EPOLLIN | EPOLLOUT | EPOLLEXCLUSIVE;
-        // TODO save pointer to client
-        if(epoll_ctl(mEpollFd, EPOLL_CTL_ADD, conn.getTcpClient().getFd(), &ev) < 0) {
-            spdlog::warn("epoll_ctl(EPOLL_CTL_ADD): {}", util::errnoToString());
-            throw std::runtime_error{"epoll_ctl(EPOLL_CTL_ADD): " + util::errnoToString()};
-        }
+    } catch(std::exception& e) {
+        spdlog::error("Error while sending data: {}", e.what());
+        conn.notifyConnecionError();
     }
 }
 ClientThreadManager::~ClientThreadManager() {
     mShouldQuit = true;
     for(auto& t : mReceiverThreads) {
+        pthread_kill(t.native_handle(), SIGUSR1);
         t.join();
+    }
+    if(close(mEpollFd)) {
+        spdlog::error("close(): {}", util::errnoToString());
     }
 }
 

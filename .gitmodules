@@ -1,3 +1,6 @@
 [submodule "thirdparty/spdlog"]
 	path = thirdparty/spdlog
 	url = https://github.com/vayudev/spdlog
+[submodule "thirdparty/uWebSockets"]
+	path = thirdparty/uWebSockets
+	url = https://github.com/uNetworking/uWebSockets
