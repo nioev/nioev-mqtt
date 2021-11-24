@@ -58,13 +58,23 @@ void ClientThreadManager::receiverThreadFunction() {
 
                         if(it->offset >= it->data.size()) {
                             it = sendTasks.erase(it);
-                            if(sendTasks.size() == 1) {
+                            if(client.getState() == MQTTClientConnection::ConnectionState::INVALID_PROTOCOL_VERSION) {
+                                assert(sendTasks.empty());
+                                throw CleanDisconnectException{};
+                            }
+                            if(sendTasks.empty()) {
+                                // if we specify EPOLLEXCLUSIVE, we need to delete and readd the FD
+                                if(epoll_ctl(mEpollFd, EPOLL_CTL_DEL, client.getTcpClient().getFd(), nullptr) < 0) {
+                                    spdlog::warn("epoll_ctl(EPOLL_CTL_DEL): {}", util::errnoToString());
+                                    throw std::runtime_error{"epoll_ctl(EPOLL_CTL_DEL): " + util::errnoToString()};
+                                }
                                 epoll_event ev = { 0 };
                                 ev.data.fd = client.getTcpClient().getFd();
                                 ev.events = EPOLLET | EPOLLIN | EPOLLEXCLUSIVE;
-                                if(epoll_ctl(mEpollFd, EPOLL_CTL_MOD, client.getTcpClient().getFd(), &ev) < 0) {
-                                    spdlog::warn("epoll_ctl(): {}", util::errnoToString());
-                                    throw std::runtime_error{"epoll_ctl(): " + util::errnoToString()};
+                                // TODO save pointer to client
+                                if(epoll_ctl(mEpollFd, EPOLL_CTL_ADD, client.getTcpClient().getFd(), &ev) < 0) {
+                                    spdlog::warn("epoll_ctl(EPOLL_CTL_ADD): {}", util::errnoToString());
+                                    throw std::runtime_error{"epoll_ctl(EPOLL_CTL_ADD): " + util::errnoToString()};
                                 }
                             }
                         } else {
