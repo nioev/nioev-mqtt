@@ -284,16 +284,16 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
                     encoder.insertPacketLength();
                     sendData(client, encoder.moveData());
                 } else {
-                    if(client.getPersistentState()->qos3receivingPacketIds.contains(id)) {
-                        break;
-                    }
-                    client.getPersistentState()->qos3receivingPacketIds.emplace(id);
                     // send PUBREC
                     util::BinaryEncoder encoder;
                     encoder.encodeByte(static_cast<uint8_t>(MQTTMessageType::PUBREC) << 4);
                     encoder.encode2Bytes(id);
                     encoder.insertPacketLength();
                     sendData(client, encoder.moveData());
+                    if(client.getPersistentState()->qos3receivingPacketIds.contains(id)) {
+                        break;
+                    }
+                    client.getPersistentState()->qos3receivingPacketIds.emplace(id);
                 }
             }
             std::vector<uint8_t> data = decoder.getRemainingBytes();
@@ -307,7 +307,8 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
                 protocolViolation();
             }
             uint16_t id = decoder.decode2Bytes();
-            client.getPersistentState()->qos3receivingPacketIds.erase(id);
+            auto numErased = client.getPersistentState()->qos3receivingPacketIds.erase(id);
+            assert(numErased == 1);
 
             // send PUBCOMP
             util::BinaryEncoder encoder;
