@@ -9,12 +9,25 @@
 #include <utility>
 #include <variant>
 #include <optional>
+#include <unordered_set>
+#include <atomic>
 
 namespace nioev {
 
 static inline bool operator==(const std::reference_wrapper<MQTTClientConnection>& a, const std::reference_wrapper<MQTTClientConnection>& b) {
     return &a.get() == &b.get();
 }
+
+struct PersistentClientState {
+    std::atomic<bool> isConnected = false;
+    // when isConnected is true, requires the clients receive lock
+    std::unordered_set<int16_t> qos3receivingPacketIds;
+};
+
+enum class SessionPresent {
+    No,
+    Yes
+};
 
 class MQTTPersistentState {
 public:
@@ -37,6 +50,8 @@ public:
 
     void forEachSubscriber(const std::string& topic, std::function<void(Subscription&)> callback);
     void retainMessage(std::string&& topic, std::vector<uint8_t>&& payload);
+
+    SessionPresent loginClient(MQTTClientConnection& conn, std::string&& clientId, CleanSession cleanSession);
 private:
 
     void addSubscriptionInternal(std::variant<std::reference_wrapper<MQTTClientConnection>, ScriptName> subscriber, std::string topic, std::optional<QoS> qos, std::function<void(const std::string&, const std::vector<uint8_t>&)>&& retainedMessageCallback);
@@ -49,6 +64,10 @@ private:
     };
     std::shared_mutex mRetainedMessagesMutex;
     std::unordered_map<std::string, RetainedMessage> mRetainedMessages;
+
+
+    std::shared_mutex mPersistentClientStatesMutex;
+    std::unordered_map<std::string, PersistentClientState> mPersistentClientStates;
 };
 
 }

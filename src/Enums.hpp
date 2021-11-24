@@ -35,4 +35,10 @@ enum class Retained
 };
 using Retain = Retained;
 
+enum class CleanSession
+{
+    Yes,
+    No
+};
+
 }

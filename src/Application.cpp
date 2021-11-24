@@ -134,4 +134,7 @@ SyncAction Application::runScriptWithPublishedMessage(const std::string& scriptN
         return SyncAction::Continue;
     }
 }
+SessionPresent Application::loginClient(MQTTClientConnection& conn, std::string&& clientId, CleanSession cleanSession) {
+    return mPersistentState.loginClient(conn, std::move(clientId), cleanSession);
+}
 }

@@ -35,6 +35,7 @@ public:
     void addSubscription(std::string&& scriptName, std::string&& topic);
     void deleteSubscription(MQTTClientConnection& conn, const std::string& topic);
     void deleteSubscription(std::string&& scriptName, std::string&& topic);
+    SessionPresent loginClient(MQTTClientConnection& conn, std::string&& clientId, CleanSession cleanSession);
 
     template<typename T, typename... Args>
     void addScript(const std::string& name, std::function<void(const std::string& scriptName)>&& onSuccess, std::function<void(const std::string& scriptName, const std::string&)>&& onError, Args... args) {

@@ -1,6 +1,8 @@
 #include "MQTTPersistentState.hpp"
 #include "MQTTClientConnection.hpp"
 
+#include <fstream>
+
 namespace nioev {
 
 enum class IterationDecision {
@@ -129,6 +131,49 @@ void MQTTPersistentState::retainMessage(std::string&& topic, std::vector<uint8_t
        return;
     }
     mRetainedMessages.insert_or_assign(topic, RetainedMessage{std::move(payload)});
+}
+SessionPresent MQTTPersistentState::loginClient(MQTTClientConnection& conn, std::string&& clientId, CleanSession cleanSession) {
+    std::unique_lock<std::shared_mutex> lock{mPersistentClientStatesMutex};
+
+    constexpr char AVAILABLE_RANDOM_CHARS[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890";
+
+    decltype(mPersistentClientStates.begin()) existingSession;
+    if(clientId.empty()) {
+        assert(cleanSession == CleanSession::Yes);
+        // generate random client id
+        std::string randomId;
+        randomId.resize(24);
+        std::ifstream urandom{"/dev/urandom"};
+        do {
+            for(size_t i = 0; i < 24; ++i) {
+                randomId.at(i) = AVAILABLE_RANDOM_CHARS[urandom.get() % strlen(AVAILABLE_RANDOM_CHARS)];
+            }
+            urandom.read(randomId.data(), 24);
+            existingSession = mPersistentClientStates.find(randomId);
+        } while(existingSession != mPersistentClientStates.end());
+        clientId = std::move(randomId);
+    } else {
+        existingSession = mPersistentClientStates.find(clientId);
+    }
+    SessionPresent ret = SessionPresent::No;
+    if(cleanSession == CleanSession::Yes) {
+        if(existingSession != mPersistentClientStates.end()) {
+            mPersistentClientStates.erase(existingSession);
+        }
+        auto newState = mPersistentClientStates.emplace_hint(existingSession, std::piecewise_construct, std::make_tuple(std::move(clientId)), std::make_tuple());
+        conn.setPersistentState(&newState->second);
+        ret = SessionPresent::No;
+    } else {
+        if(existingSession != mPersistentClientStates.end()) {
+            ret = SessionPresent::Yes;
+            conn.setPersistentState(&existingSession->second);
+        } else {
+            auto newState = mPersistentClientStates.emplace_hint(existingSession, std::piecewise_construct, std::make_tuple(std::move(clientId)), std::make_tuple());
+            conn.setPersistentState(&newState->second);
+            ret = SessionPresent::No;
+        }
+    }
+    return ret;
 }
 
 }

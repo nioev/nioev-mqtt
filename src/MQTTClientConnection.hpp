@@ -6,6 +6,7 @@
 #include <mutex>
 #include <optional>
 
+#include "Forward.hpp"
 #include "TcpClientConnection.hpp"
 #include "Enums.hpp"
 
@@ -79,6 +80,14 @@ public:
         std::lock_guard<std::mutex> lock{mRemaingingMutex};
         return std::move(mWill);
     }
+    void setPersistentState(PersistentClientState* newState) {
+        assert(!mPersistentState);
+        mPersistentState.store(newState);
+    }
+    // please ensure that you have the correct locks when accessing its members!
+    PersistentClientState* getPersistentState() {
+        return mPersistentState.load();
+    }
 private:
     TcpClientConnection mConn;
 
@@ -97,6 +106,8 @@ private:
         Retain retain;
     };
     std::optional<WillStruct> mWill;
+
+    std::atomic<PersistentClientState*> mPersistentState = nullptr;
 };
 
 

@@ -220,9 +220,9 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
                 // password
                 auto password = decoder.decodeString();
             }
-            response.push_back(0); // no session present TODO fix
+            auto sesssionPresent = mApp.loginClient(client, std::move(clientId), cleanSession ? CleanSession::Yes : CleanSession::No);
+            response.push_back(sesssionPresent == SessionPresent::Yes ? 1 : 0);
             response.push_back(0); // everything okay
-            spdlog::debug("Sent response!");
 
 
             sendData(client, std::move(response));
