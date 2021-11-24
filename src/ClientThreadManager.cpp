@@ -275,11 +275,22 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
                 protocolViolation();
             }
             if(qos == QoS::QoS1 || qos == QoS::QoS2) {
-                auto id = decoder.decode2Bytes(); // TODO use
+                auto id = decoder.decode2Bytes();
                 if(qos == QoS::QoS1) {
                     // send PUBACK
                     util::BinaryEncoder encoder;
                     encoder.encodeByte(static_cast<uint8_t>(MQTTMessageType::PUBACK) << 4);
+                    encoder.encode2Bytes(id);
+                    encoder.insertPacketLength();
+                    sendData(client, encoder.moveData());
+                } else {
+                    if(client.getPersistentState()->qos3receivingPacketIds.contains(id)) {
+                        break;
+                    }
+                    client.getPersistentState()->qos3receivingPacketIds.emplace(id);
+                    // send PUBREC
+                    util::BinaryEncoder encoder;
+                    encoder.encodeByte(static_cast<uint8_t>(MQTTMessageType::PUBREC) << 4);
                     encoder.encode2Bytes(id);
                     encoder.insertPacketLength();
                     sendData(client, encoder.moveData());
@@ -288,6 +299,22 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
             std::vector<uint8_t> data = decoder.getRemainingBytes();
             // we need to go through the app to 1. save retained messages 2. interact with scripts
             mApp.publish(std::move(topic), std::move(data), qos, retain);
+            break;
+        }
+        case MQTTMessageType::PUBREL: {
+            // QoS 2 part 2
+            if(recvData.firstByte != 0x62) {
+                protocolViolation();
+            }
+            uint16_t id = decoder.decode2Bytes();
+            client.getPersistentState()->qos3receivingPacketIds.erase(id);
+
+            // send PUBCOMP
+            util::BinaryEncoder encoder;
+            encoder.encodeByte(static_cast<uint8_t>(MQTTMessageType::PUBCOMP) << 4);
+            encoder.encode2Bytes(id);
+            encoder.insertPacketLength();
+            sendData(client, encoder.moveData());
             break;
         }
         case MQTTMessageType::SUBSCRIBE: {
