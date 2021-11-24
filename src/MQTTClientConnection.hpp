@@ -82,11 +82,11 @@ public:
     }
     void setPersistentState(PersistentClientState* newState) {
         assert(!mPersistentState);
-        mPersistentState.store(newState);
+        mPersistentState = newState;
     }
     // please ensure that you have the correct locks when accessing its members!
     PersistentClientState* getPersistentState() {
-        return mPersistentState.load();
+        return mPersistentState;
     }
     void notifyConnecionError() {
         mShouldBeDisconnected = true;
@@ -113,7 +113,9 @@ private:
     };
     std::optional<WillStruct> mWill;
 
-    std::atomic<PersistentClientState*> mPersistentState = nullptr;
+    // protected by recv mutex
+    PersistentClientState* mPersistentState = nullptr;
+
     std::atomic<bool> mShouldBeDisconnected = false;
 };
 

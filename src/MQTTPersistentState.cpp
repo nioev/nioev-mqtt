@@ -148,16 +148,17 @@ SessionPresent MQTTPersistentState::loginClient(MQTTClientConnection& conn, std:
     if(clientId.empty()) {
         assert(cleanSession == CleanSession::Yes);
         // generate random client id
-        std::string randomId;
-        randomId.resize(24);
-        std::ifstream urandom{"/dev/urandom"};
-        do {
-            for(size_t i = 0; i < 24; ++i) {
+        std::string randomId = conn.getTcpClient().getRemoteIp() + ":" + std::to_string(conn.getTcpClient().getRemotePort());
+        auto start = randomId.size();
+        existingSession = mPersistentClientStates.find(randomId);
+        while(existingSession != mPersistentClientStates.end()) {
+            std::ifstream urandom{"/dev/urandom"};
+            randomId.resize(start + 16);
+            for(size_t i = start; i < randomId.size(); ++i) {
                 randomId.at(i) = AVAILABLE_RANDOM_CHARS[urandom.get() % strlen(AVAILABLE_RANDOM_CHARS)];
             }
-            urandom.read(randomId.data(), 24);
             existingSession = mPersistentClientStates.find(randomId);
-        } while(existingSession != mPersistentClientStates.end());
+        }
         clientId = std::move(randomId);
     } else {
         existingSession = mPersistentClientStates.find(clientId);
