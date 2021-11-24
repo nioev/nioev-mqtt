@@ -27,6 +27,7 @@ private:
     void publishWithoutAcquiringLock(std::string&& topic, std::vector<uint8_t>&& msg, std::optional<QoS> qos, Retain retain);
 
     SyncAction runScriptWithPublishedMessage(const std::string& scriptName, const std::string& topic, const std::vector<uint8_t>& payload, Retained retained);
+    void performWillWithoutEraseAndLock(MQTTClientConnection& conn);
 
 public:
     Application();

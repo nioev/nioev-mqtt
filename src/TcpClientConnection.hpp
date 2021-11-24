@@ -35,10 +35,12 @@ public:
     uint send(const uint8_t* data, uint len);
     uint recv(std::vector<uint8_t>& buffer);
 
+    void close();
+
 private:
-    int mSockFd;
+    std::atomic<int> mSockFd = -1;
     std::string mRemoteIp;
-    uint16_t mRemotePort;
+    uint16_t mRemotePort = 0;
 };
 
 }

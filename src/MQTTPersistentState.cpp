@@ -163,6 +163,17 @@ SessionPresent MQTTPersistentState::loginClient(MQTTClientConnection& conn, std:
     } else {
         existingSession = mPersistentClientStates.find(clientId);
     }
+
+
+    if(existingSession != mPersistentClientStates.end()) {
+        // disconnect existing client
+        auto existingClient = existingSession->second.currentClient.load();
+        if(existingClient) {
+            spdlog::warn("[{}] Already connected, closing old connection", clientId);
+            existingClient->notifyConnecionError();
+        }
+    }
+
     SessionPresent ret = SessionPresent::No;
     if(cleanSession == CleanSession::Yes) {
         if(existingSession != mPersistentClientStates.end()) {
@@ -170,20 +181,31 @@ SessionPresent MQTTPersistentState::loginClient(MQTTClientConnection& conn, std:
         }
         auto newState = mPersistentClientStates.emplace_hint(existingSession, std::piecewise_construct, std::make_tuple(clientId), std::make_tuple());
         newState->second.clientId = std::move(clientId);
+        newState->second.currentClient.store(&conn);
         conn.setPersistentState(&newState->second);
         ret = SessionPresent::No;
     } else {
         if(existingSession != mPersistentClientStates.end()) {
             ret = SessionPresent::Yes;
+            existingSession->second.currentClient.store(&conn);
             conn.setPersistentState(&existingSession->second);
         } else {
             auto newState = mPersistentClientStates.emplace_hint(existingSession, std::piecewise_construct, std::make_tuple(clientId), std::make_tuple());
             newState->second.clientId = std::move(clientId);
+            newState->second.currentClient.store(&conn);
             conn.setPersistentState(&newState->second);
             ret = SessionPresent::No;
         }
     }
     return ret;
+}
+void MQTTPersistentState::logoutClient(MQTTClientConnection& conn) {
+    std::unique_lock<std::shared_mutex> lock{mPersistentClientStatesMutex};
+    if(!conn.getPersistentState()) {
+        return;
+    }
+    conn.getPersistentState()->currentClient = nullptr;
+    conn.getPersistentState()->lastDisconnectTime = std::chrono::steady_clock::now().time_since_epoch().count();
 }
 
 }

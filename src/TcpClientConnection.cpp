@@ -11,17 +11,14 @@ TcpClientConnection::TcpClientConnection(int sockFd, std::string remoteIp, uint1
 
 }
 TcpClientConnection::~TcpClientConnection() {
-    if(mSockFd != 0) {
-        if(close(mSockFd) < 0) {
-            spdlog::error("close(): {}", util::errnoToString());
-        }
-    }
+    close();
 }
 TcpClientConnection::TcpClientConnection(TcpClientConnection&& other) noexcept
-: mSockFd(other.mSockFd), mRemoteIp(std::move(other.mRemoteIp)), mRemotePort(other.mRemotePort) {
+: mRemoteIp(std::move(other.mRemoteIp)), mRemotePort(other.mRemotePort) {
+    mSockFd = other.mSockFd.load();
     other.mRemotePort = 0;
     other.mRemoteIp = "";
-    other.mSockFd = 0;
+    other.mSockFd = -1;
 
 }
 uint TcpClientConnection::recv(std::vector<uint8_t>& buffer) {
@@ -52,6 +49,14 @@ uint TcpClientConnection::send(const uint8_t* data, uint len) {
         util::throwErrno("send()");
     }
     return result;
+}
+void TcpClientConnection::close() {
+    if(mSockFd >= 0) {
+        if(::close(mSockFd) < 0) {
+            spdlog::error("close(): {}", util::errnoToString());
+        }
+        mSockFd = -1;
+    }
 }
 
 }

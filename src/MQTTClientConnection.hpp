@@ -90,6 +90,7 @@ public:
     }
     void notifyConnecionError() {
         mShouldBeDisconnected = true;
+        mConn.close();
     }
     [[nodiscard]] bool shouldBeDisconnected() const {
         return mShouldBeDisconnected;
@@ -113,7 +114,7 @@ private:
     };
     std::optional<WillStruct> mWill;
 
-    // protected by recv mutex
+    // protected by persistent state's mutex
     PersistentClientState* mPersistentState = nullptr;
 
     std::atomic<bool> mShouldBeDisconnected = false;

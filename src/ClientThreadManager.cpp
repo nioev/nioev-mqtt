@@ -89,6 +89,13 @@ void ClientThreadManager::receiverThreadFunction() {
                     // This ensures that we don't hang somewhere when we couldn't receive all the data.
                     uint bytesReceived = 0;
                     auto [recvDataRef, recvDataRefLock] = client.getRecvData();
+                    // This check might seem superfluous, because we can't even get a reference if the client is already disconnected. We do this any-
+                    // way because there is actually no lock required for setting a client to disconnected, so this is a race. In that case
+                    // TcpClient::recv further down would just fail with bad fd, but that spams the logs, so we do an additional check here so that in
+                    // 99.99% of cases we should not get wrong logs. Without employing even more mutexes (and we already have too many in my mind) there
+                    // is probably no way to prevent this.
+                    if(client.shouldBeDisconnected())
+                        throw CleanDisconnectException{};
                     do {
                         bytesReceived = client.getTcpClient().recv(bytes);
                         spdlog::debug("Bytes read: {}", bytesReceived);
@@ -180,8 +187,9 @@ void ClientThreadManager::addClientConnection(MQTTClientConnection& conn) {
     }
 }
 void ClientThreadManager::removeClientConnection(MQTTClientConnection& conn) {
+    // we only do this for good form, the fd should be removed automatically when it is closed (which usually happens before this)
     if(epoll_ctl(mEpollFd, EPOLL_CTL_DEL, conn.getTcpClient().getFd(), nullptr) < 0) {
-        spdlog::critical("Failed to remove fd from epoll: {}", util::errnoToString());
+        spdlog::debug("Failed to remove fd from epoll: {}", util::errnoToString());
     }
 }
 void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, const MQTTClientConnection::PacketReceiveData& recvData) {

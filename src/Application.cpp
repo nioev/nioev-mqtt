@@ -14,11 +14,27 @@ Application::Application()
 void Application::handleNewClientConnection(TcpClientConnection&& conn) {
     std::lock_guard<std::shared_mutex> lock{mClientsMutex};
     int fd = conn.getFd();
+    auto oldClient = mClients.find(fd);
+    if(oldClient != mClients.end()) {
+        // insertion didn't happen, this means that the client still exists in this map, but the fd has already been reused, meaning we have
+        // already closed the socket. This happens because we always immediately close sockets for performance & compliance reasons.
+        performWillWithoutEraseAndLock(oldClient->second);
+        mClients.erase(fd);
+    }
     auto newClient = mClients.emplace(
         std::piecewise_construct,
         std::make_tuple(fd),
         std::make_tuple(std::move(conn)));
     mClientManager.addClientConnection(newClient.first->second);
+}
+void Application::performWillWithoutEraseAndLock(MQTTClientConnection& conn) {
+    auto willMsg = conn.moveWill();
+    if(willMsg) {
+        publishWithoutAcquiringLock(std::move(willMsg->topic), std::move(willMsg->msg), willMsg->qos, willMsg->retain);
+    }
+    mClientManager.removeClientConnection(conn);
+    mPersistentState.deleteAllSubscriptions(conn);
+    //mPersistentState.logoutClient(conn);
 }
 std::pair<std::reference_wrapper<MQTTClientConnection>, std::shared_lock<std::shared_mutex>> Application::getClient(int fd) {
     std::shared_lock<std::shared_mutex> lock{mClientsMutex};
@@ -31,13 +47,7 @@ void Application::cleanupDisconnectedClients() {
     std::shared_lock<std::shared_mutex> lock{mClientsMutex};
     for(auto it = mClients.begin(); it != mClients.end();) {
         if(it->second.shouldBeDisconnected()) {
-            auto willMsg = it->second.moveWill();
-            if(willMsg) {
-                publishWithoutAcquiringLock(std::move(willMsg->topic), std::move(willMsg->msg), willMsg->qos, willMsg->retain);
-            }
-            mClientManager.removeClientConnection(it->second);
-            mPersistentState.deleteAllSubscriptions(it->second);
-
+            performWillWithoutEraseAndLock(it->second);
             lock.unlock();
             std::unique_lock<std::shared_mutex> rwLock{mClientsMutex};
             it = mClients.erase(it);

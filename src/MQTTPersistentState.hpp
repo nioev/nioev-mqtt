@@ -18,8 +18,12 @@ static inline bool operator==(const std::reference_wrapper<MQTTClientConnection>
     return &a.get() == &b.get();
 }
 
+
 struct PersistentClientState {
-    std::atomic<bool> isConnected = false;
+    std::atomic<MQTTClientConnection*> currentClient = nullptr;
+    std::atomic<int64_t> lastDisconnectTime = 0;
+
+    static_assert(std::is_same_v<decltype(std::chrono::steady_clock::time_point{}.time_since_epoch().count()), int64_t>);
     // when isConnected is true, requires the clients receive lock
     std::unordered_set<uint16_t> qos3receivingPacketIds;
     std::string clientId;
@@ -53,6 +57,8 @@ public:
     void retainMessage(std::string&& topic, std::vector<uint8_t>&& payload);
 
     SessionPresent loginClient(MQTTClientConnection& conn, std::string&& clientId, CleanSession cleanSession);
+    // Disassosciates the persistent client state and parameter
+    void logoutClient(MQTTClientConnection& conn);
 private:
 
     void addSubscriptionInternal(std::variant<std::reference_wrapper<MQTTClientConnection>, ScriptName> subscriber, std::string topic, std::optional<QoS> qos, std::function<void(const std::string&, const std::vector<uint8_t>&)>&& retainedMessageCallback);
