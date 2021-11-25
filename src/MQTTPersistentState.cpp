@@ -184,17 +184,20 @@ SessionPresent MQTTPersistentState::loginClient(MQTTClientConnection& conn, std:
         auto newState = mPersistentClientStates.emplace_hint(existingSession, std::piecewise_construct, std::make_tuple(clientId), std::make_tuple());
         newState->second.clientId = std::move(clientId);
         newState->second.currentClient.store(&conn);
+        newState->second.cleanSession = cleanSession;
         conn.setPersistentState(&newState->second);
         ret = SessionPresent::No;
     } else {
         if(existingSession != mPersistentClientStates.end()) {
             ret = SessionPresent::Yes;
             existingSession->second.currentClient.store(&conn);
+            existingSession->second.cleanSession = cleanSession;
             conn.setPersistentState(&existingSession->second);
         } else {
             auto newState = mPersistentClientStates.emplace_hint(existingSession, std::piecewise_construct, std::make_tuple(clientId), std::make_tuple());
             newState->second.clientId = std::move(clientId);
             newState->second.currentClient.store(&conn);
+            newState->second.cleanSession = cleanSession;
             conn.setPersistentState(&newState->second);
             ret = SessionPresent::No;
         }
@@ -206,8 +209,13 @@ void MQTTPersistentState::logoutClient(MQTTClientConnection& conn) {
     if(!conn.getPersistentState()) {
         return;
     }
-    conn.getPersistentState()->currentClient = nullptr;
-    conn.getPersistentState()->lastDisconnectTime = std::chrono::steady_clock::now().time_since_epoch().count();
+    if(conn.getPersistentState()->cleanSession == CleanSession::Yes) {
+        mPersistentClientStates.erase(conn.getPersistentState()->clientId);
+    } else {
+       conn.getPersistentState()->currentClient = nullptr;
+       conn.getPersistentState()->lastDisconnectTime = std::chrono::steady_clock::now().time_since_epoch().count();
+    }
+    conn.setPersistentState(nullptr);
 }
 
 }

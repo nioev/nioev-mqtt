@@ -27,6 +27,7 @@ struct PersistentClientState {
     // when isConnected is true, requires the clients receive lock
     std::unordered_set<uint16_t> qos3receivingPacketIds;
     std::string clientId;
+    CleanSession cleanSession = CleanSession::Yes;
 };
 
 enum class SessionPresent {
