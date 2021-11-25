@@ -4,6 +4,7 @@
 #include "Forward.hpp"
 #include <functional>
 #include <shared_mutex>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -74,7 +75,7 @@ private:
     std::unordered_map<std::string, RetainedMessage> mRetainedMessages;
 
 
-    std::shared_mutex mPersistentClientStatesMutex;
+    std::recursive_mutex mPersistentClientStatesMutex;
     std::unordered_map<std::string, PersistentClientState> mPersistentClientStates;
 };
 

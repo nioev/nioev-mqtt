@@ -140,7 +140,7 @@ void MQTTPersistentState::retainMessage(std::string&& topic, std::vector<uint8_t
     mRetainedMessages.insert_or_assign(topic, RetainedMessage{std::move(payload)});
 }
 SessionPresent MQTTPersistentState::loginClient(MQTTClientConnection& conn, std::string&& clientId, CleanSession cleanSession) {
-    std::unique_lock<std::shared_mutex> lock{mPersistentClientStatesMutex};
+    std::unique_lock<std::recursive_mutex> lock{mPersistentClientStatesMutex};
 
     constexpr char AVAILABLE_RANDOM_CHARS[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890";
 
@@ -165,6 +165,16 @@ SessionPresent MQTTPersistentState::loginClient(MQTTClientConnection& conn, std:
     }
 
 
+    SessionPresent ret = SessionPresent::No;
+    auto createNewSession = [&] {
+        auto newState = mPersistentClientStates.emplace_hint(existingSession, std::piecewise_construct, std::make_tuple(clientId), std::make_tuple());
+        newState->second.clientId = std::move(clientId);
+        newState->second.currentClient.store(&conn);
+        newState->second.cleanSession = cleanSession;
+        conn.setPersistentState(&newState->second);
+        ret = SessionPresent::No;
+    };
+
     if(existingSession != mPersistentClientStates.end()) {
         // disconnect existing client
         auto existingClient = existingSession->second.currentClient.load();
@@ -173,39 +183,25 @@ SessionPresent MQTTPersistentState::loginClient(MQTTClientConnection& conn, std:
             existingClient->notifyConnecionError();
             existingClient->setPersistentState(nullptr);
             existingSession->second.currentClient = nullptr;
+            existingSession->second.lastDisconnectTime = std::chrono::steady_clock::now().time_since_epoch().count();
         }
-    }
-
-    SessionPresent ret = SessionPresent::No;
-    if(cleanSession == CleanSession::Yes) {
-        if(existingSession != mPersistentClientStates.end()) {
+        if(cleanSession == CleanSession::Yes || existingSession->second.cleanSession == CleanSession::Yes) {
             mPersistentClientStates.erase(existingSession);
-        }
-        auto newState = mPersistentClientStates.emplace_hint(existingSession, std::piecewise_construct, std::make_tuple(clientId), std::make_tuple());
-        newState->second.clientId = std::move(clientId);
-        newState->second.currentClient.store(&conn);
-        newState->second.cleanSession = cleanSession;
-        conn.setPersistentState(&newState->second);
-        ret = SessionPresent::No;
-    } else {
-        if(existingSession != mPersistentClientStates.end()) {
+            createNewSession();
+        } else {
             ret = SessionPresent::Yes;
             existingSession->second.currentClient.store(&conn);
             existingSession->second.cleanSession = cleanSession;
             conn.setPersistentState(&existingSession->second);
-        } else {
-            auto newState = mPersistentClientStates.emplace_hint(existingSession, std::piecewise_construct, std::make_tuple(clientId), std::make_tuple());
-            newState->second.clientId = std::move(clientId);
-            newState->second.currentClient.store(&conn);
-            newState->second.cleanSession = cleanSession;
-            conn.setPersistentState(&newState->second);
-            ret = SessionPresent::No;
         }
+    } else {
+        // no session exists
+        createNewSession();
     }
     return ret;
 }
 void MQTTPersistentState::logoutClient(MQTTClientConnection& conn) {
-    std::unique_lock<std::shared_mutex> lock{mPersistentClientStatesMutex};
+    std::unique_lock<std::recursive_mutex> lock{mPersistentClientStatesMutex};
     if(!conn.getPersistentState()) {
         return;
     }
