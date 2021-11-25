@@ -33,7 +33,7 @@ int main() {
     signal(SIGTERM, onExitSignal);
 
     spdlog::set_level(spdlog::level::info);
-    spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] %^[%-5l]%$ [%-15N] %v");
+    spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] %^[%-7l]%$ [%-15N] %v");
 
     Application app;
     /*app.addScript<ScriptContainerJS>(
