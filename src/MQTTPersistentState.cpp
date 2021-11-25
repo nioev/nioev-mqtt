@@ -51,8 +51,9 @@ static bool doesTopicMatchSubscription(const std::string& topic, const MQTTPersi
 void MQTTPersistentState::addSubscription(MQTTClientConnection& conn, std::string topic, QoS qos, std::function<void(const std::string&, const std::vector<uint8_t>&)>&& retainedMessageCallback) {
     std::lock_guard<std::shared_mutex> lock{ mSubscriptionsMutex };
     addSubscriptionInternalNoSubLock(conn, topic, qos, std::move(retainedMessageCallback));
-    if(conn.getPersistentState()->cleanSession == CleanSession::No) {
-        conn.getPersistentState()->subscriptions.emplace_back(PersistentClientState::PersistentSubscription{ std::move(topic), qos });
+    auto[state, stateLock] = conn.getPersistentState();
+    if(state->cleanSession == CleanSession::No) {
+        state->subscriptions.emplace_back(PersistentClientState::PersistentSubscription{ std::move(topic), qos });
     }
 }
 
@@ -113,9 +114,10 @@ void MQTTPersistentState::deleteSubscription(std::variant<std::reference_wrapper
     }
     if(client.index() == 0) {
         auto& conn = std::get<0>(client).get();
-        for(auto it = conn.getPersistentState()->subscriptions.begin(); it != conn.getPersistentState()->subscriptions.end(); ++it) {
+        auto[state, stateLock] = conn.getPersistentState();
+        for(auto it = state->subscriptions.begin(); it != state->subscriptions.end(); ++it) {
             if(it->topic == topic) {
-                it = conn.getPersistentState()->subscriptions.erase(it);
+                it = state->subscriptions.erase(it);
             } else {
                 it++;
             }
@@ -227,14 +229,15 @@ SessionPresent MQTTPersistentState::loginClient(MQTTClientConnection& conn, std:
 void MQTTPersistentState::logoutClient(MQTTClientConnection& conn) {
     deleteAllSubscriptions(conn);
     std::unique_lock<std::recursive_mutex> lock{mPersistentClientStatesMutex};
-    if(!conn.getPersistentState()) {
+    auto[state, stateLock] = conn.getPersistentState();
+    if(!state) {
         return;
     }
-    if(conn.getPersistentState()->cleanSession == CleanSession::Yes) {
-        mPersistentClientStates.erase(conn.getPersistentState()->clientId);
+    if(state->cleanSession == CleanSession::Yes) {
+        mPersistentClientStates.erase(state->clientId);
     } else {
-       conn.getPersistentState()->currentClient = nullptr;
-       conn.getPersistentState()->lastDisconnectTime = std::chrono::steady_clock::now().time_since_epoch().count();
+       state->currentClient = nullptr;
+       state->lastDisconnectTime = std::chrono::steady_clock::now().time_since_epoch().count();
     }
     conn.setPersistentState(nullptr);
 }

@@ -49,6 +49,7 @@ public:
         uint32_t packetLength = 0;
         uint32_t multiplier = 1;
         uint8_t firstByte = 0;
+        int64_t lastDataReceivedTimestamp = std::chrono::steady_clock::now().time_since_epoch().count();
     };
     std::pair<std::reference_wrapper<PacketReceiveData>, std::unique_lock<std::mutex>> getRecvData() {
         std::unique_lock<std::mutex> lock{mRecvMutex};
@@ -81,18 +82,26 @@ public:
         return std::move(mWill);
     }
     void setPersistentState(PersistentClientState* newState) {
+        std::unique_lock lock{mRemaingingMutex};
         mPersistentState = newState;
     }
-    // please ensure that you have the correct locks when accessing its members!
-    PersistentClientState* getPersistentState() {
-        return mPersistentState;
+    std::pair<PersistentClientState*, std::unique_lock<std::mutex>> getPersistentState() {
+        std::unique_lock lock{mRemaingingMutex};
+        return {mPersistentState, std::move(lock)};
     }
+    std::string getClientId();
     void notifyConnecionError() {
         mConn.close();
         mShouldBeDisconnected = true;
     }
     [[nodiscard]] bool shouldBeDisconnected() const {
         return mShouldBeDisconnected;
+    }
+    void setKeepAliveIntervalSeconds(uint16_t keepAlive) {
+        mKeepAliveIntervalSeconds = keepAlive;
+    }
+    [[nodiscard]] uint16_t getKeepAliveIntervalSeconds() const {
+        return mKeepAliveIntervalSeconds;
     }
 private:
     TcpClientConnection mConn;
@@ -112,12 +121,10 @@ private:
         Retain retain;
     };
     std::optional<WillStruct> mWill;
-
-    // protected by persistent state's mutex
+    std::atomic<uint16_t> mKeepAliveIntervalSeconds = 10;
     PersistentClientState* mPersistentState = nullptr;
 
     std::atomic<bool> mShouldBeDisconnected = false;
 };
-
 
 }

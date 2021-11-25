@@ -21,6 +21,7 @@ add_executable(nioev
         src/TcpClientHandlerInterface.hpp
         src/Application.cpp
         src/Application.hpp
+        src/MQTTClientConnection.cpp
         src/MQTTClientConnection.hpp
         src/TcpClientConnection.cpp
         src/TcpClientConnection.hpp

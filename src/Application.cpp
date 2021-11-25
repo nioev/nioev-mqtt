@@ -55,7 +55,15 @@ void Application::cleanupDisconnectedClients() {
             rwLock.unlock();
             lock.lock();
         } else {
-            it++;
+            auto [recvData, recvDataLock] = it->second.getRecvData();
+            if(recvData.get().lastDataReceivedTimestamp + (int64_t)it->second.getKeepAliveIntervalSeconds() * 1'500'000'000 <= std::chrono::steady_clock::now().time_since_epoch().count()) {
+                // timeout
+                it->second.notifyConnecionError();
+                spdlog::warn("[{}] Timeout", it->second.getClientId());
+                // in the next iteration it will get cleaned ups
+            } else {
+                it++;
+            }
         }
     }
 }

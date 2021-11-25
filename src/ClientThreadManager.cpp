@@ -100,6 +100,9 @@ void ClientThreadManager::receiverThreadFunction() {
                         bytesReceived = client.getTcpClient().recv(bytes);
                         spdlog::debug("Bytes read: {}", bytesReceived);
                         auto& recvData = recvDataRef.get();
+                        if(bytesReceived > 0) {
+                            recvData.lastDataReceivedTimestamp = std::chrono::steady_clock::now().time_since_epoch().count();
+                        }
                         for(uint i = 0; i < bytesReceived;) {
                             switch(recvData.recvState) {
                             case MQTTClientConnection::PacketReceiveState::IDLE: {
@@ -223,6 +226,7 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
             }
             uint8_t connectFlags = decoder.decodeByte();
             uint16_t keepAlive = decoder.decode2Bytes();
+            client.setKeepAliveIntervalSeconds(keepAlive);
             if(connectFlags & 0x1) {
                 protocolViolation();
             }
@@ -254,7 +258,7 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
                 auto password = decoder.decodeString();
             }
             auto sesssionPresent = mApp.loginClient(client, std::move(clientId), cleanSession ? CleanSession::Yes : CleanSession::No);
-            spdlog::info("[{}] Connected", client.getPersistentState()->clientId);
+            spdlog::info("[{}] Connected", client.getClientId());
             response.push_back(sesssionPresent == SessionPresent::Yes ? 1 : 0);
             response.push_back(0); // everything okay
 
@@ -299,10 +303,11 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
                     encoder.encode2Bytes(id);
                     encoder.insertPacketLength();
                     sendData(client, encoder.moveData());
-                    if(client.getPersistentState()->qos3receivingPacketIds.contains(id)) {
+                    auto[state, stateLock] = client.getPersistentState();
+                    if(state->qos3receivingPacketIds.contains(id)) {
                         break;
                     }
-                    client.getPersistentState()->qos3receivingPacketIds.emplace(id);
+                    state->qos3receivingPacketIds.emplace(id);
                 }
             }
             std::vector<uint8_t> data = decoder.getRemainingBytes();
@@ -316,7 +321,8 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
                 protocolViolation();
             }
             uint16_t id = decoder.decode2Bytes();
-            auto numErased = client.getPersistentState()->qos3receivingPacketIds.erase(id);
+            auto[state, stateLock] = client.getPersistentState();
+            auto numErased = state->qos3receivingPacketIds.erase(id);
             assert(numErased == 1);
 
             // send PUBCOMP
@@ -337,7 +343,7 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
                 if(topic.empty()) {
                     protocolViolation();
                 }
-                spdlog::info("[{}] Subscribing to {}", client.getPersistentState()->clientId, topic);
+                spdlog::info("[{}] Subscribing to {}", client.getClientId(), topic);
                 uint8_t qosInt = decoder.decodeByte();
                 if(qosInt >= 3) {
                     protocolViolation();
@@ -391,7 +397,7 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
             if(recvData.firstByte != 0xE0) {
                 protocolViolation();
             }
-            spdlog::info("[{}] Disconnecting...", client.getPersistentState()->clientId);
+            spdlog::info("[{}] Disconnecting...", client.getClientId());
             client.discardWill();
             throw CleanDisconnectException{};
 
