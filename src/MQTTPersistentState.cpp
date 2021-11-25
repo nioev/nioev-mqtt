@@ -239,6 +239,7 @@ void MQTTPersistentState::logoutClient(MQTTClientConnection& conn) {
        state->currentClient = nullptr;
        state->lastDisconnectTime = std::chrono::steady_clock::now().time_since_epoch().count();
     }
+    stateLock.unlock();
     conn.setPersistentState(nullptr);
 }
 void MQTTPersistentState::deleteScriptSubscriptions(const ScriptName& script) {
