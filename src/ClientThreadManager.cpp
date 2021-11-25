@@ -3,6 +3,7 @@
 #include <spdlog/spdlog.h>
 #include <sys/epoll.h>
 #include <signal.h>
+#include <unistd.h>
 
 #include "Enums.hpp"
 #include "Application.hpp"
