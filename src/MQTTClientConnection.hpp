@@ -88,8 +88,8 @@ public:
         return mPersistentState;
     }
     void notifyConnecionError() {
-        mShouldBeDisconnected = true;
         mConn.close();
+        mShouldBeDisconnected = true;
     }
     [[nodiscard]] bool shouldBeDisconnected() const {
         return mShouldBeDisconnected;

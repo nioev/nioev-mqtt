@@ -117,7 +117,8 @@ void Application::deleteSubscription(std::string&& scriptName, std::string&& top
 SyncAction Application::runScriptWithPublishedMessage(const std::string& scriptName, const std::string& topic, const std::vector<uint8_t>& payload, Retained retained) {
     std::atomic<SyncAction> ret = SyncAction::Continue;
 
-    if(mScripts.getScriptInitReturn(scriptName).runType == ScriptRunType::Sync) {
+    auto initReturn = mScripts.getScriptInitReturn(scriptName);
+    if(initReturn.first.get().runType == ScriptRunType::Sync) {
         std::condition_variable cv;
         std::mutex m;
 
