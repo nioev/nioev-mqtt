@@ -49,19 +49,22 @@ static bool doesTopicMatchSubscription(const std::string& topic, const MQTTPersi
 }
 
 void MQTTPersistentState::addSubscription(MQTTClientConnection& conn, std::string topic, QoS qos, std::function<void(const std::string&, const std::vector<uint8_t>&)>&& retainedMessageCallback) {
-    addSubscriptionInternal(conn, std::move(topic), qos, std::move(retainedMessageCallback));
+    std::lock_guard<std::shared_mutex> lock{ mSubscriptionsMutex };
+    addSubscriptionInternalNoSubLock(conn, topic, qos, std::move(retainedMessageCallback));
+    if(conn.getPersistentState()->cleanSession == CleanSession::No) {
+        conn.getPersistentState()->subscriptions.emplace_back(PersistentClientState::PersistentSubscription{ std::move(topic), qos });
+    }
 }
 
 void MQTTPersistentState::addSubscription(std::string scriptName, std::string topic, std::function<void(const std::string&, const std::vector<uint8_t>&)>&& retainedMessageCallback) {
-    addSubscriptionInternal(std::move(scriptName), std::move(topic), {}, std::move(retainedMessageCallback));
-
+    std::lock_guard<std::shared_mutex> lock{ mSubscriptionsMutex };
+    addSubscriptionInternalNoSubLock(std::move(scriptName), std::move(topic), {}, std::move(retainedMessageCallback));
 }
-void MQTTPersistentState::addSubscriptionInternal(
+void MQTTPersistentState::addSubscriptionInternalNoSubLock(
     std::variant<std::reference_wrapper<MQTTClientConnection>, ScriptName> subscriber, std::string topic, std::optional<QoS> qos,
     std::function<void(const std::string&, const std::vector<uint8_t>&)>&& retainedMessageCallback) {
 
     std::shared_lock<std::shared_mutex> lock1{ mRetainedMessagesMutex };
-    std::lock_guard<std::shared_mutex> lock{ mSubscriptionsMutex };
     auto hasWildcard = std::any_of(topic.begin(), topic.end(), [](char c) {
         return c == '#' || c == '+';
     });
@@ -72,18 +75,22 @@ void MQTTPersistentState::addSubscriptionInternal(
             return IterationDecision::Continue;
         });
         auto& sub = mWildcardSubscriptions.emplace_back(std::move(subscriber), std::move(topic), std::move(parts), qos);
-        for(auto& retainedMessage: mRetainedMessages) {
-            if(doesTopicMatchSubscription(retainedMessage.first, sub)) {
-                retainedMessageCallback(retainedMessage.first, retainedMessage.second.payload);
-            }
+        if(retainedMessageCallback) {
+           for(auto& retainedMessage: mRetainedMessages) {
+               if(doesTopicMatchSubscription(retainedMessage.first, sub)) {
+                   retainedMessageCallback(retainedMessage.first, retainedMessage.second.payload);
+               }
+           }
         }
     } else {
         mSimpleSubscriptions.emplace(std::piecewise_construct,
                                      std::make_tuple(topic),
                                      std::make_tuple(std::variant<std::reference_wrapper<MQTTClientConnection>, ScriptName>(std::move(subscriber)), topic, std::vector<std::string>{}, qos));
-        auto retainedMessage = mRetainedMessages.find(topic);
-        if(retainedMessage != mRetainedMessages.end()) {
-            retainedMessageCallback(retainedMessage->first, retainedMessage->second.payload);
+        if(retainedMessageCallback) {
+            auto retainedMessage = mRetainedMessages.find(topic);
+            if(retainedMessage != mRetainedMessages.end()) {
+                retainedMessageCallback(retainedMessage->first, retainedMessage->second.payload);
+            }
         }
     }
 }
@@ -103,6 +110,16 @@ void MQTTPersistentState::deleteSubscription(std::variant<std::reference_wrapper
         erase_if(mWildcardSubscriptions, [&client, &topic](auto& sub) {
             return sub.subscriber == client && sub.topic == topic;
         });
+    }
+    if(client.index() == 0) {
+        auto& conn = std::get<0>(client).get();
+        for(auto it = conn.getPersistentState()->subscriptions.begin(); it != conn.getPersistentState()->subscriptions.end(); ++it) {
+            if(it->topic == topic) {
+                it = conn.getPersistentState()->subscriptions.erase(it);
+            } else {
+                it++;
+            }
+        }
     }
 }
 void MQTTPersistentState::deleteAllSubscriptions(std::variant<std::reference_wrapper<MQTTClientConnection>, ScriptName> client) {
@@ -193,6 +210,13 @@ SessionPresent MQTTPersistentState::loginClient(MQTTClientConnection& conn, std:
             existingSession->second.currentClient.store(&conn);
             existingSession->second.cleanSession = cleanSession;
             conn.setPersistentState(&existingSession->second);
+            {
+                // readd subscriptions
+                std::lock_guard<std::shared_mutex> lock2{mSubscriptionsMutex};
+                for(auto& sub: existingSession->second.subscriptions) {
+                    addSubscriptionInternalNoSubLock(conn, sub.topic, sub.qos, {});
+                }
+            }
         }
     } else {
         // no session exists
@@ -201,6 +225,7 @@ SessionPresent MQTTPersistentState::loginClient(MQTTClientConnection& conn, std:
     return ret;
 }
 void MQTTPersistentState::logoutClient(MQTTClientConnection& conn) {
+    deleteAllSubscriptions(conn);
     std::unique_lock<std::recursive_mutex> lock{mPersistentClientStatesMutex};
     if(!conn.getPersistentState()) {
         return;
@@ -212,6 +237,9 @@ void MQTTPersistentState::logoutClient(MQTTClientConnection& conn) {
        conn.getPersistentState()->lastDisconnectTime = std::chrono::steady_clock::now().time_since_epoch().count();
     }
     conn.setPersistentState(nullptr);
+}
+void MQTTPersistentState::deleteScriptSubscriptions(const ScriptName& script) {
+    deleteAllSubscriptions(script);
 }
 
 }

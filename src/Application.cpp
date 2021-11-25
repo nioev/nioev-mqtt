@@ -35,7 +35,6 @@ void Application::performWillWithoutEraseAndLock(MQTTClientConnection& conn) {
         publishWithoutAcquiringLock(std::move(willMsg->topic), std::move(willMsg->msg), willMsg->qos, willMsg->retain);
     }
     mClientManager.removeClientConnection(conn);
-    mPersistentState.deleteAllSubscriptions(conn);
     mPersistentState.logoutClient(conn);
 }
 std::pair<std::reference_wrapper<MQTTClientConnection>, std::shared_lock<std::shared_mutex>> Application::getClient(int fd) {
