@@ -81,7 +81,6 @@ public:
         return std::move(mWill);
     }
     void setPersistentState(PersistentClientState* newState) {
-        assert(!mPersistentState);
         mPersistentState = newState;
     }
     // please ensure that you have the correct locks when accessing its members!

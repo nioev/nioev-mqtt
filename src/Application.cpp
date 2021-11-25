@@ -18,13 +18,15 @@ void Application::handleNewClientConnection(TcpClientConnection&& conn) {
     if(oldClient != mClients.end()) {
         // insertion didn't happen, this means that the client still exists in this map, but the fd has already been reused, meaning we have
         // already closed the socket. This happens because we always immediately close sockets for performance & compliance reasons.
+        oldClient->second.notifyConnecionError();
         performWillWithoutEraseAndLock(oldClient->second);
-        mClients.erase(fd);
+        mClients.erase(oldClient);
     }
     auto newClient = mClients.emplace(
         std::piecewise_construct,
         std::make_tuple(fd),
         std::make_tuple(std::move(conn)));
+    assert(newClient.second);
     mClientManager.addClientConnection(newClient.first->second);
 }
 void Application::performWillWithoutEraseAndLock(MQTTClientConnection& conn) {
@@ -34,7 +36,7 @@ void Application::performWillWithoutEraseAndLock(MQTTClientConnection& conn) {
     }
     mClientManager.removeClientConnection(conn);
     mPersistentState.deleteAllSubscriptions(conn);
-    //mPersistentState.logoutClient(conn);
+    mPersistentState.logoutClient(conn);
 }
 std::pair<std::reference_wrapper<MQTTClientConnection>, std::shared_lock<std::shared_mutex>> Application::getClient(int fd) {
     std::shared_lock<std::shared_mutex> lock{mClientsMutex};

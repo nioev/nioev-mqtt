@@ -187,10 +187,11 @@ void ClientThreadManager::addClientConnection(MQTTClientConnection& conn) {
     }
 }
 void ClientThreadManager::removeClientConnection(MQTTClientConnection& conn) {
-    // we only do this for good form, the fd should be removed automatically when it is closed (which usually happens before this)
-    if(epoll_ctl(mEpollFd, EPOLL_CTL_DEL, conn.getTcpClient().getFd(), nullptr) < 0) {
+    // We can't do this here because the socket is probably already closed, meaning it could have been reused.
+    // It should get automatically deleted in that case.
+    /*if(epoll_ctl(mEpollFd, EPOLL_CTL_DEL, conn.getTcpClient().getFd(), nullptr) < 0) {
         spdlog::debug("Failed to remove fd from epoll: {}", util::errnoToString());
-    }
+    }*/
 }
 void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, const MQTTClientConnection::PacketReceiveData& recvData) {
     spdlog::debug("Received packet of type {}", recvData.messageType);

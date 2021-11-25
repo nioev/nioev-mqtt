@@ -171,6 +171,8 @@ SessionPresent MQTTPersistentState::loginClient(MQTTClientConnection& conn, std:
         if(existingClient) {
             spdlog::warn("[{}] Already connected, closing old connection", clientId);
             existingClient->notifyConnecionError();
+            existingClient->setPersistentState(nullptr);
+            existingSession->second.currentClient = nullptr;
         }
     }
 
