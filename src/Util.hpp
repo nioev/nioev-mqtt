@@ -135,5 +135,60 @@ public:
 private:
     std::optional<T> mFunc;
 };
+
+bool startsWith(const std::string& str, const std::string_view& prefix) {
+    for(size_t i = 0; i < prefix.size(); ++i) {
+        if(i >= str.size())
+            return false;
+        if(prefix.at(i) != str.at(i)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+enum class IterationDecision {
+    Continue,
+    Stop
+};
+
+template<typename T>
+static void splitString(const std::string& str, T callback) {
+    std::string::size_type offset = 0, nextOffset = 0;
+    do {
+        nextOffset = str.find('/', offset);
+        if(callback(std::string_view{str}.substr(offset, nextOffset - offset)) == IterationDecision::Stop) {
+            break;
+        }
+        offset = nextOffset + 1;
+    } while(nextOffset != std::string::npos);
+}
+
+static bool doesTopicMatchSubscription(const std::string& topic, const std::vector<std::string>& topicSplit) {
+    size_t partIndex = 0;
+    bool doesMatch = true;
+    if((topic.at(0) == '$' && topicSplit.at(0).at(0) != '$') || (topic.at(0) != '$' && topicSplit.at(0).at(0) == '$')) {
+        return false;
+    }
+    splitString(topic, [&] (const auto& actualPart) {
+        if(topicSplit.size() <= partIndex) {
+            doesMatch = false;
+            return IterationDecision::Stop;
+        }
+        const auto& expectedPart = topicSplit.at(partIndex);
+        if(actualPart == expectedPart || expectedPart == "+") {
+            partIndex += 1;
+            return IterationDecision::Continue;
+        }
+        if(expectedPart == "#") {
+            partIndex = topicSplit.size();
+            return IterationDecision::Stop;
+        }
+        doesMatch = false;
+        return IterationDecision::Stop;
+    });
+    return doesMatch && partIndex == topicSplit.size();
+}
+
 }
 }

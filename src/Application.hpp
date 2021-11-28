@@ -52,6 +52,7 @@ public:
         mPersistentState.deleteScriptSubscriptions(name);
         mScripts.deleteScript(name);
     }
+    void performSystemAction(const std::string& topic, const std::vector<uint8_t>& payload);
 };
 
 }

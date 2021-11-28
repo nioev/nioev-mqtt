@@ -78,7 +78,11 @@ void Application::publishWithoutAcquiringLock(std::string&& topic, std::vector<u
         spdlog::info("Publishing on '{}' data '{}'", topic, dataAsStr);
     }
 #endif
-    // first run scripts
+    // first check for publish to $NIOEV
+    if(util::startsWith(topic, "$NIOEV")) {
+        performSystemAction(topic, msg);
+    }
+    // second run scripts
     // TODO optimize forEachSubscriber so that it skips other subscriptions automatically, avoiding unnecessary work checking for all matches
     auto action = SyncAction::Continue;
     mPersistentState.forEachSubscriber(topic, [this, &topic, &msg, &action] (auto& sub) {
@@ -163,5 +167,10 @@ SyncAction Application::runScriptWithPublishedMessage(const std::string& scriptN
 }
 SessionPresent Application::loginClient(MQTTClientConnection& conn, std::string&& clientId, CleanSession cleanSession) {
     return mPersistentState.loginClient(conn, std::move(clientId), cleanSession);
+}
+void Application::performSystemAction(const std::string& topic, const std::vector<uint8_t>& payload) {
+    if(util::doesTopicMatchSubscription(topic, {"$NIOEV", "scripts", "+", "code"})) {
+
+    }
 }
 }

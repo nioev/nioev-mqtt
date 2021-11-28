@@ -1,52 +1,10 @@
 #include "MQTTPersistentState.hpp"
 #include "MQTTClientConnection.hpp"
+#include "Util.hpp"
 
 #include <fstream>
 
 namespace nioev {
-
-enum class IterationDecision {
-    Continue,
-    Stop
-};
-
-template<typename T>
-static void splitString(const std::string& str, T callback) {
-    std::string::size_type offset = 0, nextOffset = 0;
-    do {
-        nextOffset = str.find('/', offset);
-        if(callback(std::string_view{str}.substr(offset, nextOffset - offset)) == IterationDecision::Stop) {
-            break;
-        }
-        offset = nextOffset + 1;
-    } while(nextOffset != std::string::npos);
-}
-
-static bool doesTopicMatchSubscription(const std::string& topic, const MQTTPersistentState::Subscription& sub) {
-    size_t partIndex = 0;
-    bool doesMatch = true;
-    if((topic.at(0) == '$' && sub.topic.at(0) != '$') || (topic.at(0) != '$' && sub.topic.at(0) == '$')) {
-        return false;
-    }
-    splitString(topic, [&] (const auto& actualPart) {
-        if(sub.topicSplit.size() <= partIndex) {
-            doesMatch = false;
-            return IterationDecision::Stop;
-        }
-        const auto& expectedPart = sub.topicSplit.at(partIndex);
-        if(actualPart == expectedPart || expectedPart == "+") {
-            partIndex += 1;
-            return IterationDecision::Continue;
-        }
-        if(expectedPart == "#") {
-            partIndex = sub.topicSplit.size();
-            return IterationDecision::Stop;
-        }
-        doesMatch = false;
-        return IterationDecision::Stop;
-    });
-    return doesMatch && partIndex == sub.topicSplit.size();
-}
 
 void MQTTPersistentState::addSubscription(MQTTClientConnection& conn, std::string topic, QoS qos, std::function<void(const std::string&, const std::vector<uint8_t>&)>&& retainedMessageCallback) {
     std::lock_guard<std::shared_mutex> lock{ mSubscriptionsMutex };
@@ -71,14 +29,14 @@ void MQTTPersistentState::addSubscriptionInternalNoSubLock(
     });
     if(hasWildcard) {
         std::vector<std::string> parts;
-        splitString(topic, [&parts](const std::string_view& part) {
+        util::splitString(topic, [&parts](const std::string_view& part) {
             parts.emplace_back(part);
-            return IterationDecision::Continue;
+            return util::IterationDecision::Continue;
         });
         auto& sub = mWildcardSubscriptions.emplace_back(std::move(subscriber), std::move(topic), std::move(parts), qos);
         if(retainedMessageCallback) {
            for(auto& retainedMessage: mRetainedMessages) {
-               if(doesTopicMatchSubscription(retainedMessage.first, sub)) {
+               if(util::doesTopicMatchSubscription(retainedMessage.first, sub.topicSplit)) {
                    retainedMessageCallback(retainedMessage.first, retainedMessage.second.payload);
                }
            }
@@ -145,7 +103,7 @@ void MQTTPersistentState::forEachSubscriber(const std::string& topic, std::funct
         callback(it->second);
     }
     for(auto& sub: mWildcardSubscriptions) {
-        if(doesTopicMatchSubscription(topic, sub)) {
+        if(util::doesTopicMatchSubscription(topic, sub.topicSplit)) {
             callback(sub);
         }
     }
