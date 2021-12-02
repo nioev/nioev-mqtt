@@ -437,10 +437,12 @@ void ClientThreadManager::sendData(MQTTClientConnection& conn, std::vector<uint8
         uint bytesSent = 0;
         auto [sendTasksRef, sendLock] = conn.getSendTasks();
         auto& sendTasks = sendTasksRef.get();
-        do {
-            bytesSent = conn.getTcpClient().send(bytes.data() + totalBytesSent, bytes.size() - totalBytesSent);
-            totalBytesSent += bytesSent;
-        } while(bytesSent > 0 && totalBytesSent < bytes.size());
+        if(sendTasks.empty()) {
+            do {
+                bytesSent = conn.getTcpClient().send(bytes.data() + totalBytesSent, bytes.size() - totalBytesSent);
+                totalBytesSent += bytesSent;
+            } while(bytesSent > 0 && totalBytesSent < bytes.size());
+        }
         //spdlog::warn("Bytes sent: {}, Total bytes sent: {}", bytesSent, totalBytesSent);
 
         if(totalBytesSent < bytes.size()) {
