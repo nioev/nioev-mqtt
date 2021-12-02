@@ -116,7 +116,8 @@ function run(args) {
             a.push({
                 type: 'tcp_send',
                 fd: item,
-                payloadBytes: args.payloadBytes
+                payloadBytes: args.payloadBytes,
+                compression: 'zstd'
             })
         }
         return {

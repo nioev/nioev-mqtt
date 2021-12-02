@@ -183,7 +183,7 @@ void Application::passTcpClientToScriptingEngine(TcpClientConnection&& tcpClient
 void Application::scriptTcpListen(std::string&& scriptName, std::string&& listenIdentifier) {
     mScripts.scriptTcpListen(std::move(scriptName), std::move(listenIdentifier));
 }
-void Application::scriptTcpSendToClient(std::string&& scriptName, int fd, std::vector<uint8_t>&& payload) {
-    mScripts.scriptTcpSendToClient(std::move(scriptName), fd, std::move(payload));
+void Application::scriptTcpSendToClient(std::string&& scriptName, int fd, std::vector<uint8_t>&& payload, Compression c) {
+    mScripts.scriptTcpSendToClient(std::move(scriptName), fd, std::move(payload), c);
 }
 }

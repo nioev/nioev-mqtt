@@ -313,7 +313,12 @@ void ScriptContainerJS::handleScriptActions(const JSValue& actions, ScriptStatus
                 status.error(mName, "Missing either payloadStr or payloadBytes");
                 return;
             }
-            mActionPerformer.enqueueAction(ScriptActionSendToClient{mName, *fd, *payload});
+            auto compressionStr = getJSStringProperty(action, "compression");
+            Compression compression = Compression::NONE;
+            if(compressionStr && compressionStr == "zstd") {
+                compression = Compression::ZSTD;
+            }
+            mActionPerformer.enqueueAction(ScriptActionSendToClient{mName, *fd, *payload, compression});
 
         }
         i += 1;

@@ -39,6 +39,7 @@ struct ScriptActionSendToClient {
     std::string scriptName;
     int fd;
     std::vector<uint8_t> data;
+    Compression compression;
 };
 
 using ScriptAction = std::variant<ScriptActionPublish, ScriptActionSubscribe, ScriptActionUnsubscribe, ScriptActionListen, ScriptActionSendToClient>;

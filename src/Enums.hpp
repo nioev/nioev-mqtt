@@ -44,4 +44,10 @@ enum class CleanSession
     No
 };
 
+enum class Compression
+{
+    NONE,
+    ZSTD
+};
+
 }

@@ -2,6 +2,7 @@
 
 #include "../Forward.hpp"
 #include "../TcpClientConnection.hpp"
+#include "../Enums.hpp"
 
 #include <shared_mutex>
 #include <thread>
@@ -11,13 +12,14 @@
 
 namespace nioev {
 
+
 class ScriptCustomTCPServer {
 public:
     explicit ScriptCustomTCPServer(ScriptContainerManager& scriptManager);
     ~ScriptCustomTCPServer();
     void scriptListen(std::string script, std::string listenIdentifier);
     void notifyScriptDied(const std::string& script);
-    void sendMsgFromScript(const std::string& script, int targetFd, std::vector<uint8_t>&& msg);
+    void sendMsgFromScript(const std::string& script, int targetFd, std::vector<uint8_t>&& msg, Compression);
     void passTcpClient(TcpClientConnection&& tcpClient, std::vector<uint8_t>&& receivedData);
 private:
     struct StoredTcpClient {
@@ -42,7 +44,7 @@ private:
     void secondThreadFunc();
     void handleDataReceived(StoredTcpClient&, const std::vector<uint8_t>& bytes, size_t bytesSize);
 
-    void sendData(StoredTcpClient& client, const uint8_t* data, size_t dataLen);
+    void sendData(StoredTcpClient& client, const uint8_t* data, size_t dataLen, Compression compression);
     void deleteClient(std::unordered_map<int, StoredTcpClient>::iterator itr);
 
     std::mutex mMutex;

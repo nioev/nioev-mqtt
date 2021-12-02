@@ -3,6 +3,7 @@
 #include "ScriptContainerManager.hpp"
 #include <sys/epoll.h>
 #include <sys/signal.h>
+#include <zstd.h>
 
 namespace nioev {
 
@@ -139,7 +140,7 @@ void ScriptCustomTCPServer::handleDataReceived(StoredTcpClient& client, const st
                     std::string recvStr{client.recvBuffer.begin(), client.recvBuffer.end()};
                     auto listeningScript = mListeningScripts.find(recvStr);
                     if(listeningScript == mListeningScripts.end()) {
-                        sendData(client, reinterpret_cast<const uint8_t*>("ERROR"), 5);
+                        sendData(client, reinterpret_cast<const uint8_t*>("ERROR"), 5, Compression::NONE);
                         throw CleanDisconnectException{};
                     }
                     client.script = listeningScript->second;
@@ -155,14 +156,28 @@ void ScriptCustomTCPServer::handleDataReceived(StoredTcpClient& client, const st
         }
     }
 }
-void ScriptCustomTCPServer::sendData(StoredTcpClient& client, const uint8_t* data, size_t dataLen) {
+void ScriptCustomTCPServer::sendData(StoredTcpClient& client, const uint8_t* data, size_t dataLen, Compression compression) {
     try {
         std::vector<uint8_t> buffer;
         buffer.push_back('S');
-        std::string lenAsStr = std::to_string(dataLen);
-        buffer.insert(buffer.end(), lenAsStr.begin(), lenAsStr.end());
-        buffer.push_back(':');
-        buffer.insert(buffer.end(), data, data + dataLen);
+
+        if(compression == Compression::ZSTD) {
+            auto zstdReserved = ZSTD_compressBound(dataLen);
+            std::vector<uint8_t> compressed;
+            compressed.resize(zstdReserved);
+            auto compressedSize = ZSTD_compress(compressed.data(), compressed.size(), data, dataLen, 3);
+
+            std::string lenAsStr = std::to_string(compressedSize);
+            buffer.insert(buffer.end(), lenAsStr.begin(), lenAsStr.end());
+            buffer.push_back(':');
+
+            buffer.insert(buffer.end(), compressed.begin(), compressed.begin() + compressedSize);
+        } else {
+            std::string lenAsStr = std::to_string(dataLen);
+            buffer.insert(buffer.end(), lenAsStr.begin(), lenAsStr.end());
+            buffer.push_back(':');
+            buffer.insert(buffer.end(), data, data + dataLen);
+        }
 
         size_t bytesSent = 0, bytesSentThisTime;
         if(client.sendTasks.empty()) {
@@ -187,7 +202,7 @@ void ScriptCustomTCPServer::deleteClient(std::unordered_map<int, ScriptCustomTCP
     }
     mTcpClients.erase(client);
 }
-void ScriptCustomTCPServer::sendMsgFromScript(const std::string& script, int targetFd, std::vector<uint8_t>&& msg) {
+void ScriptCustomTCPServer::sendMsgFromScript(const std::string& script, int targetFd, std::vector<uint8_t>&& msg, Compression compression) {
     auto client = mTcpClients.find(targetFd);
     if(client == mTcpClients.end()) {
         spdlog::warn("Failed to send data from script, TcpClient doesn't exist anymore!");
@@ -197,7 +212,7 @@ void ScriptCustomTCPServer::sendMsgFromScript(const std::string& script, int tar
         spdlog::error("Script {} tried to send msg to fd {}, which it doesn't own!", script, targetFd);
         return;
     }
-    sendData(client->second, msg.data(), msg.size());
+    sendData(client->second, msg.data(), msg.size(), compression);
 }
 
 }

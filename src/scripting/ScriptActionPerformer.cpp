@@ -43,7 +43,7 @@ void ScriptActionPerformer::actionsPerformerThreadFunc() {
                                 mApp.scriptTcpListen(std::move(arg.scriptName), std::move(arg.listenIdentifier));
                             },
                             [this](ScriptActionSendToClient& arg) {
-                                mApp.scriptTcpSendToClient(std::move(arg.scriptName), arg.fd, std::move(arg.data));
+                                mApp.scriptTcpSendToClient(std::move(arg.scriptName), arg.fd, std::move(arg.data), arg.compression);
                             } },
                 action);
 
