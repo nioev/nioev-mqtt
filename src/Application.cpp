@@ -54,9 +54,10 @@ void Application::cleanupDisconnectedClients() {
             performWillWithoutEraseAndLock(it->second);
             lock.unlock();
             std::unique_lock<std::shared_mutex> rwLock{mClientsMutex};
-            it = mClients.erase(it);
+            mClients.erase(it);
             rwLock.unlock();
             lock.lock();
+            it = mClients.begin();
         } else {
             auto [recvData, recvDataLock] = it->second.getRecvData();
             if(recvData.get().lastDataReceivedTimestamp + (int64_t)it->second.getKeepAliveIntervalSeconds() * 1'500'000'000 <= std::chrono::steady_clock::now().time_since_epoch().count()) {

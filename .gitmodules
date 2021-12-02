@@ -4,3 +4,6 @@
 [submodule "thirdparty/uWebSockets"]
 	path = thirdparty/uWebSockets
 	url = https://github.com/uNetworking/uWebSockets
+[submodule "thirdparty/zstd"]
+	path = thirdparty/zstd
+	url = https://github.com/facebook/zstd
