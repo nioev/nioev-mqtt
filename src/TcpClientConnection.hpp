@@ -9,8 +9,17 @@ namespace nioev {
 
 // used to tell the catcher that there is no need to log the error
 class CleanDisconnectException : public std::exception {
-
+    [[nodiscard]] const char* what() const noexcept override {
+        return "Client disconnected cleanly!";
+    }
 };
+
+class ClientNotFoundException : public std::exception {
+    [[nodiscard]] const char* what() const noexcept override {
+        return "Client not found!";
+    }
+};
+
 
 class TcpClientConnection final {
 public:

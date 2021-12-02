@@ -39,10 +39,13 @@ void Application::performWillWithoutEraseAndLock(MQTTClientConnection& conn) {
 }
 std::pair<std::reference_wrapper<MQTTClientConnection>, std::shared_lock<std::shared_mutex>> Application::getClient(int fd) {
     std::shared_lock<std::shared_mutex> lock{mClientsMutex};
-    auto &c = mClients.at(fd);
-    if(c.shouldBeDisconnected())
+    auto c = mClients.find(fd);
+    if(c == mClients.end()) {
+        throw ClientNotFoundException{};
+    }
+    if(c->second.shouldBeDisconnected())
         throw std::runtime_error{"Client not found!"};
-    return {c, std::move(lock)};
+    return {c->second, std::move(lock)};
 }
 void Application::cleanupDisconnectedClients() {
     std::shared_lock<std::shared_mutex> lock{mClientsMutex};
