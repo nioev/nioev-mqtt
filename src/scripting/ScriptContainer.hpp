@@ -7,6 +7,7 @@
 #include <functional>
 #include "../Enums.hpp"
 #include "../Forward.hpp"
+#include "spdlog/spdlog.h"
 
 namespace nioev {
 
@@ -24,7 +25,21 @@ struct ScriptRunArgsMqttMessage {
     std::vector<uint8_t> payload;
     Retained retained;
 };
-using ScriptInputArgs = std::variant<ScriptRunArgsMqttMessage>;
+
+struct ScriptRunArgsTcpNewClient {
+    int fd;
+};
+
+struct ScriptRunArgsTcpNewDataFromClient {
+    int fd;
+    std::vector<uint8_t> data;
+};
+
+struct ScriptRunArgsTcpDeleteClient {
+    int fd;
+};
+
+using ScriptInputArgs = std::variant<ScriptRunArgsMqttMessage, ScriptRunArgsTcpNewClient, ScriptRunArgsTcpNewDataFromClient, ScriptRunArgsTcpDeleteClient>;
 
 enum class SyncAction {
     Continue,
@@ -32,7 +47,9 @@ enum class SyncAction {
 };
 
 struct ScriptStatusOutput {
-    std::function<void(const std::string& scriptName, const std::string& reason)> error = [](auto&, auto&) {};
+    std::function<void(const std::string& scriptName, const std::string& reason)> error = [](auto& scriptName, auto& reason) {
+        spdlog::error("Script [{}] error: {}", scriptName, reason);
+    };
     std::function<void(const std::string& scriptName)> success = [](auto&) {};
     std::function<void(const std::string& scriptName, SyncAction action)> syncAction = [](auto&, auto) {};
 };

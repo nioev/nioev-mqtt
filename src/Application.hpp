@@ -40,6 +40,9 @@ public:
     void deleteSubscription(std::string&& scriptName, std::string&& topic);
     SessionPresent loginClient(MQTTClientConnection& conn, std::string&& clientId, CleanSession cleanSession);
     void cleanupDisconnectedClients();
+    void passTcpClientToScriptingEngine(TcpClientConnection&& tcpClient, std::vector<uint8_t>&& receivedData);
+    void scriptTcpListen(std::string&& scriptName, std::string&& listenIdentifier);
+    void scriptTcpSendToClient(std::string&& scriptName, int fd, std::vector<uint8_t>&& payload);
 
     template<typename T, typename... Args>
     void addScript(const std::string& name, std::function<void(const std::string& scriptName)>&& onSuccess, std::function<void(const std::string& scriptName, const std::string&)>&& onError, Args... args) {

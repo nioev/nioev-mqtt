@@ -22,6 +22,8 @@ private:
     std::string getJSException();
     void handleScriptActions(const JSValue& actions, ScriptStatusOutput&& status);
     std::optional<std::string> getJSStringProperty(const JSValue& obj, std::string_view name);
+    std::optional<int> getJSIntProperty(const JSValue& obj, std::string_view name);
+    std::optional<std::vector<uint8_t>> extractPayload(const JSValue& obj);
 
     std::atomic<bool> mShouldAbort = false;
     JSRuntime* mJSRuntime;

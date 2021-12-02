@@ -103,6 +103,9 @@ public:
     [[nodiscard]] uint16_t getKeepAliveIntervalSeconds() const {
         return mKeepAliveIntervalSeconds;
     }
+    TcpClientConnection&& moveTcpClient() {
+        return std::move(mConn);
+    }
 private:
     TcpClientConnection mConn;
 

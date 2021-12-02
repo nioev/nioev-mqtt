@@ -122,7 +122,8 @@ void ScriptContainerJS::performRun(const ScriptInputArgs& input, ScriptStatusOut
 
     switch(input.index()) {
     case 0: {
-        auto& cppParams = std::get<ScriptRunArgsMqttMessage>(input);
+        // publish
+        auto& cppParams = std::get<0>(input);
         JS_SetPropertyStr(mJSContext, paramObj, "type", JS_NewString(mJSContext, "publish"));
         JS_SetPropertyStr(mJSContext, paramObj, "topic", JS_NewString(mJSContext, cppParams.topic.c_str()));
 
@@ -138,6 +139,27 @@ void ScriptContainerJS::performRun(const ScriptInputArgs& input, ScriptStatusOut
         } else {
             JS_SetPropertyStr(mJSContext, paramObj, "payloadStr", JS_NewStringLen(mJSContext, (char*)cppParams.payload.data(), cppParams.payload.size()));
         }
+        break;
+    }
+    case 1: {
+        // new tcp
+        auto& cppParams = std::get<1>(input);
+        JS_SetPropertyStr(mJSContext, paramObj, "type", JS_NewString(mJSContext, "tcp_new_client"));
+        JS_SetPropertyStr(mJSContext, paramObj, "fd", JS_NewInt32(mJSContext, cppParams.fd));
+        break;
+    }
+    case 2: {
+        // new tcp msg
+        auto& cppParams = std::get<2>(input);
+        JS_SetPropertyStr(mJSContext, paramObj, "type", JS_NewString(mJSContext, "tcp_new_msg"));
+        // TODO
+        break;
+    }
+    case 3: {
+        // delete tcp
+        auto& cppParams = std::get<3>(input);
+        JS_SetPropertyStr(mJSContext, paramObj, "type", JS_NewString(mJSContext, "tcp_delete_client"));
+        JS_SetPropertyStr(mJSContext, paramObj, "fd", JS_NewInt32(mJSContext, cppParams.fd));
         break;
     }
     default:
@@ -249,32 +271,12 @@ void ScriptContainerJS::handleScriptActions(const JSValue& actions, ScriptStatus
 
             Retain retain = retainInt == 0 ? Retain::No : Retain::Yes;
 
-            std::vector<uint8_t> payload;
-            auto payloadStr = getJSStringProperty(action, "payloadStr");
-            if(payloadStr) {
-                payload = std::vector<uint8_t>{payloadStr->cbegin(), payloadStr->cend()};
-            } else {
-                // we need either payloadStr or payloadBytes, so check now
-                auto payloadBytesObj = JS_GetPropertyStr(mJSContext, action, "payloadBytes");
-                //spdlog::info("Payload: '{}'", JS_ToCString(mJSContext, JS_JSONStringify(mJSContext, payloadBytesObj, JS_NewString(mJSContext, ""), JS_NewString(mJSContext, ""))));
-                util::DestructWrapper destructPayloadBytesObj{[&]{ JS_FreeValue(mJSContext, payloadBytesObj); }};
-                size_t bytesSize = 0;
-                size_t bytesPerElement = 0;
-                size_t bytesOffset = 0;
-                auto payloadBytesValue = JS_GetTypedArrayBuffer(mJSContext, payloadBytesObj, &bytesOffset, &bytesSize, &bytesPerElement);
-                util::DestructWrapper destructPayloadBytesValue{[&]{ JS_FreeValue(mJSContext, payloadBytesValue); }};
-                if(JS_IsException(payloadBytesValue)) {
-                    status.error(mName, "missing either a payloadStr (string) or payloadBytes (Uint8Array)");
-                    return;
-                }
-                auto payloadBytes = JS_GetArrayBuffer(mJSContext, &bytesSize, payloadBytesValue);
-                if(bytesPerElement != 1 || (payloadBytes == nullptr && bytesSize != 0)) {
-                    status.error(mName, "missing either a payloadStr (string) or payloadBytes (Uint8Array)");
-                    return;
-                }
-                payload = std::vector<uint8_t>{payloadBytes, payloadBytes + bytesSize};
+            auto payload = extractPayload(action);
+            if(!payload) {
+                status.error(mName, "Missing either payloadStr or payloadBytes");
+                return;
             }
-            mActionPerformer.enqueueAction(ScriptActionPublish{mName, std::move(*topic), std::move(payload), qos, retain});
+            mActionPerformer.enqueueAction(ScriptActionPublish{mName, std::move(*topic), std::move(*payload), qos, retain});
 
         } else if(actionType == "subscribe") {
             auto topic = getJSStringProperty(action, "topic");
@@ -292,6 +294,27 @@ void ScriptContainerJS::handleScriptActions(const JSValue& actions, ScriptStatus
             }
             mActionPerformer.enqueueAction(ScriptActionUnsubscribe{mName, *topic});
 
+        } else if(actionType == "tcp_listen") {
+            auto identifier = getJSStringProperty(action, "identifier");
+            if(!identifier) {
+                status.error(mName, "identifier field is missing");
+                return;
+            }
+            mActionPerformer.enqueueAction(ScriptActionListen{mName, *identifier });
+
+        } else if(actionType == "tcp_send") {
+            auto fd = getJSIntProperty(action, "fd");
+            if(!fd) {
+                status.error(mName, "fd field is missing");
+                return;
+            }
+            auto payload = extractPayload(action);
+            if(!payload) {
+                status.error(mName, "Missing either payloadStr or payloadBytes");
+                return;
+            }
+            mActionPerformer.enqueueAction(ScriptActionSendToClient{mName, *fd, *payload});
+
         }
         i += 1;
     }
@@ -307,6 +330,43 @@ std::optional<std::string> ScriptContainerJS::getJSStringProperty(const JSValue&
     util::DestructWrapper destructPropStr{[&]{ JS_FreeCString(mJSContext, propStr); }};
     std::string ret = propStr;
     return {std::move(ret)};
+}
+
+std::optional<int32_t> ScriptContainerJS::getJSIntProperty(const JSValue& obj, std::string_view name) {
+    auto prop = JS_GetPropertyStr(mJSContext, obj, name.data());
+    util::DestructWrapper destructProp{[&]{ JS_FreeValue(mJSContext, prop); }};
+    if(!JS_IsNumber(prop))
+        return {};
+    int32_t ret = 0;
+    if(JS_ToInt32(mJSContext, &ret, prop) < 0)
+        return {};
+    return ret;
+}
+std::optional<std::vector<uint8_t>> ScriptContainerJS::extractPayload(const JSValue& action) {
+    std::vector<uint8_t> payload;
+    auto payloadStr = getJSStringProperty(action, "payloadStr");
+    if(payloadStr) {
+        payload = std::vector<uint8_t>{payloadStr->cbegin(), payloadStr->cend()};
+    } else {
+        // we need either payloadStr or payloadBytes, so check now
+        auto payloadBytesObj = JS_GetPropertyStr(mJSContext, action, "payloadBytes");
+        //spdlog::info("Payload: '{}'", JS_ToCString(mJSContext, JS_JSONStringify(mJSContext, payloadBytesObj, JS_NewString(mJSContext, ""), JS_NewString(mJSContext, ""))));
+        util::DestructWrapper destructPayloadBytesObj{[&]{ JS_FreeValue(mJSContext, payloadBytesObj); }};
+        size_t bytesSize = 0;
+        size_t bytesPerElement = 0;
+        size_t bytesOffset = 0;
+        auto payloadBytesValue = JS_GetTypedArrayBuffer(mJSContext, payloadBytesObj, &bytesOffset, &bytesSize, &bytesPerElement);
+        util::DestructWrapper destructPayloadBytesValue{[&]{ JS_FreeValue(mJSContext, payloadBytesValue); }};
+        if(JS_IsException(payloadBytesValue)) {
+            return {};
+        }
+        auto payloadBytes = JS_GetArrayBuffer(mJSContext, &bytesSize, payloadBytesValue);
+        if(bytesPerElement != 1 || (payloadBytes == nullptr && bytesSize != 0)) {
+            return {};
+        }
+        payload = std::vector<uint8_t>{payloadBytes, payloadBytes + bytesSize};
+    }
+    return payload;
 }
 
 }

@@ -33,7 +33,7 @@ void ClientThreadManager::receiverThreadFunction() {
         epoll_event events[128] = { 0 };
         int eventCount = epoll_wait(mEpollFd, events, 128, -1);
         if(eventCount < 0) {
-            spdlog::critical("epoll_wait(): {}", util::errnoToString());
+            spdlog::warn("epoll_wait(): {}", util::errnoToString());
         }
         for(int i = 0; i < eventCount; ++i) {
             try {
@@ -107,6 +107,16 @@ void ClientThreadManager::receiverThreadFunction() {
                         for(uint i = 0; i < bytesReceived;) {
                             switch(recvData.recvState) {
                             case MQTTClientConnection::PacketReceiveState::IDLE: {
+                                if(bytes.at(i) == 'S' && client.getState() == MQTTClientConnection::ConnectionState::INITIAL) {
+                                    // simplified protocol, handled by the scripting engine
+                                    auto[_, sendLock] = client.getSendTasks();
+                                    std::vector<uint8_t> toMove{bytes.begin(), bytes.begin() + bytesReceived};
+                                    if(epoll_ctl(mEpollFd, EPOLL_CTL_DEL, events[i].data.fd, nullptr) < 0) {
+                                        spdlog::warn("epoll_ctl(EPOLL_CTL_DEL) failed: {}", util::errnoToString());
+                                    }
+                                    mApp.passTcpClientToScriptingEngine(client.moveTcpClient(), std::move(toMove));
+                                    throw CleanDisconnectException{};
+                                }
                                 recvData = {};
                                 uint8_t packetTypeId = bytes.at(i) >> 4;
                                 if(packetTypeId >= static_cast<int>(MQTTMessageType::Count) || packetTypeId == 0) {

@@ -104,6 +104,46 @@ initArgs.actions = [
 initArgs)--" });*/
     // clientManager.deleteScript("test");
 
+    app.addScript<ScriptContainerJS>(
+        "test", [](auto&) { spdlog::info("Successfully added testscript!"); }, [](auto&, const auto& error) { spdlog::error("{}", error); },
+        std::string{ R"--(
+let s = new Set()
+
+function run(args) {
+    if(args.type == "publish" && args.topic == 'sbcs/ledmatrix-pico/matrix') {
+        a = []
+        for (let item of s) {
+            a.push({
+                type: 'tcp_send',
+                fd: item,
+                payloadBytes: args.payloadBytes
+            })
+        }
+        return {
+            actions: a
+        }
+    } else if(args.type == "tcp_new_client") {
+        s.add(args.fd);
+    } else if(args.type == "tcp_delete_client") {
+        s.delete(args.fd);
+    }
+    return {};
+}
+
+initArgs = {}
+initArgs.runType = 'async'
+initArgs.actions = [
+    {
+        type: 'tcp_listen',
+        identifier: 'SIMPLIFIED-SBC-MQTT-CLIENT-PICO-MATRIX'
+    },
+    {
+        type: 'subscribe',
+        topic: 'sbcs/ledmatrix-pico/matrix'
+    }
+]
+initArgs)--" });
+
     TcpServer server{ 1883, app };
     gTcpServer = &server;
     spdlog::info("MQTT TcpServer started");

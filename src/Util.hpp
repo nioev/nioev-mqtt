@@ -136,7 +136,7 @@ private:
     std::optional<T> mFunc;
 };
 
-bool startsWith(const std::string& str, const std::string_view& prefix) {
+static bool startsWith(const std::string& str, const std::string_view& prefix) {
     for(size_t i = 0; i < prefix.size(); ++i) {
         if(i >= str.size())
             return false;

@@ -30,7 +30,18 @@ struct ScriptActionPublish {
     Retain retain;
 };
 
-using ScriptAction = std::variant<ScriptActionPublish, ScriptActionSubscribe, ScriptActionUnsubscribe>;
+struct ScriptActionListen {
+    std::string scriptName;
+    std::string listenIdentifier;
+};
+
+struct ScriptActionSendToClient {
+    std::string scriptName;
+    int fd;
+    std::vector<uint8_t> data;
+};
+
+using ScriptAction = std::variant<ScriptActionPublish, ScriptActionSubscribe, ScriptActionUnsubscribe, ScriptActionListen, ScriptActionSendToClient>;
 
 
 class ScriptActionPerformer final {

@@ -19,7 +19,7 @@ void ScriptActionPerformer::enqueueAction(ScriptAction&& action) {
     mActionsCV.notify_all();
 }
 void ScriptActionPerformer::actionsPerformerThreadFunc() {
-    pthread_setname_np(pthread_self(), "script-action-performer");
+    pthread_setname_np(pthread_self(), "script-action");
     while(mShouldRun) {
         std::unique_lock<std::mutex> lock{ mActionsMutex };
         while(mActions.empty()) {
@@ -38,7 +38,13 @@ void ScriptActionPerformer::actionsPerformerThreadFunc() {
                                mApp.publish(std::move(publish.topic), std::move(publish.payload), publish.qos, publish.retain);
                            },
                             [this](ScriptActionSubscribe& arg) { mApp.addSubscription(std::move(arg.scriptName), std::move(arg.topic)); },
-                            [this](ScriptActionUnsubscribe& arg) { mApp.deleteSubscription(std::move(arg.scriptName), std::move(arg.topic)); } },
+                            [this](ScriptActionUnsubscribe& arg) { mApp.deleteSubscription(std::move(arg.scriptName), std::move(arg.topic)); },
+                            [this](ScriptActionListen& arg) {
+                                mApp.scriptTcpListen(std::move(arg.scriptName), std::move(arg.listenIdentifier));
+                            },
+                            [this](ScriptActionSendToClient& arg) {
+                                mApp.scriptTcpSendToClient(std::move(arg.scriptName), arg.fd, std::move(arg.data));
+                            } },
                 action);
 
             lock.lock();

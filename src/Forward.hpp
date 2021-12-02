@@ -8,5 +8,7 @@ class Application;
 class ScriptActionPerformer;
 class MQTTPersistentState;
 class PersistentClientState;
+class ScriptContainerManager;
+class ScriptContainer;
 
 }
