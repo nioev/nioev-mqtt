@@ -200,6 +200,7 @@ void ScriptCustomTCPServer::sendData(StoredTcpClient& client, const uint8_t* dat
 void ScriptCustomTCPServer::deleteClient(std::unordered_map<int, ScriptCustomTCPServer::StoredTcpClient>::iterator client) {
     if(client == mTcpClients.end())
         return;
+    spdlog::info("[{}:{}] Deleting client from ScriptCustomTCPServer previously connected to {}", client->second.tcpClient.getRemoteIp(), client->second.tcpClient.getRemotePort(), client->second.script);
     if(!client->second.script.empty()) {
         mScriptManager.runScript(client->second.script, ScriptRunArgsTcpDeleteClient{client->second.tcpClient.getFd()}, {});
     }
