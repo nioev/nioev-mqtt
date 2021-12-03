@@ -300,7 +300,27 @@ void ScriptContainerJS::handleScriptActions(const JSValue& actions, ScriptStatus
                 status.error(mName, "identifier field is missing");
                 return;
             }
-            mActionPerformer.enqueueAction(ScriptActionListen{mName, *identifier });
+            auto sendCompressionStr = getJSStringProperty(action, "send_compression");
+            Compression sendCompression = Compression::NONE;
+            if(sendCompressionStr) {
+              if(sendCompressionStr == "zstd") {
+                  sendCompression = Compression::ZSTD;
+              } else if(sendCompressionStr == "none") {
+                  sendCompression = Compression::NONE;
+              } else {
+                  status.error(mName, "send_compression must be zstd or none");
+              }
+            }
+            auto recvCompressionStr = getJSStringProperty(action, "recv_compression");
+            Compression recvCompression = Compression::NONE;
+            if(recvCompressionStr) {
+                if(recvCompressionStr == "none") {
+                    recvCompression = Compression::NONE;
+                } else {
+                    status.error(mName, "recv_compression must be none");
+                }
+            }
+            mActionPerformer.enqueueAction(ScriptActionListen{mName, *identifier, sendCompression, recvCompression });
 
         } else if(actionType == "tcp_send") {
             auto fd = getJSIntProperty(action, "fd");
@@ -313,12 +333,7 @@ void ScriptContainerJS::handleScriptActions(const JSValue& actions, ScriptStatus
                 status.error(mName, "Missing either payloadStr or payloadBytes");
                 return;
             }
-            auto compressionStr = getJSStringProperty(action, "compression");
-            Compression compression = Compression::NONE;
-            if(compressionStr && compressionStr == "zstd") {
-                compression = Compression::ZSTD;
-            }
-            mActionPerformer.enqueueAction(ScriptActionSendToClient{mName, *fd, *payload, compression});
+            mActionPerformer.enqueueAction(ScriptActionSendToClient{mName, *fd, *payload});
 
         }
         i += 1;

@@ -53,11 +53,11 @@ public:
     void passTcpClient(TcpClientConnection&& tcpClient, std::vector<uint8_t>&& receivedData) {
         mScriptServer.passTcpClient(std::move(tcpClient), std::move(receivedData));
     }
-    void scriptTcpListen(std::string&& scriptName, std::string&& listenIdentifier) {
-        mScriptServer.scriptListen(std::move(scriptName), std::move(listenIdentifier));
+    void scriptTcpListen(std::string&& scriptName, std::string&& listenIdentifier, Compression sendCompression, Compression recvCompression) {
+        mScriptServer.scriptListen(std::move(scriptName), std::move(listenIdentifier), sendCompression, recvCompression);
     }
-    void scriptTcpSendToClient(std::string&& scriptName, int fd, std::vector<uint8_t>&& payload, Compression c) {
-        mScriptServer.sendMsgFromScript(std::move(scriptName), fd, std::move(payload), c);
+    void scriptTcpSendToClient(std::string&& scriptName, int fd, std::vector<uint8_t>&& payload) {
+        mScriptServer.sendMsgFromScript(std::move(scriptName), fd, std::move(payload));
     }
 private:
     mutable std::shared_mutex mScriptsLock;

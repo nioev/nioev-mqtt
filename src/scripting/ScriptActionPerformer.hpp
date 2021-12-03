@@ -33,13 +33,13 @@ struct ScriptActionPublish {
 struct ScriptActionListen {
     std::string scriptName;
     std::string listenIdentifier;
+    Compression sendCompression = Compression::NONE, recvCompression = Compression::NONE;
 };
 
 struct ScriptActionSendToClient {
     std::string scriptName;
     int fd;
     std::vector<uint8_t> data;
-    Compression compression;
 };
 
 using ScriptAction = std::variant<ScriptActionPublish, ScriptActionSubscribe, ScriptActionUnsubscribe, ScriptActionListen, ScriptActionSendToClient>;

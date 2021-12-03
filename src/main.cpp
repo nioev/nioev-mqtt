@@ -116,8 +116,7 @@ function run(args) {
             a.push({
                 type: 'tcp_send',
                 fd: item,
-                payloadBytes: args.payloadBytes,
-                compression: 'zstd'
+                payloadBytes: args.payloadBytes
             })
         }
         return {
@@ -136,7 +135,9 @@ initArgs.runType = 'async'
 initArgs.actions = [
     {
         type: 'tcp_listen',
-        identifier: 'SIMPLIFIED-SBC-MQTT-CLIENT-PICO-MATRIX'
+        identifier: 'SIMPLIFIED-SBC-MQTT-CLIENT-PICO-MATRIX',
+        send_compression: 'zstd',
+        recv_compression: 'none'
     },
     {
         type: 'subscribe',

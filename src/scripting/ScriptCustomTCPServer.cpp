@@ -71,9 +71,9 @@ void ScriptCustomTCPServer::secondThreadFunc() {
         }
     }
 }
-void ScriptCustomTCPServer::scriptListen(std::string script, std::string listenIdentifier) {
+void ScriptCustomTCPServer::scriptListen(std::string script, std::string listenIdentifier, Compression sendCompression, Compression recvCompression) {
     std::unique_lock<std::mutex> lock{mMutex};
-    mListeningScripts.emplace(std::move(listenIdentifier), std::move(script));
+    mListeningScripts.emplace(std::piecewise_construct, std::make_tuple(std::move(listenIdentifier)), std::make_tuple(std::move(script), sendCompression, recvCompression));
 }
 void ScriptCustomTCPServer::notifyScriptDied(const std::string& script) {
     std::unique_lock<std::mutex> lock{mMutex};
@@ -85,7 +85,7 @@ void ScriptCustomTCPServer::notifyScriptDied(const std::string& script) {
         }
     }
     for(auto it = mListeningScripts.begin(); it != mListeningScripts.end();) {
-        if(it->second == script) {
+        if(it->second.script == script) {
             it = mListeningScripts.erase(it);
         } else {
             it++;
@@ -143,7 +143,10 @@ void ScriptCustomTCPServer::handleDataReceived(StoredTcpClient& client, const st
                         sendData(client, reinterpret_cast<const uint8_t*>("ERROR"), 5, Compression::NONE);
                         throw CleanDisconnectException{};
                     }
-                    client.script = listeningScript->second;
+                    client.script = listeningScript->second.script;
+                    client.sendCompression = listeningScript->second.sendCompression;
+                    client.recvCompression = listeningScript->second.recvCompression;
+
                     client.isFirstMsg = false;
                     mScriptManager.runScript(client.script, ScriptRunArgsTcpNewClient{client.tcpClient.getFd()}, {});
                 } else {
@@ -202,7 +205,7 @@ void ScriptCustomTCPServer::deleteClient(std::unordered_map<int, ScriptCustomTCP
     }
     mTcpClients.erase(client);
 }
-void ScriptCustomTCPServer::sendMsgFromScript(const std::string& script, int targetFd, std::vector<uint8_t>&& msg, Compression compression) {
+void ScriptCustomTCPServer::sendMsgFromScript(const std::string& script, int targetFd, std::vector<uint8_t>&& msg) {
     auto client = mTcpClients.find(targetFd);
     if(client == mTcpClients.end()) {
         spdlog::warn("Failed to send data from script, TcpClient doesn't exist anymore!");
@@ -212,7 +215,7 @@ void ScriptCustomTCPServer::sendMsgFromScript(const std::string& script, int tar
         spdlog::error("Script {} tried to send msg to fd {}, which it doesn't own!", script, targetFd);
         return;
     }
-    sendData(client->second, msg.data(), msg.size(), compression);
+    sendData(client->second, msg.data(), msg.size(), client->second.sendCompression);
 }
 
 }

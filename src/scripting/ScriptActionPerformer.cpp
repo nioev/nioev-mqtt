@@ -40,10 +40,10 @@ void ScriptActionPerformer::actionsPerformerThreadFunc() {
                             [this](ScriptActionSubscribe& arg) { mApp.addSubscription(std::move(arg.scriptName), std::move(arg.topic)); },
                             [this](ScriptActionUnsubscribe& arg) { mApp.deleteSubscription(std::move(arg.scriptName), std::move(arg.topic)); },
                             [this](ScriptActionListen& arg) {
-                                mApp.scriptTcpListen(std::move(arg.scriptName), std::move(arg.listenIdentifier));
+                                mApp.scriptTcpListen(std::move(arg.scriptName), std::move(arg.listenIdentifier), arg.sendCompression, arg.recvCompression);
                             },
                             [this](ScriptActionSendToClient& arg) {
-                                mApp.scriptTcpSendToClient(std::move(arg.scriptName), arg.fd, std::move(arg.data), arg.compression);
+                                mApp.scriptTcpSendToClient(std::move(arg.scriptName), arg.fd, std::move(arg.data));
                             } },
                 action);
 

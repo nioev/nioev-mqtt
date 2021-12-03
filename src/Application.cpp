@@ -180,10 +180,10 @@ void Application::performSystemAction(const std::string& topic, const std::vecto
 void Application::passTcpClientToScriptingEngine(TcpClientConnection&& tcpClient, std::vector<uint8_t>&& receivedData) {
     mScripts.passTcpClient(std::move(tcpClient), std::move(receivedData));
 }
-void Application::scriptTcpListen(std::string&& scriptName, std::string&& listenIdentifier) {
-    mScripts.scriptTcpListen(std::move(scriptName), std::move(listenIdentifier));
+void Application::scriptTcpListen(std::string&& scriptName, std::string&& listenIdentifier, Compression sendCompression, Compression recvCompression) {
+    mScripts.scriptTcpListen(std::move(scriptName), std::move(listenIdentifier), sendCompression, recvCompression);
 }
-void Application::scriptTcpSendToClient(std::string&& scriptName, int fd, std::vector<uint8_t>&& payload, Compression c) {
-    mScripts.scriptTcpSendToClient(std::move(scriptName), fd, std::move(payload), c);
+void Application::scriptTcpSendToClient(std::string&& scriptName, int fd, std::vector<uint8_t>&& payload) {
+    mScripts.scriptTcpSendToClient(std::move(scriptName), fd, std::move(payload));
 }
 }

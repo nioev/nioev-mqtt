@@ -17,9 +17,9 @@ class ScriptCustomTCPServer {
 public:
     explicit ScriptCustomTCPServer(ScriptContainerManager& scriptManager);
     ~ScriptCustomTCPServer();
-    void scriptListen(std::string script, std::string listenIdentifier);
+    void scriptListen(std::string script, std::string listenIdentifier, Compression sendCompression, Compression recvCompression);
     void notifyScriptDied(const std::string& script);
-    void sendMsgFromScript(const std::string& script, int targetFd, std::vector<uint8_t>&& msg, Compression);
+    void sendMsgFromScript(const std::string& script, int targetFd, std::vector<uint8_t>&& msg);
     void passTcpClient(TcpClientConnection&& tcpClient, std::vector<uint8_t>&& receivedData);
 private:
     struct StoredTcpClient {
@@ -38,6 +38,7 @@ private:
         std::vector<uint8_t> recvBuffer;
         RecvState recvState = RecvState::RECEIVING_S;
         bool isFirstMsg = true;
+        Compression sendCompression = Compression::NONE, recvCompression = Compression::NONE;
 
         std::queue<std::pair<std::vector<uint8_t>, size_t>> sendTasks;
     };
@@ -51,7 +52,15 @@ private:
     int mEpollFd = -1;
     ScriptContainerManager& mScriptManager;
     std::unordered_map<int, StoredTcpClient> mTcpClients;
-    std::unordered_map<std::string, std::string> mListeningScripts;
+    struct Listener {
+        std::string script;
+        Compression sendCompression, recvCompression;
+        Listener(std::string&& script, Compression sendCompression, Compression recvCompression)
+        : script(std::move(script)), sendCompression(sendCompression), recvCompression(recvCompression) {
+
+        }
+    };
+    std::unordered_map<std::string, Listener> mListeningScripts;
 
     std::atomic<bool> mShouldRun = true;
     std::thread mThread;
