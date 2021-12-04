@@ -239,22 +239,15 @@ void ScriptContainerJS::handleScriptActions(const JSValue& actions, ScriptStatus
                 status.error(mName, "topic property is not a string");
                 return;
             }
-            auto qosVal = JS_GetPropertyStr(mJSContext, action, "qos");
-            util::DestructWrapper destructQosVal{[&]{ JS_FreeValue(mJSContext, qosVal); }};
-            if(!JS_IsNumber(qosVal)) {
-                status.error(mName, "qos must be a number");
-                return;
+            auto qosNum = getJSIntProperty(action, "qos");
+            if(!qosNum) {
+                qosNum = 0;
             }
-            int32_t qosNum;
-            if(JS_ToInt32(mJSContext, &qosNum, qosVal) < 0) {
-                status.error(mName, "qos must be a number");
-                return;
-            }
-            if(qosNum < 0 || qosNum >= 3) {
+            if(*qosNum < 0 || *qosNum >= 3) {
                 status.error(mName, "qos must be between 0 and 2");
                 return;
             }
-            QoS qos = static_cast<QoS>(qosNum);
+            QoS qos = static_cast<QoS>(*qosNum);
 
             auto retainObj = JS_GetPropertyStr(mJSContext, action, "retain");
             util::DestructWrapper destructRetainObj{[&]{ JS_FreeValue(mJSContext, retainObj); }};

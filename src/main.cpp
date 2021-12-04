@@ -142,6 +142,18 @@ initArgs.actions = [
     {
         type: 'subscribe',
         topic: 'sbcs/ledmatrix-pico/matrix'
+    },
+    {
+        type: 'publish',
+        topic: 'sbcs/ledmatrix-pico/width',
+        payloadStr: '64',
+        retain: true
+    },
+    {
+        type: 'publish',
+        topic: 'sbcs/ledmatrix-pico/height',
+        payloadStr: '32',
+        retain: true
     }
 ]
 initArgs)--" });
