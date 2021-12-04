@@ -39,9 +39,13 @@ public:
         mScripts.erase(script);
     }
 
-    [[nodiscard]] std::pair<std::reference_wrapper<const ScriptInitReturn>, std::shared_lock<std::shared_mutex>>
+    [[nodiscard]] std::optional<std::pair<std::reference_wrapper<const ScriptInitReturn>, std::shared_lock<std::shared_mutex>>>
     getScriptInitReturn(const std::string& name) const {
-        return {mScripts.at(name)->getInitArgs(), std::shared_lock<std::shared_mutex>{mScriptsLock}};
+        auto script = mScripts.find(name);
+        if(script == mScripts.end()) {
+            return {};
+        }
+        return {{script->second->getInitArgs(), std::shared_lock<std::shared_mutex>{mScriptsLock}}};
     }
 
     void runScript(const std::string& name, const ScriptInputArgs& in, ScriptStatusOutput&& out) {

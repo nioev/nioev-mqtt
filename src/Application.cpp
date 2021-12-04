@@ -133,7 +133,11 @@ SyncAction Application::runScriptWithPublishedMessage(const std::string& scriptN
     std::atomic<SyncAction> ret = SyncAction::Continue;
 
     auto initReturn = mScripts.getScriptInitReturn(scriptName);
-    if(initReturn.first.get().runType == ScriptRunType::Sync) {
+    if(!initReturn) {
+        spdlog::warn("Trying to publish to a script that hasn't been logged yet!");
+        return SyncAction::Continue;
+    }
+    if(initReturn->first.get().runType == ScriptRunType::Sync) {
         std::condition_variable cv;
         std::mutex m;
 
