@@ -74,12 +74,7 @@ void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
 
     auto actionsObj = JS_GetPropertyStr(mJSContext, ret, "actions");
     util::DestructWrapper destructActionsObj{[&]{ JS_FreeValue(mJSContext, actionsObj); }};
-    if(JS_IsArray(mJSContext, actionsObj)) {
-        handleScriptActions(actionsObj, std::move(initStatus));
-    } else if(!JS_IsUndefined(actionsObj)) {
-        initStatus.error(mName, "Initial actions must be an array!");
-        return;
-    }
+    handleScriptActions(actionsObj, std::move(initStatus));
 
     destructActionsObj.execute();
     destructRet.execute();
