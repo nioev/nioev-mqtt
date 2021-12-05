@@ -209,6 +209,42 @@ initArgs)--" });
                     return;
                 }
             })
+        .put(
+            "/scripts/:script_name",
+            [&app](uWS::HttpResponse<false>* res, uWS::HttpRequest* req) {
+                try {
+                    std::string fullCode;
+                    res->onData([res, req, fullCode, &app](std::string_view data, bool last) mutable {
+                        fullCode += data;
+                        if(!last) {
+                            return;
+                        }
+                        auto scriptName = req->getParameter(0);
+                        auto language = req->getQuery("lang");
+                        if(language != "js") {
+                            res->writeStatus("400 Bad Request");
+                            res->end("Invalid language - please specify lang=js");
+                            return;
+                        }
+                        spdlog::info("Adding script from Web-API: {}", scriptName);
+                        app.addScript<ScriptContainerJS>(
+                            std::string{scriptName},
+                            [res](auto&) {
+                                res->end("ok");
+                            },
+                            [res](auto&, const auto& error) {
+                                res->writeStatus("500 Internal Server Error");
+                                res->end(error);
+                            },
+                            std::move(fullCode));
+                    });
+                    res->onAborted([]{});
+                } catch(std::exception& e) {
+                    res->writeStatus("500 Internal Server Error");
+                    res->end(e.what());
+                    return;
+                }
+            })
         .listen(
             8080,
             [](auto* listenSocket) {
