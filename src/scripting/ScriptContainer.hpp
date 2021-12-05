@@ -5,6 +5,8 @@
 #include <cstdint>
 #include <variant>
 #include <functional>
+#include <optional>
+#include <mutex>
 #include "../Enums.hpp"
 #include "../Forward.hpp"
 #include "spdlog/spdlog.h"
@@ -63,13 +65,15 @@ public:
     virtual ~ScriptContainer() = default;
     virtual void init(ScriptStatusOutput&&) = 0;
     virtual void run(const ScriptInputArgs&, ScriptStatusOutput&&) = 0;
-    [[nodiscard]] const ScriptInitReturn& getInitArgs() const {
+    [[nodiscard]] std::optional<ScriptInitReturn> getInitArgs() const {
+        std::lock_guard<std::mutex> lock{mScriptInitReturnMutex};
         return mScriptInitReturn;
     }
     virtual void forceQuit() = 0;
 
 protected:
-    ScriptInitReturn mScriptInitReturn;
+    mutable std::mutex mScriptInitReturnMutex;
+    std::optional<ScriptInitReturn> mScriptInitReturn;
     ScriptActionPerformer& mActionPerformer;
 };
 

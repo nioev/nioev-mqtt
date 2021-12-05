@@ -63,13 +63,17 @@ void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
         initStatus.error(mName, "Init return runType is not a string");
         return;
     }
-    if(runType == "sync") {
-        mScriptInitReturn.runType = ScriptRunType::Sync;
-    } else if(runType == "async") {
-        mScriptInitReturn.runType = ScriptRunType::Async;
-    } else {
-        initStatus.error(mName, std::string{"Init return runType should be 'sync' or 'async', not '"} + *runType + "'");
-        return;
+    {
+        std::lock_guard<std::mutex> lock{mScriptInitReturnMutex};
+        mScriptInitReturn.emplace();
+        if(runType == "sync") {
+            mScriptInitReturn->runType = ScriptRunType::Sync;
+        } else if(runType == "async") {
+            mScriptInitReturn->runType = ScriptRunType::Async;
+        } else {
+            initStatus.error(mName, std::string{"Init return runType should be 'sync' or 'async', not '"} + *runType + "'");
+            return;
+        }
     }
 
     auto actionsObj = JS_GetPropertyStr(mJSContext, ret, "actions");
@@ -168,7 +172,7 @@ void ScriptContainerJS::performRun(const ScriptInputArgs& input, ScriptStatusOut
 
     destructGlobalObj.execute();
 
-    if(mScriptInitReturn.runType == ScriptRunType::Sync) {
+    if(mScriptInitReturn->runType == ScriptRunType::Sync) {
         auto syncActionStr = getJSStringProperty(runResult, "syncAction");
         if(syncActionStr) {
             if(syncActionStr == "continue") {
