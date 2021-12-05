@@ -51,6 +51,53 @@ void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
         pthread_setname_np(pthread_self(), threadName.c_str());
     }
     JS_UpdateStackTop(mJSRuntime);
+
+    auto logFunc = JS_NewCFunction(mJSContext, [](JSContext* ctx, JSValue this_obj, int argc, JSValue* args) {
+            try {
+                std::string toLog;
+                for(int i = 0; i < argc; ++i) {
+                    auto json = JS_JSONStringify(ctx, args[i], JS_UNDEFINED, JS_UNDEFINED);
+                    util::DestructWrapper destructJson{[&]{ JS_FreeValue(ctx, json); }};
+                    auto cStr = JS_ToCString(ctx, json);
+                    util::DestructWrapper destructCStr{[&]{ JS_FreeCString(ctx, cStr); }};
+                    toLog += cStr;
+                    if(i != argc - 1)
+                        toLog += " ";
+                }
+                spdlog::info("[SCRIPT] {}", toLog); // TODO print script name
+                return JS_UNDEFINED;
+            } catch (std::exception& e) {
+                return JS_NewString(ctx, e.what());
+            }
+    }, "log", 0);
+
+    auto logErrFunc = JS_NewCFunction(mJSContext, [](JSContext* ctx, JSValue this_obj, int argc, JSValue* args) {
+            try {
+                std::string toLog;
+                for(int i = 0; i < argc; ++i) {
+                    auto json = JS_JSONStringify(ctx, args[i], JS_UNDEFINED, JS_UNDEFINED);
+                    util::DestructWrapper destructJson{[&]{ JS_FreeValue(ctx, json); }};
+                    auto cStr = JS_ToCString(ctx, json);
+                    util::DestructWrapper destructCStr{[&]{ JS_FreeCString(ctx, cStr); }};
+                    toLog += cStr;
+                    if(i != argc - 1)
+                        toLog += " ";
+                }
+                spdlog::error("[SCRIPT] {}", toLog); // TODO print script name
+                return JS_UNDEFINED;
+            } catch (std::exception& e) {
+                return JS_NewString(ctx, e.what());
+            }
+        }, "log", 0);
+    //util::DestructWrapper destructLogFunc{[&]{ JS_FreeValue(mJSContext, logFunc); }};
+
+    auto globalObj = JS_GetGlobalObject(mJSContext);
+    util::DestructWrapper destructGlobalObj{[&]{ JS_FreeValue(mJSContext, globalObj); }};
+    auto console = JS_NewObject(mJSContext);
+    JS_SetPropertyStr(mJSContext, globalObj, "console", console);
+    JS_SetPropertyStr(mJSContext, console, "log", logFunc);
+    JS_SetPropertyStr(mJSContext, console, "error", logErrFunc);
+
     auto ret = JS_Eval(mJSContext, mCode.c_str(), mCode.size(), mName.c_str(), 0);
     util::DestructWrapper destructRet{[&]{ JS_FreeValue(mJSContext, ret); }};
 
