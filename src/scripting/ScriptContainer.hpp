@@ -49,9 +49,7 @@ enum class SyncAction {
 };
 
 struct ScriptStatusOutput {
-    std::function<void(const std::string& scriptName, const std::string& reason)> error = [](auto& scriptName, auto& reason) {
-        spdlog::error("Script [{}] error: {}", scriptName, reason);
-    };
+    std::function<void(const std::string& scriptName, const std::string& reason)> error;
     std::function<void(const std::string& scriptName)> success = [](auto&) {};
     std::function<void(const std::string& scriptName, SyncAction action)> syncAction = [](auto&, auto) {};
 };

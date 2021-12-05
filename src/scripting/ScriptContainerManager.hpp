@@ -27,6 +27,11 @@ public:
             mScripts.erase(existingScript);
         }
 
+        statusOutput.error = [out = std::move(statusOutput.error)](auto& scriptName, auto& reason) {
+            spdlog::error("Script init [{}] error: {}", scriptName, reason);
+            out(scriptName, reason);
+        };
+
         auto scriptPtr = new T(actionPerformer, name, std::forward<Args>(args)...);
         mScripts.emplace(std::string{name}, std::unique_ptr<T>{scriptPtr});
         scriptPtr->init(std::move(statusOutput));
@@ -55,6 +60,10 @@ public:
     void runScript(const std::string& name, const ScriptInputArgs& in, ScriptStatusOutput&& out) {
         std::shared_lock<std::shared_mutex> lock{mScriptsLock};
         auto& script = mScripts.at(name);
+        out.error = [out = std::move(out.error)](auto& scriptName, auto& reason) {
+            spdlog::error("Script run [{}] error: {}", scriptName, reason);
+            out(scriptName, reason);
+        };
         script->run(in, std::move(out));
     }
 
