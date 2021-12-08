@@ -12,8 +12,8 @@ namespace nioev {
 
 class ScriptContainerManager {
 public:
-    ScriptContainerManager()
-    : mScriptServer(*this) {
+    ScriptContainerManager(Application& app)
+    : mScriptServer(*this), mApp(app) {
 
     }
 
@@ -22,9 +22,16 @@ public:
         std::unique_lock<std::shared_mutex> lock{mScriptsLock};
 
         auto existingScript = mScripts.find(name);
-        if(existingScript != mScripts.end()) {
+        while(existingScript != mScripts.end()) {
             spdlog::info("Replacing script {}", name);
-            mScripts.erase(existingScript);
+            // We need to go through the app so that the App can delete the script's subscriptions.
+            // The app then calls deleteScript from us, which acquires our lock, which is why we need to drop the lock here
+            // to avoid a deadlock. Afterwards in the short duration until we reacquire the lock, it's possible our references got invalidated,
+            // so we need to update it and check again until we can be sure that we have the rw lock and there is no existing script.
+            lock.unlock();
+            deleteScriptFromApp(name);
+            lock.lock();
+            existingScript = mScripts.find(name);
         }
 
         statusOutput.error = [out = std::move(statusOutput.error)](auto& scriptName, auto& reason) {
@@ -38,7 +45,7 @@ public:
     }
 
     void deleteScript(const std::string& name) {
-        std::lock_guard<std::shared_mutex> lock{mScriptsLock};
+        std::unique_lock<std::shared_mutex> lock{mScriptsLock};
         auto script = mScripts.find(name);
         if(script == mScripts.end())
             return;
@@ -77,10 +84,12 @@ public:
         mScriptServer.sendMsgFromScript(std::move(scriptName), fd, std::move(payload));
     }
 private:
+    void deleteScriptFromApp(const std::string& name);
     mutable std::shared_mutex mScriptsLock;
     std::unordered_map<std::string, std::unique_ptr<ScriptContainer>> mScripts;
 
     ScriptCustomTCPServer mScriptServer;
+    Application& mApp;
 };
 
 }

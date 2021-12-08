@@ -41,6 +41,6 @@ add_executable(nioev
         src/BigVector.hpp
         src/scripting/ScriptActionPerformer.cpp
         src/scripting/ScriptActionPerformer.hpp
-        ${UWEBSOCKETS_FILES} src/Timers.cpp src/Timers.hpp src/scripting/ScriptCustomTCPServer.cpp src/scripting/ScriptCustomTCPServer.hpp)
+        ${UWEBSOCKETS_FILES} src/Timers.cpp src/Timers.hpp src/scripting/ScriptCustomTCPServer.cpp src/scripting/ScriptCustomTCPServer.hpp src/scripting/ScriptContainerManager.cpp)
 
 target_link_libraries(nioev libzstd_static uWebSockets spdlog quickjs pthread dl)

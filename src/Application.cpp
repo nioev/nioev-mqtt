@@ -5,7 +5,7 @@
 namespace nioev {
 
 Application::Application()
-: mScriptActionPerformer(*this), mClientManager(*this, 4) {
+: mScriptActionPerformer(*this), mClientManager(*this, 4), mScripts(*this) {
     mTimer.addPeriodicTask(std::chrono::seconds (10), [this] {
        cleanupDisconnectedClients();
     });
