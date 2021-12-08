@@ -109,14 +109,27 @@ initArgs)--" });*/
         std::string{ R"--(
 let s = new Set()
 
+let t = 0
+
 function run(args) {
     if(args.type == "publish" && args.topic == 'sbcs/ledmatrix-pico/matrix') {
+        t += 0.1;
         a = []
+        buffer = []
+        for(let y = 0; y < 32; ++y) {
+            for(let x = 0; x < 64; ++x) {
+                buffer.push(Math.sin(x / 30.0 + y / 30.0 + t) * 120 + 120);
+                buffer.push(Math.sin(x / 30.0 + y / 30.0 + Math.PI * 2 / 3 + t) * 120 + 120);
+                buffer.push(Math.sin(x / 30.0 + y / 30.0 + Math.PI * 2 / 3 * 2 + t) * 120 + 120);
+            }
+        }
+
+        bufferBytes = Uint8Array.from(buffer)
         for (let item of s) {
             a.push({
                 type: 'tcp_send',
                 fd: item,
-                payloadBytes: args.payloadBytes
+                payloadBytes: bufferBytes
             })
         }
         return {

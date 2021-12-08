@@ -40,6 +40,10 @@ void ScriptContainerJS::init(ScriptStatusOutput&& status) {
 
 void ScriptContainerJS::run(const ScriptInputArgs& in, ScriptStatusOutput&& status) {
     std::unique_lock<std::mutex> lock{mTasksMutex};
+    if(!mInitFailureMessage.empty()) {
+        status.error(mName, "Init failed: " + mInitFailureMessage);
+        return;
+    }
     mTasks.emplace(in, std::move(status));
     lock.unlock();
     mTasksCV.notify_all();
@@ -52,8 +56,16 @@ void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
     }
     JS_UpdateStackTop(mJSRuntime);
 
+    initStatus.error = [this, error = std::move(initStatus.error)](const std::string& scriptName, const std::string& errorMsg) {
+        std::unique_lock<std::mutex> lock{mTasksMutex};
+        mInitFailureMessage = errorMsg;
+        lock.unlock();
+        error(mName, errorMsg);
+    };
+
     auto logFunc = JS_NewCFunction(mJSContext, [](JSContext* ctx, JSValue this_obj, int argc, JSValue* args) {
             try {
+                ScriptContainerJS* self = reinterpret_cast<ScriptContainerJS*>(JS_GetContextOpaque(ctx));
                 std::string toLog;
                 for(int i = 0; i < argc; ++i) {
                     auto json = JS_JSONStringify(ctx, args[i], JS_UNDEFINED, JS_UNDEFINED);
@@ -64,7 +76,7 @@ void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
                     if(i != argc - 1)
                         toLog += " ";
                 }
-                spdlog::info("[SCRIPT] {}", toLog); // TODO print script name
+                spdlog::info("[SCRIPT] [{}] {}", self->mName, toLog);
                 return JS_UNDEFINED;
             } catch (std::exception& e) {
                 return JS_NewString(ctx, e.what());
@@ -73,6 +85,7 @@ void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
 
     auto logErrFunc = JS_NewCFunction(mJSContext, [](JSContext* ctx, JSValue this_obj, int argc, JSValue* args) {
             try {
+                ScriptContainerJS* self = reinterpret_cast<ScriptContainerJS*>(JS_GetContextOpaque(ctx));
                 std::string toLog;
                 for(int i = 0; i < argc; ++i) {
                     auto json = JS_JSONStringify(ctx, args[i], JS_UNDEFINED, JS_UNDEFINED);
@@ -83,13 +96,14 @@ void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
                     if(i != argc - 1)
                         toLog += " ";
                 }
-                spdlog::error("[SCRIPT] {}", toLog); // TODO print script name
+                spdlog::error("[SCRIPT] [{}] {}", self->mName, toLog);
                 return JS_UNDEFINED;
             } catch (std::exception& e) {
                 return JS_NewString(ctx, e.what());
             }
         }, "log", 0);
     //util::DestructWrapper destructLogFunc{[&]{ JS_FreeValue(mJSContext, logFunc); }};
+    JS_SetContextOpaque(mJSContext, this);
 
     auto globalObj = JS_GetGlobalObject(mJSContext);
     util::DestructWrapper destructGlobalObj{[&]{ JS_FreeValue(mJSContext, globalObj); }};

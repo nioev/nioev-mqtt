@@ -36,6 +36,7 @@ private:
     std::mutex mTasksMutex;
     std::condition_variable mTasksCV;
     std::queue<std::pair<ScriptInputArgs, ScriptStatusOutput>> mTasks;
+    std::string mInitFailureMessage; // protected by tasks mutex
 };
 
 }
