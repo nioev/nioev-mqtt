@@ -39,9 +39,8 @@ public:
             out(scriptName, reason);
         };
 
-        auto scriptPtr = new T(actionPerformer, name, std::forward<Args>(args)...);
-        mScripts.emplace(std::string{name}, std::unique_ptr<T>{scriptPtr});
-        scriptPtr->init(std::move(statusOutput));
+        auto[script, insertionSuccessful] = mScripts.emplace(std::string{name}, std::make_unique<T>(actionPerformer, name, std::forward<Args>(args)...));
+        script->second->init(std::move(statusOutput));
     }
 
     void deleteScript(const std::string& name) {
