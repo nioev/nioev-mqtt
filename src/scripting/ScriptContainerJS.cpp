@@ -101,7 +101,7 @@ void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
             } catch (std::exception& e) {
                 return JS_NewString(ctx, e.what());
             }
-        }, "log", 0);
+        }, "error", 0);
     //util::DestructWrapper destructLogFunc{[&]{ JS_FreeValue(mJSContext, logFunc); }};
     JS_SetContextOpaque(mJSContext, this);
 
