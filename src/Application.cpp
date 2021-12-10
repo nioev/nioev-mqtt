@@ -60,7 +60,7 @@ void Application::cleanupDisconnectedClients() {
             it = mClients.begin();
         } else {
             auto [recvData, recvDataLock] = it->second.getRecvData();
-            if(recvData.get().lastDataReceivedTimestamp + (int64_t)it->second.getKeepAliveIntervalSeconds() * 1'500'000'000 <= std::chrono::steady_clock::now().time_since_epoch().count()) {
+            if(recvData.get().lastDataReceivedTimestamp + (int64_t)it->second.getKeepAliveIntervalSeconds() * 2'000'000'000 <= std::chrono::steady_clock::now().time_since_epoch().count()) {
                 // timeout
                 it->second.notifyConnecionError();
                 spdlog::warn("[{}] Timeout", it->second.getClientId());
