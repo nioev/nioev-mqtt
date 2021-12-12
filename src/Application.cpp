@@ -174,7 +174,9 @@ SyncAction Application::runScriptWithPublishedMessage(const std::string& scriptN
     }
 }
 SessionPresent Application::loginClient(MQTTClientConnection& conn, std::string&& clientId, CleanSession cleanSession) {
-    return mPersistentState.loginClient(conn, std::move(clientId), cleanSession);
+    return mPersistentState.loginClient(conn, std::move(clientId), cleanSession, [this](MQTTClientConnection* client) {
+        performWillWithoutEraseAndLock(*client);
+    });
 }
 void Application::performSystemAction(const std::string& topic, const std::vector<uint8_t>& payload) {
     if(util::doesTopicMatchSubscription(topic, {"$NIOEV", "scripts", "+", "code"})) {

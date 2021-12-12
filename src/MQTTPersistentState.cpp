@@ -116,7 +116,7 @@ void MQTTPersistentState::retainMessage(std::string&& topic, std::vector<uint8_t
     }
     mRetainedMessages.insert_or_assign(topic, RetainedMessage{std::move(payload)});
 }
-SessionPresent MQTTPersistentState::loginClient(MQTTClientConnection& conn, std::string&& clientId, CleanSession cleanSession) {
+SessionPresent MQTTPersistentState::loginClient(MQTTClientConnection& conn, std::string&& clientId, CleanSession cleanSession, std::function<void(MQTTClientConnection*)>&& performWill) {
     std::unique_lock<std::recursive_mutex> lock{mPersistentClientStatesMutex};
 
     constexpr char AVAILABLE_RANDOM_CHARS[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890";
@@ -157,8 +157,8 @@ SessionPresent MQTTPersistentState::loginClient(MQTTClientConnection& conn, std:
         auto existingClient = existingSession->second.currentClient.load();
         if(existingClient) {
             spdlog::warn("[{}] Already connected, closing old connection", clientId);
+            performWill(existingClient);
             existingClient->notifyConnecionError();
-            existingClient->setPersistentState(nullptr);
             existingSession->second.currentClient = nullptr;
             existingSession->second.lastDisconnectTime = std::chrono::steady_clock::now().time_since_epoch().count();
         }

@@ -65,7 +65,7 @@ public:
     void retainMessage(std::string&& topic, std::vector<uint8_t>&& payload);
     void deleteScriptSubscriptions(const ScriptName& script);
 
-    SessionPresent loginClient(MQTTClientConnection& conn, std::string&& clientId, CleanSession cleanSession);
+    SessionPresent loginClient(MQTTClientConnection& conn, std::string&& clientId, CleanSession cleanSession, std::function<void(MQTTClientConnection*)>&& performWill);
     // Disassosciates the persistent client state and parameter
     void logoutClient(MQTTClientConnection& conn);
 private:

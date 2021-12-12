@@ -104,7 +104,7 @@ initArgs.actions = [
 initArgs)--" });*/
     // clientManager.deleteScript("test");
 
-    app.addScript<ScriptContainerJS>(
+    /*app.addScript<ScriptContainerJS>(
         "test", [](auto&) { spdlog::info("Successfully added testscript!"); }, [](auto&, const auto& error) { spdlog::error("{}", error); },
         std::string{ R"--(
 let s = new Set()
@@ -169,7 +169,7 @@ initArgs.actions = [
         retain: true
     }
 ]
-initArgs)--" });
+initArgs)--" });*/
 
     TcpServer server{ 1883, app };
     gTcpServer = &server;
