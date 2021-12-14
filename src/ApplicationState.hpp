@@ -51,7 +51,11 @@ struct ChangeRequestDeleteDisconnectedClients {
 
 };
 
-using ChangeRequest = std::variant<ChangeRequestSubscribe, ChangeRequestUnsubscribe, ChangeRequestRetain, ChangeRequestDeleteDisconnectedClients, ChangeRequestLoginClient>;
+struct ChangeRequestDisconnectClient {
+    std::shared_ptr<MQTTClientConnection> client;
+};
+
+using ChangeRequest = std::variant<ChangeRequestSubscribe, ChangeRequestUnsubscribe, ChangeRequestRetain, ChangeRequestDeleteDisconnectedClients, ChangeRequestDisconnectClient, ChangeRequestLoginClient>;
 
 struct PersistentClientState {
     static_assert(std::is_same_v<decltype(std::chrono::steady_clock::time_point{}.time_since_epoch().count()), int64_t>);
@@ -84,6 +88,7 @@ public:
     void operator()(ChangeRequestRetain&& req);
     void operator()(ChangeRequestDeleteDisconnectedClients&& req);
     void operator()(ChangeRequestLoginClient&& req);
+    void operator()(ChangeRequestDisconnectClient&& req);
 
     void publish(std::string&& topic, std::vector<uint8_t>&& msg, std::optional<QoS> qos, Retain retain);
     void handleNewClientConnection(TcpClientConnection&&) override;

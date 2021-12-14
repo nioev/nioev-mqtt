@@ -135,6 +135,7 @@ public:
             //spdlog::warn("Bytes sent: {}, Total bytes sent: {}", bytesSent, totalBytesSent);
 
             if(totalBytesSent < bytes.size()) {
+                // TODO implement maximum queue depth
                 sendTasks.emplace(MQTTClientConnection::SendTask{ std::move(bytes), totalBytesSent });
             }
         } catch(std::exception& e) {

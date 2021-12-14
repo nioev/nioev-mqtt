@@ -92,10 +92,12 @@ void ApplicationState::operator()(ChangeRequestUnsubscribe&& req) {
 }
 void ApplicationState::operator()(ChangeRequestRetain&& req) {
     std::unique_lock<std::shared_mutex> lock{mMutex};
-
+    mRetainedMessages.emplace(std::move(req.topic), std::move(req.payload));
 }
 void ApplicationState::operator()(ChangeRequestDeleteDisconnectedClients&& req) {
+    // TODO start a time that calls this function periodically
     std::unique_lock<std::shared_mutex> lock{mMutex};
+    mClientManager.suspendAllThreads();
     for(auto it = mClients.begin(); it != mClients.end(); ++it) {
         if((*it)->shouldBeDisconnected()) {
             it = mClients.erase(it);
@@ -103,6 +105,11 @@ void ApplicationState::operator()(ChangeRequestDeleteDisconnectedClients&& req) 
             it++;
         }
     }
+    mClientManager.resumeAllThreads();
+}
+void ApplicationState::operator()(ChangeRequestDisconnectClient&& req) {
+    std::unique_lock<std::shared_mutex> lock{mMutex};
+    logoutClient(*req.client, lock);
 }
 void ApplicationState::operator()(ChangeRequestLoginClient&& req) {
     std::unique_lock<std::shared_mutex> lock{mMutex};
@@ -179,9 +186,6 @@ void ApplicationState::operator()(ChangeRequestLoginClient&& req) {
     req.client->setState(MQTTClientConnection::ConnectionState::CONNECTED);
 }
 void ApplicationState::logoutClient(MQTTClientConnection& client, std::unique_lock<std::shared_mutex>& lock) {
-    lock.unlock();
-    mClientManager.suspendAllThreads();
-    lock.lock();
     mClientManager.removeClientConnection(client);
     {
         // perform will
@@ -218,8 +222,8 @@ void ApplicationState::logoutClient(MQTTClientConnection& client, std::unique_lo
         static_assert(std::is_reference<decltype(state)>::value);
         state = nullptr;
     }
+    spdlog::info("[{}] Logged out", client.getClientId());
     client.getTcpClient().close();
-    mClientManager.resumeAllThreads();
 }
 void ApplicationState::publish(std::string&& topic, std::vector<uint8_t>&& msg, std::optional<QoS> qos, Retain retain) {
     std::shared_lock<std::shared_mutex> lock{ mMutex };

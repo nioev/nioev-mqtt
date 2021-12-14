@@ -171,19 +171,10 @@ void ClientThreadManager::receiverThreadFunction() {
                     } while(bytesReceived > 0);
                 }
             } catch(CleanDisconnectException&) {
-                try {
-
-                    client.notifyConnecionError();
-                } catch(...) {
-                    // ignore errors while fetching the client, it probably just means it has been disconnected already
-                }
+                mApp.requestChange(ChangeRequestDisconnectClient{client.makeShared()});
             } catch(std::exception& e) {
                 spdlog::error("Caught: {}", e.what());
-                try {
-                    client.notifyConnecionError();
-                } catch(...) {
-                    // ignore errors while fetching the client, it probably just means it has been disconnected already
-                }
+                mApp.requestChange(ChangeRequestDisconnectClient{client.makeShared()});
             }
         }
     }
@@ -199,7 +190,6 @@ void ClientThreadManager::addClientConnection(MQTTClientConnection& conn) {
     }
 }
 void ClientThreadManager::removeClientConnection(MQTTClientConnection& conn) {
-    assert(mShouldSuspend);
     if(epoll_ctl(mEpollFd, EPOLL_CTL_DEL, conn.getTcpClient().getFd(), nullptr) < 0) {
         spdlog::debug("Failed to remove fd from epoll: {}", util::errnoToString());
     }
@@ -402,7 +392,7 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
             if(recvData.firstByte != 0xE0) {
                 protocolViolation();
             }
-            spdlog::info("[{}] Disconnecting...", client.getClientId());
+            spdlog::info("[{}] Received disconnect request", client.getClientId());
             client.discardWill();
             throw CleanDisconnectException{};
 
