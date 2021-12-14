@@ -4,7 +4,7 @@ namespace nioev {
 
 class TcpClientConnection;
 class MQTTClientConnection;
-class Application;
+class ApplicationState;
 class ScriptActionPerformer;
 class MQTTPersistentState;
 class PersistentClientState;

@@ -1,12 +1,9 @@
 #include "ScriptActionPerformer.hpp"
-#include "../Application.hpp"
-
-template<class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
-template<class... Ts> overloaded(Ts...) -> overloaded<Ts...>;
+#include "../ApplicationState.hpp"
 
 namespace nioev {
 
-ScriptActionPerformer::ScriptActionPerformer(Application& app) : mApp(app), mActionsPerformerThread([this] { actionsPerformerThreadFunc(); }) { }
+ScriptActionPerformer::ScriptActionPerformer(ApplicationState& app) : mApp(app), mActionsPerformerThread([this] { actionsPerformerThreadFunc(); }) { }
 ScriptActionPerformer::~ScriptActionPerformer() {
     mShouldRun = false;
     mActionsCV.notify_all();
@@ -34,16 +31,20 @@ void ScriptActionPerformer::actionsPerformerThreadFunc() {
             lock.unlock();
 
             std::visit(
-                overloaded{ [this](ScriptActionPublish& publish) {
-                               mApp.publish(std::move(publish.topic), std::move(publish.payload), publish.qos, publish.retain);
+                util::overloaded{ [this](ScriptActionPublish& publish) {
+                               //mApp.publish(std::move(publish.topic), std::move(publish.payload), publish.qos, publish.retain);
                            },
-                            [this](ScriptActionSubscribe& arg) { mApp.addSubscription(std::move(arg.scriptName), std::move(arg.topic)); },
-                            [this](ScriptActionUnsubscribe& arg) { mApp.deleteSubscription(std::move(arg.scriptName), std::move(arg.topic)); },
+                            [this](ScriptActionSubscribe& arg) {
+                                      //mApp.addSubscription(std::move(arg.scriptName), std::move(arg.topic));
+                                      },
+                            [this](ScriptActionUnsubscribe& arg) {
+                                      //mApp.deleteSubscription(std::move(arg.scriptName), std::move(arg.topic));
+                                  },
                             [this](ScriptActionListen& arg) {
-                                mApp.scriptTcpListen(std::move(arg.scriptName), std::move(arg.listenIdentifier), arg.sendCompression, arg.recvCompression);
+                                //mApp.scriptTcpListen(std::move(arg.scriptName), std::move(arg.listenIdentifier), arg.sendCompression, arg.recvCompression);
                             },
                             [this](ScriptActionSendToClient& arg) {
-                                mApp.scriptTcpSendToClient(std::move(arg.scriptName), arg.fd, std::move(arg.data));
+                                //mApp.scriptTcpSendToClient(std::move(arg.scriptName), arg.fd, std::move(arg.data));
                             } },
                 action);
 

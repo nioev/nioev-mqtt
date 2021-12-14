@@ -12,6 +12,7 @@ include_directories(thirdparty/zstd/lib)
 
 include_directories("thirdparty/uWebSockets/uSockets/src")
 include_directories(thirdparty/uWebSockets/src)
+include_directories(thirdparty/atomic_queue/include)
 add_subdirectory(thirdparty/uWebSockets-CMake)
 add_subdirectory(thirdparty/zstd/build/cmake)
 
@@ -21,9 +22,6 @@ add_executable(nioev
         src/TcpServer.hpp
         src/Util.hpp
         src/TcpClientHandlerInterface.hpp
-        src/Application.cpp
-        src/Application.hpp
-        src/MQTTClientConnection.cpp
         src/MQTTClientConnection.hpp
         src/TcpClientConnection.cpp
         src/TcpClientConnection.hpp
@@ -31,8 +29,6 @@ add_executable(nioev
         src/ClientThreadManager.hpp
         src/Forward.hpp
         src/Enums.hpp
-        src/MQTTPersistentState.cpp
-        src/MQTTPersistentState.hpp
         src/scripting/ScriptContainerManager.hpp
         src/scripting/ScriptContainer.hpp
         src/scripting/ScriptContainerJS.cpp
@@ -41,6 +37,6 @@ add_executable(nioev
         src/BigVector.hpp
         src/scripting/ScriptActionPerformer.cpp
         src/scripting/ScriptActionPerformer.hpp
-        ${UWEBSOCKETS_FILES} src/Timers.cpp src/Timers.hpp src/scripting/ScriptCustomTCPServer.cpp src/scripting/ScriptCustomTCPServer.hpp src/scripting/ScriptContainerManager.cpp)
+        ${UWEBSOCKETS_FILES} src/Timers.cpp src/Timers.hpp src/scripting/ScriptCustomTCPServer.cpp src/scripting/ScriptCustomTCPServer.hpp src/scripting/ScriptContainerManager.cpp src/ApplicationState.cpp src/ApplicationState.hpp src/Subscriber.hpp)
 
 target_link_libraries(nioev libzstd_static uWebSockets spdlog quickjs pthread dl)

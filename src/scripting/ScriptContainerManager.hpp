@@ -12,7 +12,7 @@ namespace nioev {
 
 class ScriptContainerManager {
 public:
-    ScriptContainerManager(Application& app)
+    ScriptContainerManager(ApplicationState& app)
     : mScriptServer(*this), mApp(app) {
 
     }
@@ -88,7 +88,7 @@ private:
     std::unordered_map<std::string, std::unique_ptr<ScriptContainer>> mScripts;
 
     ScriptCustomTCPServer mScriptServer;
-    Application& mApp;
+    ApplicationState& mApp;
 };
 
 }

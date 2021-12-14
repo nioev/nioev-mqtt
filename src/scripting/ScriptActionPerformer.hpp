@@ -47,13 +47,13 @@ using ScriptAction = std::variant<ScriptActionPublish, ScriptActionSubscribe, Sc
 
 class ScriptActionPerformer final {
 public:
-    explicit ScriptActionPerformer(Application& app);
+    explicit ScriptActionPerformer(ApplicationState& app);
     ~ScriptActionPerformer();
     void enqueueAction(ScriptAction&&);
 private:
     void actionsPerformerThreadFunc();
 
-    Application& mApp;
+    ApplicationState& mApp;
 
     std::queue<ScriptAction> mActions;
     std::mutex mActionsMutex;

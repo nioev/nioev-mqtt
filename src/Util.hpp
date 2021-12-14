@@ -14,6 +14,9 @@ using uint = unsigned int;
 
 namespace util {
 
+template<class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
+template<class... Ts> overloaded(Ts...) -> overloaded<Ts...>;
+
 inline std::string errnoToString() {
     char buffer[1024] = { 0 };
 #ifdef __linux__
@@ -44,6 +47,7 @@ public:
     void encodeBytes(const std::vector<uint8_t>& data) {
         mData.insert(mData.end(), data.begin(), data.end());
     }
+    // this function takes about 33% of total calculation time - TODO optimize
     void insertPacketLength() {
         uint32_t packetLength = mData.size() - 1; // exluding first byte
         int offset = 1;
@@ -188,6 +192,21 @@ static bool doesTopicMatchSubscription(const std::string& topic, const std::vect
         return IterationDecision::Stop;
     });
     return doesMatch && partIndex == topicSplit.size();
+}
+
+inline std::vector<std::string> splitTopics(const std::string& topic) {
+    std::vector<std::string> parts;
+    splitString(topic, [&parts](const std::string_view& part) {
+        parts.emplace_back(part);
+        return util::IterationDecision::Continue;
+    });
+    return parts;
+}
+
+inline bool hasWildcard(const std::string& topic) {
+    return std::any_of(topic.begin(), topic.end(), [](char c) {
+        return c == '#' || c == '+';
+    });
 }
 
 }

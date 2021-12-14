@@ -6,12 +6,12 @@
 #include <unistd.h>
 
 #include "Enums.hpp"
-#include "Application.hpp"
+#include "ApplicationState.hpp"
 #include "Util.hpp"
 
 namespace nioev {
 
-ClientThreadManager::ClientThreadManager(Application& app, uint threadCount)
+ClientThreadManager::ClientThreadManager(ApplicationState& app, uint threadCount)
 : mApp(app) {
     mEpollFd = epoll_create1(EPOLL_CLOEXEC);
     if(mEpollFd < 0) {
@@ -27,60 +27,58 @@ ClientThreadManager::ClientThreadManager(Application& app, uint threadCount)
     }
 }
 void ClientThreadManager::receiverThreadFunction() {
+    auto suspendIfRequested = [this] {
+        if(mShouldSuspend) {
+            mSuspendedThreads.fetch_add(1);
+            while(mShouldSuspend) {
+                std::this_thread::yield();
+            }
+            mSuspendedThreads.fetch_sub(1);
+        }
+    };
     std::vector<uint8_t> bytes;
     bytes.resize(64 * 1024 * 4);
     while(!mShouldQuit) {
+        suspendIfRequested();
         epoll_event events[128] = { 0 };
         int eventCount = epoll_wait(mEpollFd, events, 128, -1);
         if(eventCount < 0) {
+            if(errno == EINTR) {
+                suspendIfRequested();
+                continue;
+            }
             spdlog::warn("epoll_wait(): {}", util::errnoToString());
+            continue;
         }
         for(int i = 0; i < eventCount; ++i) {
+            auto& client = * (MQTTClientConnection*)events[i].data.ptr;
             try {
                 if(events[i].events & EPOLLERR) {
                     throw std::runtime_error{"Socket error!"};
                 }
-                auto [clientRef, clientRefLock] = mApp.getClient(events[i].data.fd);
-                auto& client = clientRef.get();
                 if(events[i].events & EPOLLOUT) {
                     // we can write some data!
                     auto [sendTasksRef, sendTasksRefLock] = client.getSendTasks();
                     auto& sendTasks = sendTasksRef.get();
-                    if(sendTasks.empty()) {
-                        continue;
-                    }
-                    // send data
-                    for(auto it = sendTasks.begin(); it != sendTasks.end();) {
+                    while(!sendTasks.empty()) {
+                        auto& task = sendTasks.front();
+                        // send data
                         uint bytesSend = 0;
                         do {
-                            bytesSend = client.getTcpClient().send(it->data.data() + it->offset, it->data.size() - it->offset);
-                            it->offset += bytesSend;
-                        } while(bytesSend > 0 && it->offset < it->data.size());
+                            bytesSend = client.getTcpClient().send(task.data.data() + task.offset, task.data.size() - task.offset);
+                            task.offset += bytesSend;
+                        } while(bytesSend > 0 && task.offset < task.data.size());
 
-                        if(it->offset >= it->data.size()) {
-                            it = sendTasks.erase(it);
+                        if(task.offset >= task.data.size()) {
+                            sendTasks.pop();
                             if(client.getState() == MQTTClientConnection::ConnectionState::INVALID_PROTOCOL_VERSION) {
                                 assert(sendTasks.empty());
                                 throw CleanDisconnectException{};
                             }
-                            if(sendTasks.empty()) {
-                                // if we specify EPOLLEXCLUSIVE, we need to delete and readd the FD
-                                if(epoll_ctl(mEpollFd, EPOLL_CTL_DEL, client.getTcpClient().getFd(), nullptr) < 0) {
-                                    spdlog::warn("epoll_ctl(EPOLL_CTL_DEL): {}", util::errnoToString());
-                                    throw std::runtime_error{"epoll_ctl(EPOLL_CTL_DEL): " + util::errnoToString()};
-                                }
-                                epoll_event ev = { 0 };
-                                ev.data.fd = client.getTcpClient().getFd();
-                                ev.events = EPOLLET | EPOLLIN | EPOLLEXCLUSIVE;
-                                // TODO save pointer to client
-                                if(epoll_ctl(mEpollFd, EPOLL_CTL_ADD, client.getTcpClient().getFd(), &ev) < 0) {
-                                    spdlog::warn("epoll_ctl(EPOLL_CTL_ADD): {}", util::errnoToString());
-                                    throw std::runtime_error{"epoll_ctl(EPOLL_CTL_ADD): " + util::errnoToString()};
-                                }
-                            }
                         } else {
                             break;
                         }
+
                     }
                 }
                 if(events[i].events & EPOLLIN) {
@@ -114,7 +112,8 @@ void ClientThreadManager::receiverThreadFunction() {
                                     if(epoll_ctl(mEpollFd, EPOLL_CTL_DEL, events[i].data.fd, nullptr) < 0) {
                                         spdlog::warn("epoll_ctl(EPOLL_CTL_DEL) failed: {}", util::errnoToString());
                                     }
-                                    mApp.passTcpClientToScriptingEngine(client.moveTcpClient(), std::move(toMove));
+                                    // FIXME scripting
+                                    //mApp.passTcpClientToScriptingEngine(client.moveTcpClient(), std::move(toMove));
                                     throw CleanDisconnectException{};
                                 }
                                 recvData = {};
@@ -138,7 +137,7 @@ void ClientThreadManager::receiverThreadFunction() {
                                 if((encodedByte & 0x80) == 0) {
                                     if(recvData.packetLength == 0) {
                                         recvData.recvState = MQTTClientConnection::PacketReceiveState::IDLE;
-                                        handlePacketReceived(client, recvData);
+                                        handlePacketReceived(client, recvData, recvDataRefLock);
                                     } else {
                                        recvData.recvState = MQTTClientConnection::PacketReceiveState::RECEIVING_DATA;
                                        spdlog::debug("Expecting packet of length {}", recvData.packetLength);
@@ -162,7 +161,7 @@ void ClientThreadManager::receiverThreadFunction() {
                                 }
                                 if(recvData.currentReceiveBuffer.size() == recvData.packetLength) {
                                     spdlog::debug("Received: {}", recvData.currentReceiveBuffer.size());
-                                    handlePacketReceived(client, recvData);
+                                    handlePacketReceived(client, recvData, recvDataRefLock);
                                     recvData.recvState = MQTTClientConnection::PacketReceiveState::IDLE;
                                 }
                                 break;
@@ -173,16 +172,15 @@ void ClientThreadManager::receiverThreadFunction() {
                 }
             } catch(CleanDisconnectException&) {
                 try {
-                    auto[client, lock] = mApp.getClient(events[i].data.fd);
-                    client.get().notifyConnecionError();
+
+                    client.notifyConnecionError();
                 } catch(...) {
                     // ignore errors while fetching the client, it probably just means it has been disconnected already
                 }
             } catch(std::exception& e) {
                 spdlog::error("Caught: {}", e.what());
                 try {
-                    auto[client, lock] = mApp.getClient(events[i].data.fd);
-                    client.get().notifyConnecionError();
+                    client.notifyConnecionError();
                 } catch(...) {
                     // ignore errors while fetching the client, it probably just means it has been disconnected already
                 }
@@ -193,21 +191,20 @@ void ClientThreadManager::receiverThreadFunction() {
 void ClientThreadManager::addClientConnection(MQTTClientConnection& conn) {
     epoll_event ev = { 0 };
     ev.data.fd = conn.getTcpClient().getFd();
-    ev.events = EPOLLET | EPOLLIN | EPOLLEXCLUSIVE;
-    // TODO save pointer to client
+    ev.data.ptr = &conn;
+    ev.events = EPOLLET | EPOLLIN | EPOLLOUT | EPOLLEXCLUSIVE;
     if(epoll_ctl(mEpollFd, EPOLL_CTL_ADD, conn.getTcpClient().getFd(), &ev) < 0) {
         spdlog::critical("Failed to add fd to epoll: {}", util::errnoToString());
         exit(6);
     }
 }
 void ClientThreadManager::removeClientConnection(MQTTClientConnection& conn) {
-    // We can't do this here because the socket is probably already closed, meaning it could have been reused.
-    // It should get automatically deleted in that case.
-    /*if(epoll_ctl(mEpollFd, EPOLL_CTL_DEL, conn.getTcpClient().getFd(), nullptr) < 0) {
+    assert(mShouldSuspend);
+    if(epoll_ctl(mEpollFd, EPOLL_CTL_DEL, conn.getTcpClient().getFd(), nullptr) < 0) {
         spdlog::debug("Failed to remove fd from epoll: {}", util::errnoToString());
-    }*/
+    }
 }
-void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, const MQTTClientConnection::PacketReceiveData& recvData) {
+void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, const MQTTClientConnection::PacketReceiveData& recvData, std::unique_lock<std::mutex>& clientReceiveLock) {
     spdlog::debug("Received packet of type {}", recvData.messageType);
 
     util::BinaryDecoder decoder{recvData.currentReceiveBuffer, recvData.packetLength};
@@ -221,18 +218,18 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
                 protocolViolation();
             }
             decoder.advance(6);
-            std::vector<uint8_t> response;
-            response.push_back(static_cast<uint8_t>(MQTTMessageType::CONNACK) << 4);
-            response.push_back(2); // remaining packet length
 
             uint8_t protocolLevel = decoder.decodeByte();
             if(protocolLevel != 4) {
                 // we only support MQTT 3.1.1
+                std::vector<uint8_t> response;
+                response.push_back(static_cast<uint8_t>(MQTTMessageType::CONNACK) << 4);
+                response.push_back(2); // remaining packet length
                 response.push_back(0); // no session present
                 response.push_back(1); // invalid protocol version
                 client.setState(MQTTClientConnection::ConnectionState::INVALID_PROTOCOL_VERSION);
                 spdlog::error("Invalid protocol version requested by client: {}", protocolLevel);
-                sendData(client, std::move(response));
+                client.sendData(std::move(response));
                 break;
             }
             uint8_t connectFlags = decoder.decodeByte();
@@ -268,14 +265,9 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
                 // password
                 auto password = decoder.decodeString();
             }
-            auto sesssionPresent = mApp.loginClient(client, std::move(clientId), cleanSession ? CleanSession::Yes : CleanSession::No);
-            spdlog::info("[{}] Connected", client.getClientId());
-            response.push_back(sesssionPresent == SessionPresent::Yes ? 1 : 0);
-            response.push_back(0); // everything okay
+            // FIXME ensure that we don't receive packets while logging in
+            mApp.requestChange(ChangeRequestLoginClient{client.makeShared(), std::move(clientId), cleanSession ? CleanSession::Yes : CleanSession::No});
 
-
-            sendData(client, std::move(response));
-            client.setState(MQTTClientConnection::ConnectionState::CONNECTED);
             break;
         }
         default: {
@@ -306,14 +298,14 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
                     encoder.encodeByte(static_cast<uint8_t>(MQTTMessageType::PUBACK) << 4);
                     encoder.encode2Bytes(id);
                     encoder.insertPacketLength();
-                    sendData(client, encoder.moveData());
+                    client.sendData(encoder.moveData());
                 } else {
                     // send PUBREC
                     util::BinaryEncoder encoder;
                     encoder.encodeByte(static_cast<uint8_t>(MQTTMessageType::PUBREC) << 4);
                     encoder.encode2Bytes(id);
                     encoder.insertPacketLength();
-                    sendData(client, encoder.moveData());
+                    client.sendData(encoder.moveData());
                     auto[state, stateLock] = client.getPersistentState();
                     if(state->qos3receivingPacketIds.contains(id)) {
                         break;
@@ -341,7 +333,7 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
             encoder.encodeByte(static_cast<uint8_t>(MQTTMessageType::PUBCOMP) << 4);
             encoder.encode2Bytes(id);
             encoder.insertPacketLength();
-            sendData(client, encoder.moveData());
+            client.sendData(encoder.moveData());
             break;
         }
         case MQTTMessageType::SUBSCRIBE: {
@@ -360,7 +352,9 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
                     protocolViolation();
                 }
                 auto qos = static_cast<QoS>(qosInt);
-                mApp.addSubscription(client, std::move(topic), qos);
+                auto topicSplit = util::splitTopics(topic);
+                auto hasWildcard = util::hasWildcard(topic);
+                mApp.requestChange(ChangeRequestSubscribe{client.makeShared(), std::move(topic), std::move(topicSplit), hasWildcard, qos});
             } while(!decoder.empty());
 
 
@@ -370,7 +364,7 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
             encoder.encode2Bytes(packetIdentifier);
             encoder.encodeByte(0); // maximum QoS 0 TODO support more
             encoder.insertPacketLength();
-            sendData(client, encoder.moveData());
+            client.sendData(encoder.moveData());
 
             break;
         }
@@ -381,7 +375,7 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
             auto packetIdentifier = decoder.decode2Bytes();
             do {
                 auto topic = decoder.decodeString();
-                mApp.deleteSubscription(client, topic);
+                mApp.requestChange(ChangeRequestUnsubscribe{client.makeShared(), topic});
             } while(!decoder.empty());
 
             // prepare SUBACK
@@ -389,7 +383,7 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
             encoder.encodeByte(static_cast<uint8_t>(MQTTMessageType::UNSUBACK) << 4);
             encoder.encode2Bytes(packetIdentifier);
             encoder.insertPacketLength();
-            sendData(client, encoder.moveData());
+            client.sendData(encoder.moveData());
 
             break;
         }
@@ -400,7 +394,7 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
             util::BinaryEncoder encoder;
             encoder.encodeByte(static_cast<uint8_t>(MQTTMessageType::PINGRESP) << 4);
             encoder.insertPacketLength();
-            sendData(client, encoder.moveData());
+            client.sendData(encoder.moveData());
             spdlog::debug("Replying to PINGREQ");
             break;
         }
@@ -423,61 +417,6 @@ void ClientThreadManager::protocolViolation() {
     throw std::runtime_error{"Protocol violation"};
 }
 
-void ClientThreadManager::sendPublish(MQTTClientConnection& conn, const std::string& topic, const std::vector<uint8_t>& msg, QoS qos, Retained retained) {
-    util::BinaryEncoder encoder;
-    uint8_t firstByte = static_cast<uint8_t>(QoS::QoS0) << 1; //FIXME use actual qos
-    // TODO retain, dup
-    if(retained == Retained::Yes) {
-        firstByte |= 1;
-    }
-    firstByte |= static_cast<uint8_t>(MQTTMessageType::PUBLISH) << 4;
-    encoder.encodeByte(firstByte);
-    encoder.encodeString(topic);
-    if(qos != QoS::QoS0) {
-        // TODO add id
-        assert(false);
-    }
-    encoder.encodeBytes(msg);
-    encoder.insertPacketLength();
-    sendData(conn, encoder.moveData());
-}
-void ClientThreadManager::sendData(MQTTClientConnection& conn, std::vector<uint8_t>&& bytes) {
-    try {
-        uint totalBytesSent = 0;
-        uint bytesSent = 0;
-        auto [sendTasksRef, sendLock] = conn.getSendTasks();
-        auto& sendTasks = sendTasksRef.get();
-        if(sendTasks.empty()) {
-            do {
-                bytesSent = conn.getTcpClient().send(bytes.data() + totalBytesSent, bytes.size() - totalBytesSent);
-                totalBytesSent += bytesSent;
-            } while(bytesSent > 0 && totalBytesSent < bytes.size());
-        }
-        //spdlog::warn("Bytes sent: {}, Total bytes sent: {}", bytesSent, totalBytesSent);
-
-        if(totalBytesSent < bytes.size()) {
-            sendTasks.emplace_back(MQTTClientConnection::SendTask{ std::move(bytes), totalBytesSent });
-
-            // listen for EPOLLOUT
-            // if we specify EPOLLEXCLUSIVE, we need to delete and readd the FD
-            if(epoll_ctl(mEpollFd, EPOLL_CTL_DEL, conn.getTcpClient().getFd(), nullptr) < 0) {
-                spdlog::warn("epoll_ctl(EPOLL_CTL_DEL): {}", util::errnoToString());
-                throw std::runtime_error{"epoll_ctl(EPOLL_CTL_DEL): " + util::errnoToString()};
-            }
-            epoll_event ev = { 0 };
-            ev.data.fd = conn.getTcpClient().getFd();
-            ev.events = EPOLLET | EPOLLIN | EPOLLOUT | EPOLLEXCLUSIVE;
-            // TODO save pointer to client
-            if(epoll_ctl(mEpollFd, EPOLL_CTL_ADD, conn.getTcpClient().getFd(), &ev) < 0) {
-                spdlog::warn("epoll_ctl(EPOLL_CTL_ADD): {}", util::errnoToString());
-                throw std::runtime_error{"epoll_ctl(EPOLL_CTL_ADD): " + util::errnoToString()};
-            }
-        }
-    } catch(std::exception& e) {
-        spdlog::error("Error while sending data: {}", e.what());
-        conn.notifyConnecionError();
-    }
-}
 ClientThreadManager::~ClientThreadManager() {
     mShouldQuit = true;
     for(auto& t : mReceiverThreads) {
@@ -486,6 +425,21 @@ ClientThreadManager::~ClientThreadManager() {
     }
     if(close(mEpollFd)) {
         spdlog::error("close(): {}", util::errnoToString());
+    }
+}
+void ClientThreadManager::suspendAllThreads() {
+    mShouldSuspend = true;
+    for(auto& thread: mReceiverThreads) {
+        pthread_kill(thread.native_handle(), SIGUSR1);
+    }
+    while(mSuspendedThreads != mReceiverThreads.size()) {
+        std::this_thread::yield();
+    }
+}
+void ClientThreadManager::resumeAllThreads() {
+    mShouldSuspend = false;
+    while(mSuspendedThreads != 0) {
+        std::this_thread::yield();
     }
 }
 

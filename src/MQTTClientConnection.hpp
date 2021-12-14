@@ -5,18 +5,20 @@
 #include <thread>
 #include <mutex>
 #include <optional>
+#include <queue>
 
 #include "Forward.hpp"
 #include "TcpClientConnection.hpp"
 #include "Enums.hpp"
+#include "Subscriber.hpp"
 
 namespace nioev {
 
-class MQTTClientConnection {
+class MQTTClientConnection final : public Subscriber, public std::enable_shared_from_this<MQTTClientConnection> {
 public:
     MQTTClientConnection(TcpClientConnection&& conn)
     : mConn(std::move(conn)) {
-
+        mClientId = mConn.getRemoteIp() + ":" + std::to_string(mConn.getRemotePort());
     }
 
     [[nodiscard]] TcpClientConnection& getTcpClient() {
@@ -60,7 +62,7 @@ public:
         std::vector<uint8_t> data;
         uint offset = 0;
     };
-    std::pair<std::reference_wrapper<std::vector<SendTask>>, std::unique_lock<std::mutex>> getSendTasks() {
+    std::pair<std::reference_wrapper<std::queue<SendTask>>, std::unique_lock<std::mutex>> getSendTasks() {
         std::unique_lock<std::mutex> lock{mSendMutex};
         return {mSendTasks, std::move(lock)};
     }
@@ -85,13 +87,11 @@ public:
         std::unique_lock lock{mRemaingingMutex};
         mPersistentState = newState;
     }
-    std::pair<PersistentClientState*, std::unique_lock<std::mutex>> getPersistentState() {
+    std::pair<PersistentClientState*&, std::unique_lock<std::mutex>> getPersistentState() {
         std::unique_lock lock{mRemaingingMutex};
         return {mPersistentState, std::move(lock)};
     }
-    std::string getClientId();
     void notifyConnecionError() {
-        mConn.close();
         mShouldBeDisconnected = true;
     }
     [[nodiscard]] bool shouldBeDisconnected() const {
@@ -106,6 +106,60 @@ public:
     TcpClientConnection&& moveTcpClient() {
         return std::move(mConn);
     }
+
+    void setClientId(std::string clientId) {
+        std::lock_guard lock{mRemaingingMutex};
+        mClientId = std::move(clientId);
+    }
+    const std::string& getClientId() {
+        std::lock_guard lock{mRemaingingMutex};
+        return mClientId;
+    }
+
+    auto makeShared() {
+        return shared_from_this();
+    }
+
+    void sendData(std::vector<uint8_t>&& bytes) {
+        try {
+            uint totalBytesSent = 0;
+            uint bytesSent = 0;
+            auto [sendTasksRef, sendLock] = getSendTasks();
+            auto& sendTasks = sendTasksRef.get();
+            if(sendTasks.empty()) {
+                do {
+                    bytesSent = getTcpClient().send(bytes.data() + totalBytesSent, bytes.size() - totalBytesSent);
+                    totalBytesSent += bytesSent;
+                } while(bytesSent > 0 && totalBytesSent < bytes.size());
+            }
+            //spdlog::warn("Bytes sent: {}, Total bytes sent: {}", bytesSent, totalBytesSent);
+
+            if(totalBytesSent < bytes.size()) {
+                sendTasks.emplace(MQTTClientConnection::SendTask{ std::move(bytes), totalBytesSent });
+            }
+        } catch(std::exception& e) {
+            spdlog::error("Error while sending data: {}", e.what());
+            notifyConnecionError();
+        }
+    }
+    void publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained) override {
+        util::BinaryEncoder encoder;
+        uint8_t firstByte = static_cast<uint8_t>(QoS::QoS0) << 1; //FIXME use actual qos
+        // TODO retain, dup
+        if(retained == Retained::Yes) {
+            firstByte |= 1;
+        }
+        firstByte |= static_cast<uint8_t>(MQTTMessageType::PUBLISH) << 4;
+        encoder.encodeByte(firstByte);
+        encoder.encodeString(topic);
+        if(qos != QoS::QoS0) {
+            // TODO add id
+            assert(false);
+        }
+        encoder.encodeBytes(payload);
+        encoder.insertPacketLength();
+        sendData(encoder.moveData());
+    }
 private:
     TcpClientConnection mConn;
 
@@ -113,7 +167,7 @@ private:
     PacketReceiveData mRecvData;
 
     std::mutex mSendMutex;
-    std::vector<SendTask> mSendTasks;
+    std::queue<SendTask> mSendTasks;
 
     std::mutex mRemaingingMutex;
     ConnectionState mState = ConnectionState::INITIAL;
@@ -128,6 +182,7 @@ private:
     PersistentClientState* mPersistentState = nullptr;
 
     std::atomic<bool> mShouldBeDisconnected = false;
+    std::string mClientId;
 };
 
 }

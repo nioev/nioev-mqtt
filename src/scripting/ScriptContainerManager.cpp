@@ -1,9 +1,10 @@
 #include "ScriptContainerManager.hpp"
-#include "../Application.hpp"
+#include "../ApplicationState.hpp"
 
 namespace nioev {
 
 void ScriptContainerManager::deleteScriptFromApp(const std::string& name) {
-    mApp.deleteScript(name);
+    // FIXME delete script here
+    //mApp.deleteScript(name);
 }
 }

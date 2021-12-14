@@ -1,6 +1,6 @@
 #include "spdlog/spdlog.h"
 
-#include "Application.hpp"
+#include "ApplicationState.hpp"
 #include "BigString.hpp"
 #include "BigVector.hpp"
 #include "scripting/ScriptContainerJS.hpp"
@@ -35,7 +35,7 @@ int main() {
     spdlog::set_level(spdlog::level::info);
     spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] %^[%-7l]%$ [%-15N] %v");
 
-    Application app;
+    ApplicationState app;
     /*app.addScript<ScriptContainerJS>(
         "test", [](auto&) { spdlog::info("Successfully added testscript!"); }, [](auto&, const auto& error) { spdlog::error("{}", error); },
         std::string{ R"--(
@@ -240,7 +240,8 @@ initArgs)--" });*/
                             return;
                         }
                         spdlog::info("Adding script from Web-API: {}", scriptName);
-                        app.addScript<ScriptContainerJS>(
+                        // FIXME
+                        /*app.addScript<ScriptContainerJS>(
                             std::string{scriptName},
                             [res](auto&) {
                                 res->end("ok");
@@ -249,7 +250,7 @@ initArgs)--" });*/
                                 res->writeStatus("500 Internal Server Error");
                                 res->end(error);
                             },
-                            std::move(fullCode));
+                            std::move(fullCode));*/
                     });
                     res->onAborted([]{});
                 } catch(std::exception& e) {

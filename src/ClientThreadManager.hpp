@@ -10,21 +10,24 @@ namespace nioev {
 
 class ClientThreadManager {
 public:
-    explicit ClientThreadManager(Application& bridge, uint threadCount);
+    explicit ClientThreadManager(ApplicationState& bridge, uint threadCount);
     ~ClientThreadManager();
     void addClientConnection(MQTTClientConnection& conn);
     void removeClientConnection(MQTTClientConnection& connection);
-    void sendData(MQTTClientConnection& client, std::vector<uint8_t>&& data);
-    void sendPublish(MQTTClientConnection& conn, const std::string& topic, const std::vector<uint8_t>& msg, QoS qos, Retained retain);
+
+    void suspendAllThreads();
+    void resumeAllThreads();
 private:
     void receiverThreadFunction();
-    void handlePacketReceived(MQTTClientConnection& client, const MQTTClientConnection::PacketReceiveData&);
+    void handlePacketReceived(MQTTClientConnection& client, const MQTTClientConnection::PacketReceiveData&, std::unique_lock<std::mutex>& clientReceiveLock);
     void protocolViolation();
 private:
     std::vector<std::thread> mReceiverThreads;
     std::atomic<bool> mShouldQuit = false;
     int mEpollFd = -1;
-    Application& mApp;
+    ApplicationState& mApp;
+    std::atomic<bool> mShouldSuspend = false;
+    std::atomic<int> mSuspendedThreads = 0;
 };
 
 }
