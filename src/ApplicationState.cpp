@@ -7,10 +7,10 @@ namespace nioev {
 ApplicationState::ApplicationState()
 : mClientManager(*this, 5), mWorkerThread([this]{workerThreadFunc();}) {
     int tries = 0;
-    mTimers.addPeriodicTask(std::chrono::seconds(1), [this, tries] mutable {
+    mTimers.addPeriodicTask(std::chrono::seconds(2), [this, tries] mutable {
         if(tries < 10) {
             if(mMutex.try_lock()) {
-                cleanupDisconnectedClients();
+                cleanup();
                 mMutex.unlock();
                 tries = 0;
             } else {
@@ -18,7 +18,7 @@ ApplicationState::ApplicationState()
             }
         } else {
             tries = -5;
-            mQueue.push(ChangeRequestDeleteDisconnectedClients{});
+            mQueue.push(ChangeRequestCleanup{});
         }
     });
 }
@@ -121,11 +121,20 @@ void ApplicationState::operator()(ChangeRequestRetain&& req) {
     std::unique_lock<std::shared_mutex> lock{mMutex};
     mRetainedMessages.emplace(std::move(req.topic), RetainedMessage{std::move(req.payload)});
 }
-void ApplicationState::operator()(ChangeRequestDeleteDisconnectedClients&& req) {
+void ApplicationState::operator()(ChangeRequestCleanup&& req) {
     std::unique_lock<std::shared_mutex> lock{mMutex};
-    cleanupDisconnectedClients();
+    cleanup();
 }
-void ApplicationState::cleanupDisconnectedClients() {
+void ApplicationState::cleanup() {
+    for(auto it = mClients.begin(); it != mClients.end(); ++it) {
+        auto[recvData, recvDataLock] = (*it)->getRecvData();
+        if(recvData.get().lastDataReceivedTimestamp + (int64_t)it->get()->getKeepAliveIntervalSeconds() * 2'000'000'000 <= std::chrono::steady_clock::now().time_since_epoch().count()) {
+            // timeout
+            logoutClient(*it->get());
+        }
+    }
+
+    // delete disconnected clients
     mClientManager.suspendAllThreads();
     for(auto it = mClients.begin(); it != mClients.end();) {
         if((*it)->shouldBeDisconnected()) {
@@ -138,7 +147,7 @@ void ApplicationState::cleanupDisconnectedClients() {
 }
 void ApplicationState::operator()(ChangeRequestDisconnectClient&& req) {
     std::unique_lock<std::shared_mutex> lock{mMutex};
-    logoutClient(*req.client, lock);
+    logoutClient(*req.client);
 }
 void ApplicationState::operator()(ChangeRequestLoginClient&& req) {
     std::unique_lock<std::shared_mutex> lock{mMutex};
@@ -181,7 +190,7 @@ void ApplicationState::operator()(ChangeRequestLoginClient&& req) {
         auto existingClient = existingSession->second.currentClient;
         if(existingClient) {
             spdlog::warn("[{}] Already connected, closing old connection", req.clientId);
-            logoutClient(*existingClient, lock);
+            logoutClient(*existingClient);
         }
         if(req.cleanSession == CleanSession::Yes || existingSession->second.cleanSession == CleanSession::Yes) {
             createNewSession();
@@ -214,7 +223,7 @@ void ApplicationState::operator()(ChangeRequestLoginClient&& req) {
     req.client->sendData(response.moveData());
     req.client->setState(MQTTClientConnection::ConnectionState::CONNECTED);
 }
-void ApplicationState::logoutClient(MQTTClientConnection& client, std::unique_lock<std::shared_mutex>& lock) {
+void ApplicationState::logoutClient(MQTTClientConnection& client) {
     mClientManager.removeClientConnection(client);
     {
         // perform will

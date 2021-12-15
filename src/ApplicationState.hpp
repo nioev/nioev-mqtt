@@ -48,7 +48,7 @@ struct ChangeRequestLoginClient {
 };
 
 
-struct ChangeRequestDeleteDisconnectedClients {
+struct ChangeRequestCleanup {
 
 };
 
@@ -56,7 +56,7 @@ struct ChangeRequestDisconnectClient {
     std::shared_ptr<MQTTClientConnection> client;
 };
 
-using ChangeRequest = std::variant<ChangeRequestSubscribe, ChangeRequestUnsubscribe, ChangeRequestRetain, ChangeRequestDeleteDisconnectedClients, ChangeRequestDisconnectClient, ChangeRequestLoginClient>;
+using ChangeRequest = std::variant<ChangeRequestSubscribe, ChangeRequestUnsubscribe, ChangeRequestRetain, ChangeRequestCleanup, ChangeRequestDisconnectClient, ChangeRequestLoginClient>;
 
 struct PersistentClientState {
     static_assert(std::is_same_v<decltype(std::chrono::steady_clock::time_point{}.time_since_epoch().count()), int64_t>);
@@ -88,7 +88,7 @@ public:
     void operator()(ChangeRequestSubscribe&& req);
     void operator()(ChangeRequestUnsubscribe&& req);
     void operator()(ChangeRequestRetain&& req);
-    void operator()(ChangeRequestDeleteDisconnectedClients&& req);
+    void operator()(ChangeRequestCleanup&& req);
     void operator()(ChangeRequestLoginClient&& req);
     void operator()(ChangeRequestDisconnectClient&& req);
 
@@ -110,9 +110,9 @@ private:
     void executeChangeRequest(ChangeRequest&&);
     void workerThreadFunc();
 
-    void cleanupDisconnectedClients();
+    void cleanup();
 
-    void logoutClient(MQTTClientConnection& client, std::unique_lock<std::shared_mutex>& lock);
+    void logoutClient(MQTTClientConnection& client);
     // ensure you have at least a readonly lock when calling
     template<typename T = Subscriber>
     void forEachSubscriber(const std::string& topic, std::function<void(Subscription&)>&& callback) {
