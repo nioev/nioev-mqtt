@@ -75,6 +75,7 @@ struct PersistentClientState {
 class ApplicationState : public TcpClientHandlerInterface {
 public:
     ApplicationState();
+    ~ApplicationState();
     enum class RequestChangeMode {
         ASYNC,
         SYNC,

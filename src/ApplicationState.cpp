@@ -8,9 +8,15 @@ ApplicationState::ApplicationState()
 : mClientManager(*this, 4), mWorkerThread([this]{workerThreadFunc();}) {
     // TODO timeout, scripts, safe shutdown
 }
+ApplicationState::~ApplicationState() {
+    mShouldRun = false;
+    mWorkerThread.join();
+}
 void ApplicationState::workerThreadFunc() {
     while(mShouldRun) {
         while(!mQueue.was_empty()) {
+            if(!mShouldRun)
+                return;
             executeChangeRequest(mQueue.pop());
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
