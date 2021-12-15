@@ -5,8 +5,22 @@
 namespace nioev {
 
 ApplicationState::ApplicationState()
-: mClientManager(*this, 4), mWorkerThread([this]{workerThreadFunc();}) {
-    // TODO timeout, scripts, safe shutdown
+: mClientManager(*this, 5), mWorkerThread([this]{workerThreadFunc();}) {
+    int tries = 0;
+    mTimers.addPeriodicTask(std::chrono::seconds(1), [this, tries] mutable {
+        if(tries < 10) {
+            if(mMutex.try_lock()) {
+                cleanupDisconnectedClients();
+                mMutex.unlock();
+                tries = 0;
+            } else {
+                tries += 1;
+            }
+        } else {
+            tries = -5;
+            mQueue.push(ChangeRequestDeleteDisconnectedClients{});
+        }
+    });
 }
 ApplicationState::~ApplicationState() {
     mShouldRun = false;
@@ -105,13 +119,15 @@ void ApplicationState::operator()(ChangeRequestUnsubscribe&& req) {
 }
 void ApplicationState::operator()(ChangeRequestRetain&& req) {
     std::unique_lock<std::shared_mutex> lock{mMutex};
-    mRetainedMessages.emplace(std::move(req.topic), std::move(req.payload));
+    mRetainedMessages.emplace(std::move(req.topic), RetainedMessage{std::move(req.payload)});
 }
 void ApplicationState::operator()(ChangeRequestDeleteDisconnectedClients&& req) {
-    // TODO start a time that calls this function periodically
     std::unique_lock<std::shared_mutex> lock{mMutex};
+    cleanupDisconnectedClients();
+}
+void ApplicationState::cleanupDisconnectedClients() {
     mClientManager.suspendAllThreads();
-    for(auto it = mClients.begin(); it != mClients.end(); ++it) {
+    for(auto it = mClients.begin(); it != mClients.end();) {
         if((*it)->shouldBeDisconnected()) {
             it = mClients.erase(it);
         } else {
@@ -237,6 +253,7 @@ void ApplicationState::logoutClient(MQTTClientConnection& client, std::unique_lo
     }
     spdlog::info("[{}] Logged out", client.getClientId());
     client.getTcpClient().close();
+    client.notifyConnecionError();
 }
 void ApplicationState::publish(std::string&& topic, std::vector<uint8_t>&& msg, std::optional<QoS> qos, Retain retain) {
     std::shared_lock<std::shared_mutex> lock{ mMutex };

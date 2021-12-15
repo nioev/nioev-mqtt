@@ -11,6 +11,7 @@
 #include <variant>
 #include <condition_variable>
 #include "TcpClientHandlerInterface.hpp"
+#include "Timers.hpp"
 
 namespace nioev {
 
@@ -109,6 +110,8 @@ private:
     void executeChangeRequest(ChangeRequest&&);
     void workerThreadFunc();
 
+    void cleanupDisconnectedClients();
+
     void logoutClient(MQTTClientConnection& client, std::unique_lock<std::shared_mutex>& lock);
     // ensure you have at least a readonly lock when calling
     template<typename T = Subscriber>
@@ -145,6 +148,8 @@ private:
 
     std::atomic<bool> mShouldRun = true;
     std::thread mWorkerThread;
+
+    Timers mTimers;
 
     // needs to initialized last because it starts a thread which calls us
     ClientThreadManager mClientManager;

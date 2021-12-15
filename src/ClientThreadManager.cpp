@@ -87,7 +87,7 @@ void ClientThreadManager::receiverThreadFunction() {
 
                     }
                 }
-                if(events[i].events & EPOLLIN) {
+                if(events[i].events & (EPOLLIN | EPOLLHUP)) {
                     // we can read some data!
                     // We receive bytes until there are none left (EAGAIN/EWOULDBLOCK). This is
                     // the recommended way of doing io if one uses the edge-triggered mode of epoll.
