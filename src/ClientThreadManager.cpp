@@ -22,6 +22,10 @@ ClientThreadManager::ClientThreadManager(ApplicationState& app, uint threadCount
         mReceiverThreads.emplace_back([this, i] {
             std::string threadName = "C-" + std::to_string(i);
             pthread_setname_np(pthread_self(), threadName.c_str());
+            sigset_t blockedSignals = { 0 };
+            sigemptyset(&blockedSignals);
+            sigaddset(&blockedSignals, SIGUSR1);
+            pthread_sigmask(SIG_BLOCK, &blockedSignals, nullptr);
             receiverThreadFunction();
         });
     }
@@ -36,12 +40,14 @@ void ClientThreadManager::receiverThreadFunction() {
             mSuspendedThreads.fetch_sub(1);
         }
     };
+    sigset_t blockedSignalsDuringEpoll = { 0 };
+    sigemptyset(&blockedSignalsDuringEpoll);
     std::vector<uint8_t> bytes;
     bytes.resize(64 * 1024 * 4);
     while(!mShouldQuit) {
         suspendIfRequested();
         epoll_event events[128] = { 0 };
-        int eventCount = epoll_wait(mEpollFd, events, 128, -1);
+        int eventCount = epoll_pwait(mEpollFd, events, 128, -1, &blockedSignalsDuringEpoll);
         if(eventCount < 0) {
             if(errno == EINTR) {
                 suspendIfRequested();
