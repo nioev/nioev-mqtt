@@ -13,10 +13,17 @@ ApplicationState::~ApplicationState() {
     mWorkerThread.join();
 }
 void ApplicationState::workerThreadFunc() {
+    auto processInternalQueue = [this] {
+        std::unique_lock<std::shared_mutex> lock{mMutex};
+        while(!mQueueInternal.empty()) {
+            executeChangeRequest(std::move(mQueueInternal.front()));
+            mQueueInternal.pop();
+        }
+    };
     while(mShouldRun) {
+        processInternalQueue();
         while(!mQueue.was_empty()) {
-            if(!mShouldRun)
-                return;
+            processInternalQueue();
             executeChangeRequest(mQueue.pop());
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -169,7 +176,7 @@ void ApplicationState::operator()(ChangeRequestLoginClient&& req) {
             existingSession->second.cleanSession = req.cleanSession;
             req.client->setPersistentState(&existingSession->second);
             for(auto& sub: existingSession->second.subscriptions) {
-                requestChange(ChangeRequestSubscribe{req.client, sub.topic, util::splitTopics(sub.topic), util::hasWildcard(sub.topic), sub.qos});
+                mQueueInternal.emplace(ChangeRequestSubscribe{req.client, sub.topic, util::splitTopics(sub.topic), util::hasWildcard(sub.topic), sub.qos});
             }
         }
     } else {
@@ -265,7 +272,7 @@ void ApplicationState::publishWithoutAcquiringMutex(std::string&& topic, std::ve
         sub.subscriber->publish(topic, msg, *sub.qos, Retained::No);
     });
     if(retain == Retain::Yes) {
-        requestChange(ChangeRequestRetain{std::move(topic), std::move(msg)});
+        mQueueInternal.emplace(ChangeRequestRetain{std::move(topic), std::move(msg)});
     }
 }
 void ApplicationState::handleNewClientConnection(TcpClientConnection&& conn) {

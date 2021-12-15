@@ -133,6 +133,7 @@ private:
 
     std::shared_mutex mMutex;
     std::condition_variable mQueueCV;
+    std::queue<ChangeRequest> mQueueInternal;
     atomic_queue::AtomicQueue2<ChangeRequest, 1024> mQueue;
     std::unordered_multimap<std::string, Subscription> mSimpleSubscriptions;
     std::vector<Subscription> mWildcardSubscriptions;
