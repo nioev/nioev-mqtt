@@ -27,6 +27,7 @@ ApplicationState::~ApplicationState() {
     mWorkerThread.join();
 }
 void ApplicationState::workerThreadFunc() {
+    pthread_setname_np(pthread_self(), "app-state");
     auto processInternalQueue = [this] {
         std::unique_lock<std::shared_mutex> lock{mMutex};
         while(!mQueueInternal.empty()) {
