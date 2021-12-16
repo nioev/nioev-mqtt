@@ -2,11 +2,11 @@
 #include "quickjs.h"
 #include "../Util.hpp"
 #include "spdlog/spdlog.h"
-#include "ScriptActionPerformer.hpp"
+#include "../ApplicationState.hpp"
 
 namespace nioev {
 
-ScriptContainerJS::ScriptContainerJS(ScriptActionPerformer& p, const std::string& scriptName, std::string&& scriptCode)
+ScriptContainerJS::ScriptContainerJS(ApplicationState& p, const std::string& scriptName, std::string&& scriptCode)
 : ScriptContainer(p), mName(scriptName), mCode(std::move(scriptCode)) {
     mJSRuntime = JS_NewRuntime();
     mJSContext = JS_NewContext(mJSRuntime);
@@ -329,7 +329,7 @@ void ScriptContainerJS::handleScriptActions(const JSValue& actions, ScriptStatus
                 status.error(mName, "Missing either payloadStr or payloadBytes");
                 return;
             }
-            mActionPerformer.enqueueAction(ScriptActionPublish{mName, std::move(*topic), std::move(*payload), qos, retain});
+            mApp.requestChange(ChangeRequestPublish{std::move(*topic), std::move(*payload), qos, retain});
 
         } else if(actionType == "subscribe") {
             auto topic = getJSStringProperty(action, "topic");
@@ -337,7 +337,7 @@ void ScriptContainerJS::handleScriptActions(const JSValue& actions, ScriptStatus
                 status.error(mName, "topic field is missing");
                 return;
             }
-            mActionPerformer.enqueueAction(ScriptActionSubscribe{mName, *topic});
+            mApp.requestChange(ChangeRequestSubscribe{makeShared(), *topic});
 
         } else if(actionType == "unsubscribe") {
             auto topic = getJSStringProperty(action, "topic");
@@ -345,7 +345,7 @@ void ScriptContainerJS::handleScriptActions(const JSValue& actions, ScriptStatus
                 status.error(mName, "topic field is missing");
                 return;
             }
-            mActionPerformer.enqueueAction(ScriptActionUnsubscribe{mName, *topic});
+            mApp.requestChange(ChangeRequestUnsubscribe{makeShared(), *topic});
 
         } else if(actionType == "tcp_listen") {
             auto identifier = getJSStringProperty(action, "identifier");
@@ -373,7 +373,7 @@ void ScriptContainerJS::handleScriptActions(const JSValue& actions, ScriptStatus
                     status.error(mName, "recv_compression must be none");
                 }
             }
-            mActionPerformer.enqueueAction(ScriptActionListen{mName, *identifier, sendCompression, recvCompression });
+            spdlog::warn("tcp_listen currently not implemented");
 
         } else if(actionType == "tcp_send") {
             auto fd = getJSIntProperty(action, "fd");
@@ -386,7 +386,7 @@ void ScriptContainerJS::handleScriptActions(const JSValue& actions, ScriptStatus
                 status.error(mName, "Missing either payloadStr or payloadBytes");
                 return;
             }
-            mActionPerformer.enqueueAction(ScriptActionSendToClient{mName, *fd, *payload});
+            spdlog::warn("tcp_send currently not implemented");
 
         }
         i += 1;

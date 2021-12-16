@@ -11,7 +11,7 @@ namespace nioev {
 
 class ScriptContainerJS final : public ScriptContainer {
 public:
-    ScriptContainerJS(ScriptActionPerformer& p, const std::string& scriptName, std::string&& scriptCode);
+    ScriptContainerJS(ApplicationState& p, const std::string& scriptName, std::string&& scriptCode);
     ~ScriptContainerJS();
     void init(ScriptStatusOutput&&) override;
     void run(const ScriptInputArgs&, ScriptStatusOutput&&) override;

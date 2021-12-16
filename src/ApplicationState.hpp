@@ -12,6 +12,7 @@
 #include <condition_variable>
 #include "TcpClientHandlerInterface.hpp"
 #include "Timers.hpp"
+#include "scripting/ScriptContainer.hpp"
 
 namespace nioev {
 
@@ -56,7 +57,20 @@ struct ChangeRequestDisconnectClient {
     std::shared_ptr<MQTTClientConnection> client;
 };
 
-using ChangeRequest = std::variant<ChangeRequestSubscribe, ChangeRequestUnsubscribe, ChangeRequestRetain, ChangeRequestCleanup, ChangeRequestDisconnectClient, ChangeRequestLoginClient>;
+struct ChangeRequestAddScript {
+    std::string name;
+    std::function<std::shared_ptr<ScriptContainer>()> constructor;
+    ScriptStatusOutput statusOutput;
+};
+
+struct ChangeRequestPublish {
+    std::string topic;
+    std::vector<uint8_t> payload;
+    QoS qos;
+    Retain retain;
+};
+
+using ChangeRequest = std::variant<ChangeRequestSubscribe, ChangeRequestUnsubscribe, ChangeRequestRetain, ChangeRequestCleanup, ChangeRequestDisconnectClient, ChangeRequestLoginClient, ChangeRequestAddScript, ChangeRequestPublish>;
 
 struct PersistentClientState {
     static_assert(std::is_same_v<decltype(std::chrono::steady_clock::time_point{}.time_since_epoch().count()), int64_t>);
@@ -91,9 +105,21 @@ public:
     void operator()(ChangeRequestCleanup&& req);
     void operator()(ChangeRequestLoginClient&& req);
     void operator()(ChangeRequestDisconnectClient&& req);
+    void operator()(ChangeRequestAddScript&& req);
+    void operator()(ChangeRequestPublish&& req);
 
     void publish(std::string&& topic, std::vector<uint8_t>&& msg, std::optional<QoS> qos, Retain retain);
     void handleNewClientConnection(TcpClientConnection&&) override;
+
+
+
+    template<typename T, typename... Args>
+    void addScript(const std::string& name, std::function<void(const std::string& scriptName)>&& onSuccess, std::function<void(const std::string& scriptName, const std::string&)>&& onError, Args&&... args) {
+        auto lambda = [this, name, args = std::move(args...)] () mutable -> std::shared_ptr<ScriptContainer> {
+            return std::dynamic_pointer_cast<ScriptContainer>(std::make_shared<T>(*this, name, std::forward<Args>(args)...));
+        };
+        requestChange(ChangeRequestAddScript{name, std::move(lambda), ScriptStatusOutput{std::move(onSuccess), std::move(onError), {}}});
+    }
 private:
     struct Subscription {
         std::shared_ptr<Subscriber> subscriber;
@@ -130,6 +156,8 @@ private:
             }
         }
     }
+    void deleteScript(std::unordered_map<std::string, std::shared_ptr<ScriptContainer>>::iterator it);
+    void deleteAllSubscriptions(Subscriber& sub);
 
     std::shared_mutex mClientsMutex;
     std::list<std::shared_ptr<MQTTClientConnection>> mClients;
@@ -150,6 +178,7 @@ private:
     std::thread mWorkerThread;
 
     Timers mTimers;
+    std::unordered_map<std::string, std::shared_ptr<ScriptContainer>> mScripts;
 
     // needs to initialized last because it starts a thread which calls us
     ClientThreadManager mClientManager;

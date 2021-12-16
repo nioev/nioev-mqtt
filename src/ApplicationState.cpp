@@ -7,7 +7,7 @@ namespace nioev {
 ApplicationState::ApplicationState()
 : mClientManager(*this, 5), mWorkerThread([this]{workerThreadFunc();}) {
     int tries = 0;
-    mTimers.addPeriodicTask(std::chrono::seconds(2), [this, tries] mutable {
+    mTimers.addPeriodicTask(std::chrono::seconds(2), [this, tries] () mutable {
         if(tries < 10) {
             if(mMutex.try_lock()) {
                 cleanup();
@@ -30,7 +30,8 @@ void ApplicationState::workerThreadFunc() {
     auto processInternalQueue = [this] {
         std::unique_lock<std::shared_mutex> lock{mMutex};
         while(!mQueueInternal.empty()) {
-            executeChangeRequest(std::move(mQueueInternal.front()));
+            // don't call executeChangeRequest because that function acquires a lock
+            std::visit(*this, std::move(std::move(mQueueInternal.front())));
             mQueueInternal.pop();
         }
     };
@@ -58,10 +59,10 @@ void ApplicationState::requestChange(ChangeRequest&& changeRequest, ApplicationS
 }
 
 void ApplicationState::executeChangeRequest(ChangeRequest&& changeRequest) {
+    std::unique_lock<std::shared_mutex> lock{mMutex};
     std::visit(*this, std::move(changeRequest));
 }
 void ApplicationState::operator()(ChangeRequestSubscribe&& req) {
-    std::unique_lock<std::shared_mutex> lock{mMutex};
     if(req.isWildcardSub) {
         auto& sub = mWildcardSubscriptions.emplace_back(req.subscriber, req.topic, std::move(req.topicSplit), req.qos);
         for(auto& retainedMessage: mRetainedMessages) {
@@ -88,7 +89,6 @@ void ApplicationState::operator()(ChangeRequestSubscribe&& req) {
     }
 }
 void ApplicationState::operator()(ChangeRequestUnsubscribe&& req) {
-    std::unique_lock<std::shared_mutex> lock{mMutex};
     auto[start, end] = mSimpleSubscriptions.equal_range(req.topic);
     if(start != end) {
         for(auto it = start; it != end;) {
@@ -118,11 +118,9 @@ void ApplicationState::operator()(ChangeRequestUnsubscribe&& req) {
     }
 }
 void ApplicationState::operator()(ChangeRequestRetain&& req) {
-    std::unique_lock<std::shared_mutex> lock{mMutex};
     mRetainedMessages.emplace(std::move(req.topic), RetainedMessage{std::move(req.payload)});
 }
 void ApplicationState::operator()(ChangeRequestCleanup&& req) {
-    std::unique_lock<std::shared_mutex> lock{mMutex};
     cleanup();
 }
 void ApplicationState::cleanup() {
@@ -146,11 +144,9 @@ void ApplicationState::cleanup() {
     mClientManager.resumeAllThreads();
 }
 void ApplicationState::operator()(ChangeRequestDisconnectClient&& req) {
-    std::unique_lock<std::shared_mutex> lock{mMutex};
     logoutClient(*req.client);
 }
 void ApplicationState::operator()(ChangeRequestLoginClient&& req) {
-    std::unique_lock<std::shared_mutex> lock{mMutex};
     constexpr char AVAILABLE_RANDOM_CHARS[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890";
 
     decltype(mPersistentClientStates.begin()) existingSession;
@@ -223,6 +219,24 @@ void ApplicationState::operator()(ChangeRequestLoginClient&& req) {
     req.client->sendData(response.moveData());
     req.client->setState(MQTTClientConnection::ConnectionState::CONNECTED);
 }
+void ApplicationState::operator()(ChangeRequestAddScript&& req) {
+    auto existingScript = mScripts.find(req.name);
+    if(existingScript != mScripts.end()) {
+        deleteScript(existingScript);
+    }
+    auto script = mScripts.emplace(req.name, req.constructor());
+    script.first->second->init(std::move(req.statusOutput));
+}
+void ApplicationState::operator()(ChangeRequestPublish&& req) {
+    publishWithoutAcquiringMutex(std::move(req.topic), std::move(req.payload), req.qos, req.retain);
+}
+void ApplicationState::deleteScript(std::unordered_map<std::string, std::shared_ptr<ScriptContainer>>::iterator it) {
+    if(it == mScripts.end())
+        return;
+    it->second->forceQuit();
+    deleteAllSubscriptions(*it->second);
+    mScripts.erase(it);
+}
 void ApplicationState::logoutClient(MQTTClientConnection& client) {
     mClientManager.removeClientConnection(client);
     {
@@ -232,19 +246,7 @@ void ApplicationState::logoutClient(MQTTClientConnection& client) {
             publishWithoutAcquiringMutex(std::move(willMsg->topic), std::move(willMsg->msg), willMsg->qos, willMsg->retain);
         }
     }
-    {
-        // delete all subs
-        for(auto it = mSimpleSubscriptions.begin(); it != mSimpleSubscriptions.end();) {
-            if(it->second.subscriber.get() == &client) {
-                it = mSimpleSubscriptions.erase(it);
-            } else {
-                it++;
-            }
-        }
-        erase_if(mWildcardSubscriptions, [&client](auto& sub) {
-            return sub.subscriber.get() == static_cast<Subscriber*>(&client);
-        });
-    }
+    deleteAllSubscriptions(client);
     {
         // detach persistent state
         auto[state, stateLock] = client.getPersistentState();
@@ -282,7 +284,7 @@ void ApplicationState::publishWithoutAcquiringMutex(std::string&& topic, std::ve
     // second run scripts
     // TODO optimize forEachSubscriber so that it skips other subscriptions automatically, avoiding unnecessary work checking for all matches
     auto action = SyncAction::Continue;
-    forEachSubscriber<ScriptContainer>(topic, [this, &topic, &msg, &action] (Subscription& sub) {
+    forEachSubscriber<ScriptContainer>(topic, [&topic, &msg, &action] (Subscription& sub) {
         sub.subscriber->publish(topic, msg, *sub.qos, Retained::No);
         // TODO reimplement sync scripts
         //if(runScriptWithPublishedMessage(std::get<MQTTPersistentState::ScriptName>(sub.subscriber), topic, msg, Retained::No) == SyncAction::AbortPublish) {
@@ -294,7 +296,7 @@ void ApplicationState::publishWithoutAcquiringMutex(std::string&& topic, std::ve
     }
     // then send to clients
     // this order is neccessary to allow the scripts to abort the message delivery to clients
-    forEachSubscriber(topic, [this, &topic, &msg] (Subscription& sub) {
+    forEachSubscriber<MQTTClientConnection>(topic, [&topic, &msg] (Subscription& sub) {
         sub.subscriber->publish(topic, msg, *sub.qos, Retained::No);
     });
     if(retain == Retain::Yes) {
@@ -306,6 +308,18 @@ void ApplicationState::handleNewClientConnection(TcpClientConnection&& conn) {
     spdlog::info("New connection from [{}:{}]", conn.getRemoteIp(), conn.getRemotePort());
     auto newClient = mClients.emplace_back(std::make_shared<MQTTClientConnection>(std::move(conn)));
     mClientManager.addClientConnection(*newClient);
+}
+void ApplicationState::deleteAllSubscriptions(Subscriber& sub) {
+    for(auto it = mSimpleSubscriptions.begin(); it != mSimpleSubscriptions.end();) {
+        if(it->second.subscriber.get() == &sub) {
+            it = mSimpleSubscriptions.erase(it);
+        } else {
+            it++;
+        }
+    }
+    erase_if(mWildcardSubscriptions, [&sub](auto& subscription) {
+        return subscription.subscriber.get() == &sub;
+    });
 }
 }
 

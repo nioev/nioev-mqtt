@@ -10,6 +10,7 @@
 #include "../Enums.hpp"
 #include "../Forward.hpp"
 #include "spdlog/spdlog.h"
+#include "../Subscriber.hpp"
 
 namespace nioev {
 
@@ -49,15 +50,15 @@ enum class SyncAction {
 };
 
 struct ScriptStatusOutput {
-    std::function<void(const std::string& scriptName, const std::string& reason)> error;
     std::function<void(const std::string& scriptName)> success = [](auto&) {};
+    std::function<void(const std::string& scriptName, const std::string& reason)> error;
     std::function<void(const std::string& scriptName, SyncAction action)> syncAction = [](auto&, auto) {};
 };
 
-class ScriptContainer {
+class ScriptContainer : public Subscriber, public std::enable_shared_from_this<ScriptContainer> {
 public:
-    explicit ScriptContainer(ScriptActionPerformer& p)
-    : mActionPerformer(p) {
+    explicit ScriptContainer(ApplicationState& p)
+    : mApp(p) {
 
     }
     virtual ~ScriptContainer() = default;
@@ -69,10 +70,17 @@ public:
     }
     virtual void forceQuit() = 0;
 
+    auto makeShared() {
+        return shared_from_this();
+    }
+    void publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained) {
+        run(ScriptRunArgsMqttMessage{topic, payload, retained}, ScriptStatusOutput{});
+    }
+
 protected:
     mutable std::mutex mScriptInitReturnMutex;
     std::optional<ScriptInitReturn> mScriptInitReturn;
-    ScriptActionPerformer& mActionPerformer;
+    ApplicationState& mApp;
 };
 
 }

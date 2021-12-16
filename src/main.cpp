@@ -50,6 +50,7 @@ function run(args) {
             payload = "off";
         }
         if(payload != "") {
+            console.log("Changing shelly plug");
             return {
                 actions: [{
                     type: 'publish',
@@ -240,8 +241,7 @@ initArgs)--" });*/
                             return;
                         }
                         spdlog::info("Adding script from Web-API: {}", scriptName);
-                        // FIXME
-                        /*app.addScript<ScriptContainerJS>(
+                        app.addScript<ScriptContainerJS>(
                             std::string{scriptName},
                             [res](auto&) {
                                 res->end("ok");
@@ -250,7 +250,7 @@ initArgs)--" });*/
                                 res->writeStatus("500 Internal Server Error");
                                 res->end(error);
                             },
-                            std::move(fullCode));*/
+                            std::move(fullCode));
                     });
                     res->onAborted([]{});
                 } catch(std::exception& e) {
