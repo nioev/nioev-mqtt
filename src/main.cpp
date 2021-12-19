@@ -174,7 +174,7 @@ initArgs)--" });*/
 
     TcpServer server{ 1883, app };
     gTcpServer = &server;
-    spdlog::info("MQTT TcpServer started");
+    spdlog::info("MQTT Broker started");
 
     uWS::App{}
         .post(
@@ -260,7 +260,7 @@ initArgs)--" });*/
                 }
             })
         .listen(
-            8080,
+            1884,
             [](auto* listenSocket) {
                 gListenSocket = listenSocket;
                 if(listenSocket) {
