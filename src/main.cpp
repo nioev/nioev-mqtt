@@ -68,12 +68,16 @@ int main() {
     gTcpServer = &server;
     spdlog::info("MQTT Broker started");
 
-    uWS::App{}
-        .post(
+    struct PerWebsocketClientData {
+        std::string topic;
+    };
+
+    uWS::App webApp;
+
+    webApp.post(
             "/mqtt/*",
             [&app](uWS::HttpResponse<false>* res, uWS::HttpRequest* req) {
                 try {
-
                     std::string topic{ req->getUrl().substr(6) };
                     if(topic.empty()) {
                         res->writeStatus("400 Bad Request");
@@ -151,6 +155,22 @@ int main() {
                     return;
                 }
             })
+        .ws<PerWebsocketClientData>(
+            "/mqtt/*",
+            uWS::TemplatedApp<false>::WebSocketBehavior<PerWebsocketClientData>{ .sendPingsAutomatically = true,
+                                                                                 .upgrade = [](auto* res, uWS::HttpRequest *req, auto *context) {
+                                                                                    res->template upgrade<PerWebsocketClientData>(PerWebsocketClientData{std::string{req->getUrl().substr(6)}},
+                                                                                                                                   req->getHeader("sec-websocket-key"),
+                                                                                                                                   req->getHeader("sec-websocket-protocol"),
+                                                                                                                                   req->getHeader("sec-websocket-extensions"),
+                                                                                                                                   context);
+                                                                                 },
+                                                                                 .open =
+                                                                                     [](uWS::WebSocket<false, true, PerWebsocketClientData>* ws) {
+                                                                                        auto userData = ws->getUserData();
+                                                                                        spdlog::info("New WS subscription on: {}", userData->topic);
+                                                                                        ws->subscribe(userData->topic);
+                                                                                     } })
         .listen(
             1884,
             [](auto* listenSocket) {
@@ -158,8 +178,31 @@ int main() {
                 if(listenSocket) {
                     spdlog::info("HTTP Server started");
                 }
-            })
-        .run();
+            });
+
+    class WSSubscriber : public nioev::Subscriber {
+    public:
+        WSSubscriber(uWS::App& webApp, uWS::Loop& loop)
+        : mWebApp(webApp), mLoop(loop) {
+
+        }
+        void publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained) override {
+            mLoop.defer([this, topic, payload] {
+                // TODO use our publish-subscribe implementation instead, because the one used by the library isn't actually mqtt spec compliant
+                mWebApp.publish(topic, std::string_view{(const char*)payload.data(), payload.size()}, uWS::BINARY, false);
+            });
+        }
+    private:
+        uWS::App& mWebApp;
+        uWS::Loop& mLoop;
+    };
+
+
+    auto loop = uWS::Loop::get();
+    assert(loop);
+    app.requestChange(ChangeRequestSubscribe{std::make_shared<WSSubscriber>(webApp, *loop), "#", {"#"}, nioev::SubscriptionType::OMNI, QoS::QoS0});
+
+    webApp.run();
 
     server.join();
 }

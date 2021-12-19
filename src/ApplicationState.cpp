@@ -64,7 +64,7 @@ void ApplicationState::executeChangeRequest(ChangeRequest&& changeRequest) {
     std::visit(*this, std::move(changeRequest));
 }
 void ApplicationState::operator()(ChangeRequestSubscribe&& req) {
-    if(req.isWildcardSub) {
+    if(req.subType == SubscriptionType::WILDCARD) {
         auto& sub = mWildcardSubscriptions.emplace_back(req.subscriber, req.topic, std::move(req.topicSplit), req.qos);
         for(auto& retainedMessage: mRetainedMessages) {
             if(util::doesTopicMatchSubscription(retainedMessage.first, sub.topicSplit)) {
@@ -72,7 +72,7 @@ void ApplicationState::operator()(ChangeRequestSubscribe&& req) {
             }
         }
 
-    } else {
+    } else if(req.subType == SubscriptionType::SIMPLE) {
         mSimpleSubscriptions.emplace(std::piecewise_construct,
                                      std::make_tuple(req.topic),
                                      std::make_tuple(req.subscriber, req.topic, std::vector<std::string>{}, req.qos));
@@ -80,6 +80,13 @@ void ApplicationState::operator()(ChangeRequestSubscribe&& req) {
         if(retainedMessage != mRetainedMessages.end()) {
             req.subscriber->publish(retainedMessage->first, retainedMessage->second.payload, req.qos, Retained::Yes);
         }
+    } else if(req.subType == SubscriptionType::OMNI) {
+        auto& sub = mOmniSubscriptions.emplace_back(req.subscriber, req.topic, std::move(req.topicSplit), req.qos);
+        for(auto& retainedMessage: mRetainedMessages) {
+            sub.subscriber->publish(retainedMessage.first, retainedMessage.second.payload, req.qos, Retained::Yes);
+        }
+    } else {
+        assert(false);
     }
     auto subscriberAsMQTTConn = std::dynamic_pointer_cast<MQTTClientConnection>(req.subscriber);
     if(subscriberAsMQTTConn) {
@@ -198,7 +205,7 @@ void ApplicationState::operator()(ChangeRequestLoginClient&& req) {
             existingSession->second.cleanSession = req.cleanSession;
             req.client->setPersistentState(&existingSession->second);
             for(auto& sub: existingSession->second.subscriptions) {
-                mQueueInternal.emplace(ChangeRequestSubscribe{req.client, sub.topic, util::splitTopics(sub.topic), util::hasWildcard(sub.topic), sub.qos});
+                mQueueInternal.emplace(ChangeRequestSubscribe{req.client, sub.topic, util::splitTopics(sub.topic), util::hasWildcard(sub.topic) ? SubscriptionType::WILDCARD : SubscriptionType::SIMPLE, sub.qos});
             }
         }
     } else {
@@ -283,23 +290,22 @@ void ApplicationState::publishWithoutAcquiringMutex(std::string&& topic, std::ve
         //performSystemAction(topic, msg);
     }
     // second run scripts
-    // TODO optimize forEachSubscriber so that it skips other subscriptions automatically, avoiding unnecessary work checking for all matches
+    // TODO optimize forEachSubscriberThatIsOfT so that it skips other subscriptions automatically, avoiding unnecessary work checking for all matches
     auto action = SyncAction::Continue;
-    forEachSubscriber<ScriptContainer>(topic, [&topic, &msg, &action] (Subscription& sub) {
+    forEachSubscriberThatIsOfT<ScriptContainer>(topic, [&topic, &msg, &action](Subscription& sub) {
         sub.subscriber->publish(topic, msg, *sub.qos, Retained::No);
         // TODO reimplement sync scripts
-        //if(runScriptWithPublishedMessage(std::get<MQTTPersistentState::ScriptName>(sub.subscriber), topic, msg, Retained::No) == SyncAction::AbortPublish) {
+        // if(runScriptWithPublishedMessage(std::get<MQTTPersistentState::ScriptName>(sub.subscriber), topic, msg, Retained::No) == SyncAction::AbortPublish) {
         //    action = SyncAction::AbortPublish;
-       // }
+        // }
     });
     if(action == SyncAction::AbortPublish) {
         return;
     }
     // then send to clients
     // this order is neccessary to allow the scripts to abort the message delivery to clients
-    forEachSubscriber<MQTTClientConnection>(topic, [&topic, &msg] (Subscription& sub) {
-        sub.subscriber->publish(topic, msg, *sub.qos, Retained::No);
-    });
+    forEachSubscriberThatIsNotOfT<ScriptContainer>(
+        topic, [&topic, &msg](Subscription& sub) { sub.subscriber->publish(topic, msg, *sub.qos, Retained::No); });
     if(retain == Retain::Yes) {
         mQueueInternal.emplace(ChangeRequestRetain{std::move(topic), std::move(msg)});
     }

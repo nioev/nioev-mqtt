@@ -25,12 +25,18 @@ enum class SessionPresent {
     Yes
 };
 
+enum class SubscriptionType {
+    SIMPLE,
+    WILDCARD,
+    OMNI // receives ALL messages, even ones to $ topics
+};
+
 struct ChangeRequestSubscribe {
     std::shared_ptr<Subscriber> subscriber;
     std::string topic;
     std::vector<std::string> topicSplit; // only relevant for wildcard subscriptions
-    bool isWildcardSub = false;
-    QoS qos;
+    SubscriptionType subType;
+    QoS qos = QoS::QoS0;
 };
 
 struct ChangeRequestUnsubscribe {
@@ -141,7 +147,12 @@ private:
     void logoutClient(MQTTClientConnection& client);
     // ensure you have at least a readonly lock when calling
     template<typename T = Subscriber>
-    void forEachSubscriber(const std::string& topic, std::function<void(Subscription&)>&& callback) {
+    void forEachSubscriberThatIsOfT(const std::string& topic, std::function<void(Subscription&)>&& callback) {
+        for(auto& sub: mOmniSubscriptions) {
+            if(std::dynamic_pointer_cast<T>(sub.subscriber) == nullptr)
+                continue;
+            callback(sub);
+        }
         auto[start, end] = mSimpleSubscriptions.equal_range(topic);
         for(auto it = start; it != end; ++it) {
             if(std::dynamic_pointer_cast<T>(it->second.subscriber) == nullptr)
@@ -150,6 +161,27 @@ private:
         }
         for(auto& sub: mWildcardSubscriptions) {
             if(std::dynamic_pointer_cast<T>(sub.subscriber) == nullptr)
+                continue;
+            if(util::doesTopicMatchSubscription(topic, sub.topicSplit)) {
+                callback(sub);
+            }
+        }
+    }
+    template<typename T = Subscriber>
+    void forEachSubscriberThatIsNotOfT(const std::string& topic, std::function<void(Subscription&)>&& callback) {
+        for(auto& sub: mOmniSubscriptions) {
+            if(std::dynamic_pointer_cast<T>(sub.subscriber) != nullptr)
+                continue;
+            callback(sub);
+        }
+        auto[start, end] = mSimpleSubscriptions.equal_range(topic);
+        for(auto it = start; it != end; ++it) {
+            if(std::dynamic_pointer_cast<T>(it->second.subscriber) != nullptr)
+                continue;
+            callback(it->second);
+        }
+        for(auto& sub: mWildcardSubscriptions) {
+            if(std::dynamic_pointer_cast<T>(sub.subscriber) != nullptr)
                 continue;
             if(util::doesTopicMatchSubscription(topic, sub.topicSplit)) {
                 callback(sub);
@@ -168,6 +200,8 @@ private:
     atomic_queue::AtomicQueue2<ChangeRequest, 1024> mQueue;
     std::unordered_multimap<std::string, Subscription> mSimpleSubscriptions;
     std::vector<Subscription> mWildcardSubscriptions;
+    std::vector<Subscription> mOmniSubscriptions;
+
     struct RetainedMessage {
         std::vector<uint8_t> payload;
     };
