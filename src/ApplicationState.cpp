@@ -186,7 +186,7 @@ void ApplicationState::operator()(ChangeRequestLoginClient&& req) {
         // disconnect existing client
         auto existingClient = existingSession->second.currentClient;
         if(existingClient) {
-            spdlog::warn("[{}] Already connected, closing old connection", req.clientId);
+            spdlog::warn("[{}] Already logged in, closing old connection", req.clientId);
             logoutClient(*existingClient);
         }
         if(req.cleanSession == CleanSession::Yes || existingSession->second.cleanSession == CleanSession::Yes) {
@@ -209,7 +209,7 @@ void ApplicationState::operator()(ChangeRequestLoginClient&& req) {
     // send CONNACK now
     // we need to do it here because only here we now the value of the session present flag
     // we could use callbacks, but that seems too complicated
-    spdlog::info("[{}] Connected", req.client->getClientId());
+    spdlog::info("[{}] Logged in from [{}:{}]", req.client->getClientId(), req.client->getTcpClient().getRemoteIp(), req.client->getTcpClient().getRemotePort());
     util::BinaryEncoder response;
     response.encodeByte(static_cast<uint8_t>(MQTTMessageType::CONNACK) << 4);
     response.encodeByte(2); // remaining packet length
