@@ -309,20 +309,11 @@ void ScriptContainerJS::handleScriptActions(const JSValue& actions, ScriptStatus
             }
             QoS qos = static_cast<QoS>(*qosNum);
 
-            auto retainObj = JS_GetPropertyStr(mJSContext, action, "retain");
-            util::DestructWrapper destructRetainObj{[&]{ JS_FreeValue(mJSContext, retainObj); }};
-            if(!JS_IsBool(retainObj)) {
-                status.error(mName, "retain must be a bool");
-                return;
+            auto retainBool = getJSBoolProperty(action, "retain");
+            if(!retainBool.has_value()) {
+                retainBool = false;
             }
-
-            int retainInt = 0;
-            if((retainInt = JS_ToBool(mJSContext, retainObj)) < 0) {
-                status.error(mName, "retain must be a bool");
-                return;
-            }
-
-            Retain retain = retainInt == 0 ? Retain::No : Retain::Yes;
+            Retain retain = *retainBool ? Retain::Yes : Retain::No;
 
             auto payload = extractPayload(action);
             if(!payload) {
@@ -403,6 +394,18 @@ std::optional<std::string> ScriptContainerJS::getJSStringProperty(const JSValue&
     util::DestructWrapper destructPropStr{[&]{ JS_FreeCString(mJSContext, propStr); }};
     std::string ret = propStr;
     return {std::move(ret)};
+}
+
+std::optional<bool> ScriptContainerJS::getJSBoolProperty(const JSValue& obj, std::string_view name) {
+    auto prop = JS_GetPropertyStr(mJSContext, obj, name.data());
+    util::DestructWrapper destructProp{[&]{ JS_FreeValue(mJSContext, prop); }};
+    if(!JS_IsBool(prop))
+        return {};
+    auto ret = JS_ToBool(mJSContext, prop);
+    if(ret < 0) {
+        return {};
+    }
+    return ret;
 }
 
 std::optional<int32_t> ScriptContainerJS::getJSIntProperty(const JSValue& obj, std::string_view name) {
