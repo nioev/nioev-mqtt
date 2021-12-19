@@ -1,4 +1,5 @@
 #include "spdlog/spdlog.h"
+#include "spdlog/sinks/base_sink.h"
 
 #include "ApplicationState.hpp"
 #include "BigString.hpp"
@@ -16,6 +17,8 @@ using namespace nioev;
 std::atomic<TcpServer*> gTcpServer = nullptr;
 std::atomic<struct us_listen_socket_t*> gListenSocket = nullptr;
 
+constexpr const char* LOG_PATTERN = "[%Y-%m-%d %H:%M:%S.%e] %^[%-7l]%$ [%-15N] %v";
+
 void onExitSignal(int) {
     if(gTcpServer) {
         gTcpServer.load()->requestStop();
@@ -27,150 +30,39 @@ void onExitSignal(int) {
     }
 }
 
+class LogSink : public spdlog::sinks::base_sink<std::mutex> {
+public:
+    LogSink(ApplicationState& app)
+    : mApp(app) {
+        set_pattern_(LOG_PATTERN);
+    }
+
+protected:
+    void sink_it_(const spdlog::details::log_msg& msg) override {
+        spdlog::memory_buf_t formatted;
+        spdlog::sinks::base_sink<std::mutex>::formatter_->format(msg, formatted);
+        assert(formatted.size() > 0);
+        std::vector<uint8_t> formattedBuffer((uint8_t*)formatted.begin(), (uint8_t*)formatted.end() - 1);
+        mApp.requestChange(ChangeRequestPublish{LOG_TOPIC, std::move(formattedBuffer), QoS::QoS0, Retain::No});
+    }
+
+    void flush_() override {
+        std::cout << std::flush;
+    }
+    ApplicationState& mApp;
+};
+
 int main() {
     signal(SIGUSR1, [](int) {});
     signal(SIGINT, onExitSignal);
     signal(SIGTERM, onExitSignal);
 
     spdlog::set_level(spdlog::level::info);
-    spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] %^[%-7l]%$ [%-15N] %v");
+    spdlog::set_pattern(LOG_PATTERN);
 
     ApplicationState app;
-    /*app.addScript<ScriptContainerJS>(
-        "test", [](auto&) { spdlog::info("Successfully added testscript!"); }, [](auto&, const auto& error) { spdlog::error("{}", error); },
-        std::string{ R"--(
-i = 0
+    spdlog::default_logger()->sinks().push_back(std::make_shared<LogSink>(app));
 
-function run(args) {
-    if(args.topic === "night_mode") {
-        let payload = "";
-        if(args.payloadStr == "0") {
-            payload = "on";
-        } else if(args.payloadStr == "1") {
-            payload = "off";
-        }
-        if(payload != "") {
-            console.log("Changing shelly plug");
-            return {
-                actions: [{
-                    type: 'publish',
-                    topic: 'shellies/shellyplug-s-DD7977/relay/0/command',
-                    payloadStr: payload,
-                    qos: 0,
-                    retain: true
-                }],
-            }
-        }
-    } else if(args.topic == "random") {
-        return {
-            syncAction: "abortPublish",
-            actions: [{
-                type: 'publish',
-                topic: 'random2',
-                payloadStr: String(Math.random()),
-                qos: 0,
-                retain: true
-            }],
-        }
-    } else if(args.topic == "testI") {
-        return {
-            actions: [{
-                type: 'publish',
-                topic: 'testO',
-                payloadBytes: args.payloadBytes,
-                qos: 0,
-                retain: true
-            }],
-        }
-    }
-    return {};
-}
-
-initArgs = {}
-initArgs.runType = 'async'
-initArgs.actions = [
-    {
-        type: 'subscribe',
-        topic: 'night_mode'
-    },
-    {
-        type: 'subscribe',
-        topic: 'random'
-    },
-    {
-        type: 'subscribe',
-        topic: 'testI'
-    }
-]
-initArgs)--" });*/
-    // clientManager.deleteScript("test");
-
-    /*app.addScript<ScriptContainerJS>(
-        "test", [](auto&) { spdlog::info("Successfully added testscript!"); }, [](auto&, const auto& error) { spdlog::error("{}", error); },
-        std::string{ R"--(
-let s = new Set()
-
-let t = 0
-
-function run(args) {
-    if(args.type == "publish" && args.topic == 'sbcs/ledmatrix-pico/matrix') {
-        t += 0.1;
-        a = []
-        buffer = []
-        for(let y = 0; y < 32; ++y) {
-            for(let x = 0; x < 64; ++x) {
-                buffer.push(Math.sin(x / 30.0 + y / 30.0 + t) * 120 + 120);
-                buffer.push(Math.sin(x / 30.0 + y / 30.0 + Math.PI * 2 / 3 + t) * 120 + 120);
-                buffer.push(Math.sin(x / 30.0 + y / 30.0 + Math.PI * 2 / 3 * 2 + t) * 120 + 120);
-            }
-        }
-
-        bufferBytes = Uint8Array.from(buffer)
-        for (let item of s) {
-            a.push({
-                type: 'tcp_send',
-                fd: item,
-                payloadBytes: bufferBytes
-            })
-        }
-        return {
-            actions: a
-        }
-    } else if(args.type == "tcp_new_client") {
-        s.add(args.fd);
-    } else if(args.type == "tcp_delete_client") {
-        s.delete(args.fd);
-    }
-    return {};
-}
-
-initArgs = {}
-initArgs.runType = 'async'
-initArgs.actions = [
-    {
-        type: 'tcp_listen',
-        identifier: 'SIMPLIFIED-SBC-MQTT-CLIENT-PICO-MATRIX',
-        send_compression: 'zstd',
-        recv_compression: 'none'
-    },
-    {
-        type: 'subscribe',
-        topic: 'sbcs/ledmatrix-pico/matrix'
-    },
-    {
-        type: 'publish',
-        topic: 'sbcs/ledmatrix-pico/width',
-        payloadStr: '64',
-        retain: true
-    },
-    {
-        type: 'publish',
-        topic: 'sbcs/ledmatrix-pico/height',
-        payloadStr: '32',
-        retain: true
-    }
-]
-initArgs)--" });*/
 
     TcpServer server{ 1883, app };
     gTcpServer = &server;

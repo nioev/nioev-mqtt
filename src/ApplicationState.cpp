@@ -273,7 +273,7 @@ void ApplicationState::publish(std::string&& topic, std::vector<uint8_t>&& msg, 
 }
 void ApplicationState::publishWithoutAcquiringMutex(std::string&& topic, std::vector<uint8_t>&& msg, std::optional<QoS> qos, Retain retain) {
 #ifndef NDEBUG
-    {
+    if(topic != LOG_TOPIC) {
         std::string dataAsStr{msg.begin(), msg.end()};
         spdlog::info("Publishing on '{}' data '{}'", topic, dataAsStr);
     }

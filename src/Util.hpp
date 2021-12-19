@@ -12,6 +12,8 @@ namespace nioev {
 
 using uint = unsigned int;
 
+constexpr const char* LOG_TOPIC = "$NIOEV/log";
+
 namespace util {
 
 template<class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
