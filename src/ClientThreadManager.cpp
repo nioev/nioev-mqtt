@@ -99,7 +99,7 @@ void ClientThreadManager::receiverThreadFunction() {
                     // TcpClient::recv further down would just fail with bad fd, but that spams the logs, so we do an additional check here so that in
                     // 99.99% of cases we should not get wrong logs. Without employing even more mutexes (and we already have too many in my mind) there
                     // is probably no way to prevent this.
-                    if(client.shouldBeDisconnected())
+                    if(client.isLoggedOut())
                         throw CleanDisconnectException{};
                     do {
                         bytesReceived = client.getTcpClient().recv(bytes);

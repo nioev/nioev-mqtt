@@ -91,10 +91,10 @@ public:
         std::unique_lock lock{mRemaingingMutex};
         return {mPersistentState, std::move(lock)};
     }
-    void notifyConnecionError() {
+    void notifyLoggedOut() {
         mShouldBeDisconnected = true;
     }
-    [[nodiscard]] bool shouldBeDisconnected() const {
+    [[nodiscard]] bool isLoggedOut() const {
         return mShouldBeDisconnected;
     }
     void setKeepAliveIntervalSeconds(uint16_t keepAlive) {
@@ -140,7 +140,7 @@ public:
             }
         } catch(std::exception& e) {
             spdlog::error("Error while sending data: {}", e.what());
-            notifyConnecionError();
+            notifyLoggedOut();
         }
     }
     void publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained) override {
