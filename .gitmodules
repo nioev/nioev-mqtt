@@ -10,3 +10,6 @@
 [submodule "thirdparty/atomic_queue"]
 	path = thirdparty/atomic_queue
 	url = https://github.com/max0x7ba/atomic_queue.git
+[submodule "thirdparty/rapidjson"]
+	path = thirdparty/rapidjson
+	url = https://github.com/Tencent/rapidjson.git

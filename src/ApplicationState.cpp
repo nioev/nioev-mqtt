@@ -320,5 +320,16 @@ void ApplicationState::deleteAllSubscriptions(Subscriber& sub) {
         return subscription.subscriber.get() == &sub;
     });
 }
+ApplicationState::ScriptsInfo ApplicationState::getScriptsInfo() {
+    std::shared_lock<std::shared_mutex> lock{mMutex};
+    ScriptsInfo ret;
+    for(auto& script: mScripts) {
+        ScriptsInfo::ScriptInfo scriptInfo;
+        scriptInfo.name = script.first;
+        scriptInfo.code = script.second->getCode();
+        ret.scripts.emplace_back(std::move(scriptInfo));
+    }
+    return ret;
+}
 }
 

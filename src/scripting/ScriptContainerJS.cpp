@@ -7,7 +7,7 @@
 namespace nioev {
 
 ScriptContainerJS::ScriptContainerJS(ApplicationState& p, const std::string& scriptName, std::string&& scriptCode)
-: ScriptContainer(p), mName(scriptName), mCode(std::move(scriptCode)) {
+: ScriptContainer(p, std::move(scriptCode)), mName(scriptName) {
     mJSRuntime = JS_NewRuntime();
     mJSContext = JS_NewContext(mJSRuntime);
     JS_SetInterruptHandler(

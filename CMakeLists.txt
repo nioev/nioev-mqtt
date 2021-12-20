@@ -13,6 +13,7 @@ include_directories(thirdparty/zstd/lib)
 include_directories("thirdparty/uWebSockets/uSockets/src")
 include_directories(thirdparty/uWebSockets/src)
 include_directories(thirdparty/atomic_queue/include)
+include_directories(thirdparty/rapidjson/include)
 add_subdirectory(thirdparty/uWebSockets-CMake)
 add_subdirectory(thirdparty/zstd/build/cmake)
 

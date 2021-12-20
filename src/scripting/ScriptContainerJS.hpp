@@ -32,7 +32,6 @@ private:
     std::optional<std::thread> mScriptThread;
 
     std::string mName;
-    std::string mCode;
 
     std::mutex mTasksMutex;
     std::condition_variable mTasksCV;

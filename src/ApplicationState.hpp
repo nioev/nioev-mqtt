@@ -117,7 +117,14 @@ public:
     void publish(std::string&& topic, std::vector<uint8_t>&& msg, std::optional<QoS> qos, Retain retain);
     void handleNewClientConnection(TcpClientConnection&&) override;
 
-
+    struct ScriptsInfo {
+        struct ScriptInfo {
+            std::string name;
+            std::string code;
+        };
+        std::vector<ScriptInfo> scripts;
+    };
+    ScriptsInfo getScriptsInfo();
 
     template<typename T, typename... Args>
     void addScript(const std::string& name, std::function<void(const std::string& scriptName)>&& onSuccess, std::function<void(const std::string& scriptName, const std::string&)>&& onError, Args&&... args) {

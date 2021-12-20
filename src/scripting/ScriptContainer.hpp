@@ -57,8 +57,8 @@ struct ScriptStatusOutput {
 
 class ScriptContainer : public Subscriber, public std::enable_shared_from_this<ScriptContainer> {
 public:
-    explicit ScriptContainer(ApplicationState& p)
-    : mApp(p) {
+    explicit ScriptContainer(ApplicationState& p, std::string code)
+    : mApp(p), mCode(std::move(code)) {
 
     }
     virtual ~ScriptContainer() = default;
@@ -76,11 +76,15 @@ public:
     void publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained) {
         run(ScriptRunArgsMqttMessage{topic, payload, retained}, ScriptStatusOutput{});
     }
+    const auto& getCode() const {
+        return mCode;
+    }
 
 protected:
     mutable std::mutex mScriptInitReturnMutex;
     std::optional<ScriptInitReturn> mScriptInitReturn;
     ApplicationState& mApp;
+    std::string mCode;
 };
 
 }
