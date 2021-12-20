@@ -124,7 +124,14 @@ public:
         auto lambda = [this, name, args = std::move(args...)] () mutable -> std::shared_ptr<ScriptContainer> {
             return std::dynamic_pointer_cast<ScriptContainer>(std::make_shared<T>(*this, name, std::forward<Args>(args)...));
         };
-        requestChange(ChangeRequestAddScript{name, std::move(lambda), ScriptStatusOutput{std::move(onSuccess), std::move(onError), {}}});
+        ScriptStatusOutput statusOutput;
+        statusOutput.success = std::move(onSuccess);
+        auto originalError = std::move(statusOutput.error);
+        statusOutput.error = [onError = std::move(onError), originalError = std::move(originalError)] (auto& scriptName, const auto& error) {
+            originalError(scriptName, error);
+            onError(scriptName, error);
+        };
+        requestChange(ChangeRequestAddScript{name, std::move(lambda), std::move(statusOutput)});
     }
 private:
     struct Subscription {
