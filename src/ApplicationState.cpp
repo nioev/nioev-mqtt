@@ -6,20 +6,8 @@ namespace nioev {
 
 ApplicationState::ApplicationState()
 : mClientManager(*this, 5), mWorkerThread([this]{workerThreadFunc();}) {
-    int tries = 0;
-    mTimers.addPeriodicTask(std::chrono::seconds(2), [this, tries] () mutable {
-        if(tries < 10) {
-            if(mMutex.try_lock()) {
-                cleanup();
-                mMutex.unlock();
-                tries = 0;
-            } else {
-                tries += 1;
-            }
-        } else {
-            tries = -5;
-            mQueue.push(ChangeRequestCleanup{});
-        }
+    mTimers.addPeriodicTask(std::chrono::seconds(2), [this] () mutable {
+        cleanup();
     });
 }
 ApplicationState::~ApplicationState() {
@@ -125,6 +113,7 @@ void ApplicationState::operator()(ChangeRequestCleanup&& req) {
     cleanup();
 }
 void ApplicationState::cleanup() {
+    std::unique_lock<std::shared_mutex> lock{mMutex};
     for(auto it = mClients.begin(); it != mClients.end(); ++it) {
         auto[recvData, recvDataLock] = (*it)->getRecvData();
         if(recvData.get().lastDataReceivedTimestamp + (int64_t)it->get()->getKeepAliveIntervalSeconds() * 2'000'000'000 <= std::chrono::steady_clock::now().time_since_epoch().count()) {
@@ -132,11 +121,12 @@ void ApplicationState::cleanup() {
             logoutClient(*it->get());
         }
     }
-
+    lock.unlock();
     // delete disconnected clients
     mClientManager.suspendAllThreads();
+    lock.lock();
     for(auto it = mClients.begin(); it != mClients.end();) {
-        if((*it)->shouldBeDisconnected()) {
+        if((*it)->isLoggedOut()) {
             it = mClients.erase(it);
         } else {
             it++;
@@ -239,6 +229,8 @@ void ApplicationState::deleteScript(std::unordered_map<std::string, std::shared_
     mScripts.erase(it);
 }
 void ApplicationState::logoutClient(MQTTClientConnection& client) {
+    if(client.isLoggedOut())
+        return;
     mClientManager.removeClientConnection(client);
     {
         // perform will
@@ -265,7 +257,7 @@ void ApplicationState::logoutClient(MQTTClientConnection& client) {
     }
     spdlog::info("[{}] Logged out", client.getClientId());
     client.getTcpClient().close();
-    client.notifyConnecionError();
+    client.notifyLoggedOut();
 }
 void ApplicationState::publish(std::string&& topic, std::vector<uint8_t>&& msg, std::optional<QoS> qos, Retain retain) {
     std::shared_lock<std::shared_mutex> lock{ mMutex };
