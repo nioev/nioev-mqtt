@@ -303,7 +303,7 @@ void ApplicationState::publishWithoutAcquiringMutex(std::string&& topic, std::ve
     }
 }
 void ApplicationState::handleNewClientConnection(TcpClientConnection&& conn) {
-    std::lock_guard<std::shared_mutex> lock{mClientsMutex};
+    std::lock_guard<std::shared_mutex> lock{mMutex};
     spdlog::info("New connection from [{}:{}]", conn.getRemoteIp(), conn.getRemotePort());
     auto newClient = mClients.emplace_back(std::make_shared<MQTTClientConnection>(std::move(conn)));
     mClientManager.addClientConnection(*newClient);

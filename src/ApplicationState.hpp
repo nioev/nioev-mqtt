@@ -198,11 +198,9 @@ private:
     void deleteScript(std::unordered_map<std::string, std::shared_ptr<ScriptContainer>>::iterator it);
     void deleteAllSubscriptions(Subscriber& sub);
 
-    std::shared_mutex mClientsMutex;
     std::list<std::shared_ptr<MQTTClientConnection>> mClients;
 
     std::shared_mutex mMutex;
-    std::condition_variable mQueueCV;
     std::queue<ChangeRequest> mQueueInternal;
     atomic_queue::AtomicQueue2<ChangeRequest, 1024> mQueue;
     std::unordered_multimap<std::string, Subscription> mSimpleSubscriptions;
