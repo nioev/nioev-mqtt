@@ -22,16 +22,6 @@ std::atomic<struct us_listen_socket_t*> gListenSocket = nullptr;
 
 constexpr const char* LOG_PATTERN = "[%Y-%m-%d %H:%M:%S.%e] %^[%-7l]%$ [%-15N] %v";
 
-void onExitSignal(int) {
-    if(gTcpServer) {
-        gTcpServer.load()->requestStop();
-        gTcpServer = nullptr;
-    }
-    if(gListenSocket) {
-        us_listen_socket_close(false, gListenSocket);
-        gListenSocket = nullptr;
-    }
-}
 
 class LogSink : public spdlog::sinks::base_sink<std::mutex> {
 public:
@@ -54,14 +44,57 @@ protected:
     ApplicationState& mApp;
 };
 
-int main() {
-    signal(SIGUSR1, [](int) {});
-    signal(SIGINT, onExitSignal);
-    signal(SIGTERM, onExitSignal);
+struct PerWebsocketClientData {
+    std::string topic;
+};
 
+int main() {
+
+    // block exit signals in all threads
+    sigset_t exitSignals;
+    sigemptyset(&exitSignals);
+    sigaddset(&exitSignals, SIGINT);
+    sigaddset(&exitSignals, SIGTERM);
+    pthread_sigmask(SIG_BLOCK, &exitSignals, nullptr);
+    signal(SIGUSR1, [](int) {});
+
+    uWS::App webApp;
+    auto loop = uWS::Loop::get();
+    assert(loop);
+    std::unordered_set<uWS::WebSocket<false, true, PerWebsocketClientData>*> openWSFds;
+
+    std::thread signalHandler{
+        [&] {
+            pthread_setname_np(pthread_self(), "signal-handler");
+            int receivedSignal = 0;
+            if(sigwait(&exitSignals, &receivedSignal) > 0) {
+                perror("sigwait failed");
+            }
+            if(gTcpServer) {
+                gTcpServer.load()->requestStop();
+                gTcpServer = nullptr;
+            }
+            /* uWebSockets (the web library we're using) is a bit weird in that it doesn't have an exit or close function, but instead just exits
+             * it's main loop when all active connections are dead. To speed that process up, we just close all connections manually here. If there is
+             * data still in transit, that's not our problem, network connection can drop at any point anyways.
+             */
+            if(gListenSocket) {
+                us_listen_socket_close(false, gListenSocket);
+                gListenSocket = nullptr;
+            }
+            // close all open ws connections
+            loop->defer([&openWSFds] {
+                // use a copy because close modifies openWSFds
+                auto cpy = std::move(openWSFds);
+                openWSFds = {};
+                for(auto* fd: cpy) {
+                    fd->close();
+                }
+            });
+        }
+    };
     spdlog::set_level(spdlog::level::info);
     spdlog::set_pattern(LOG_PATTERN);
-
     ApplicationState app;
     spdlog::default_logger()->sinks().push_back(std::make_shared<LogSink>(app));
 
@@ -69,11 +102,7 @@ int main() {
     gTcpServer = &server;
     spdlog::info("MQTT Broker started");
 
-    struct PerWebsocketClientData {
-        std::string topic;
-    };
 
-    uWS::App webApp;
 
     webApp
         .post(
@@ -132,11 +161,16 @@ int main() {
                             req->getHeader("sec-websocket-protocol"), req->getHeader("sec-websocket-extensions"), context);
                     },
                 .open =
-                    [](uWS::WebSocket<false, true, PerWebsocketClientData>* ws) {
+                    [&openWSFds](uWS::WebSocket<false, true, PerWebsocketClientData>* ws) {
                         auto userData = ws->getUserData();
                         spdlog::info("New WS subscription on: {}", userData->topic);
                         ws->subscribe(userData->topic);
-                    } })
+                        openWSFds.emplace(ws);
+                    },
+                .close =
+                    [&openWSFds](uWS::WebSocket<false, true, PerWebsocketClientData>* ws, int code, std::string_view message) {
+                        openWSFds.erase(ws);
+                    }})
         .put(
             "/scripts/:script_name",
             [&app](uWS::HttpResponse<false>* res, uWS::HttpRequest* req) {
@@ -214,12 +248,11 @@ int main() {
         uWS::Loop& mLoop;
     };
 
-    auto loop = uWS::Loop::get();
-    assert(loop);
     app.requestChange(
         ChangeRequestSubscribe{ std::make_shared<WSSubscriber>(webApp, *loop), "#", { "#" }, nioev::SubscriptionType::OMNI, QoS::QoS0 });
 
     webApp.run();
 
     server.join();
+    signalHandler.join();
 }
