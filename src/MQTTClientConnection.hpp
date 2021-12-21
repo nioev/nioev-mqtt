@@ -51,7 +51,6 @@ public:
         uint32_t packetLength = 0;
         uint32_t multiplier = 1;
         uint8_t firstByte = 0;
-        int64_t lastDataReceivedTimestamp = std::chrono::steady_clock::now().time_since_epoch().count();
     };
     std::pair<std::reference_wrapper<PacketReceiveData>, std::unique_lock<std::mutex>> getRecvData() {
         std::unique_lock<std::mutex> lock{mRecvMutex};
@@ -119,6 +118,12 @@ public:
     auto makeShared() {
         return shared_from_this();
     }
+    int64_t getLastDataRecvTimestamp() const {
+        return mLastDataReceivedTimestamp;
+    }
+    void setLastDataRecvTimestamp(int64_t newTimestamp) {
+        mLastDataReceivedTimestamp = newTimestamp;
+    }
 
     void sendData(std::vector<uint8_t>&& bytes) {
         try {
@@ -184,6 +189,7 @@ private:
 
     std::atomic<bool> mShouldBeDisconnected = false;
     std::string mClientId;
+    std::atomic<int64_t> mLastDataReceivedTimestamp = std::chrono::steady_clock::now().time_since_epoch().count();
 };
 
 }

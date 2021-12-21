@@ -122,8 +122,7 @@ void ApplicationState::operator()(ChangeRequestCleanup&& req) {
 void ApplicationState::cleanup() {
     std::unique_lock<std::shared_mutex> lock{mMutex};
     for(auto it = mClients.begin(); it != mClients.end(); ++it) {
-        auto[recvData, recvDataLock] = (*it)->getRecvData();
-        if(recvData.get().lastDataReceivedTimestamp + (int64_t)it->get()->getKeepAliveIntervalSeconds() * 2'000'000'000 <= std::chrono::steady_clock::now().time_since_epoch().count()) {
+        if(it->get()->getLastDataRecvTimestamp() + (int64_t)it->get()->getKeepAliveIntervalSeconds() * 2'000'000'000 <= std::chrono::steady_clock::now().time_since_epoch().count()) {
             // timeout
             logoutClient(*it->get());
         }

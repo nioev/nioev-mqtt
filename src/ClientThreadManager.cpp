@@ -106,7 +106,7 @@ void ClientThreadManager::receiverThreadFunction() {
                         spdlog::debug("Bytes read: {}", bytesReceived);
                         auto& recvData = recvDataRef.get();
                         if(bytesReceived > 0) {
-                            recvData.lastDataReceivedTimestamp = std::chrono::steady_clock::now().time_since_epoch().count();
+                            client.setLastDataRecvTimestamp(std::chrono::steady_clock::now().time_since_epoch().count());
                         }
                         for(uint i = 0; i < bytesReceived;) {
                             switch(recvData.recvState) {
