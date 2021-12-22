@@ -42,6 +42,8 @@ void ClientThreadManager::receiverThreadFunction() {
     };
     sigset_t blockedSignalsDuringEpoll = { 0 };
     sigemptyset(&blockedSignalsDuringEpoll);
+    sigaddset(&blockedSignalsDuringEpoll, SIGINT);
+    sigaddset(&blockedSignalsDuringEpoll, SIGTERM);
     std::vector<uint8_t> bytes;
     bytes.resize(64 * 1024 * 4);
     while(!mShouldQuit) {
