@@ -227,9 +227,6 @@ void ApplicationState::operator()(ChangeRequestAddScript&& req) {
     auto script = mScripts.emplace(req.name, req.constructor());
     script.first->second->init(std::move(req.statusOutput));
 }
-void ApplicationState::operator()(ChangeRequestPublish&& req) {
-    publishInternal(std::move(req.topic), std::move(req.payload), req.qos, req.retain);
-}
 void ApplicationState::deleteScript(std::unordered_map<std::string, std::shared_ptr<ScriptContainer>>::iterator it) {
     if(it == mScripts.end())
         return;
@@ -269,12 +266,6 @@ void ApplicationState::logoutClient(MQTTClientConnection& client) {
     client.notifyLoggedOut();
 }
 void ApplicationState::publish(std::string&& topic, std::vector<uint8_t>&& msg, std::optional<QoS> qos, Retain retain) {
-#ifndef NDEBUG
-    if(topic != LOG_TOPIC) {
-        std::string dataAsStr{msg.begin(), msg.end()};
-        spdlog::info("Publishing on '{}' data '{}'", topic, dataAsStr);
-    }
-#endif
     std::shared_lock<std::shared_mutex> lock{ mMutex };
     publishNoLockNoRetain(topic, msg, qos, retain);
     lock.unlock();
@@ -284,12 +275,7 @@ void ApplicationState::publish(std::string&& topic, std::vector<uint8_t>&& msg, 
     }
 }
 void ApplicationState::publishInternal(std::string&& topic, std::vector<uint8_t>&& msg, std::optional<QoS> qos, Retain retain) {
-#ifndef NDEBUG
-    if(topic != LOG_TOPIC) {
-        std::string dataAsStr{msg.begin(), msg.end()};
-        spdlog::info("Publishing on '{}' data '{}'", topic, dataAsStr);
-    }
-#endif
+
     publishNoLockNoRetain(topic, msg, qos, retain);
     if(retain == Retain::Yes) {
         requestChange(ChangeRequestRetain{std::move(topic), std::move(msg)});
@@ -297,6 +283,12 @@ void ApplicationState::publishInternal(std::string&& topic, std::vector<uint8_t>
 }
 void ApplicationState::publishNoLockNoRetain(const std::string& topic, const std::vector<uint8_t>& msg, std::optional<QoS> qos, Retain retain) {
     // NOTE: It's possible that we only have a read-only lock here, so we aren't allowed to call requestChange, which means we can't log anything here!
+    #ifndef NDEBUG
+        if(topic != LOG_TOPIC) {
+            std::string dataAsStr{msg.begin(), msg.end()};
+            spdlog::info("Publishing on '{}' data '{}'", topic, dataAsStr);
+        }
+    #endif
     // first check for publish to $NIOEV
     if(util::startsWith(topic, "$NIOEV")) {
         //performSystemAction(topic, msg);

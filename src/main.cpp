@@ -36,7 +36,7 @@ protected:
         spdlog::sinks::base_sink<spdlog::details::null_mutex>::formatter_->format(msg, formatted);
         assert(formatted.size() > 0);
         std::vector<uint8_t> formattedBuffer((uint8_t*)formatted.begin(), (uint8_t*)formatted.end() - 1);
-        mApp.requestChange(ChangeRequestPublish{ LOG_TOPIC, std::move(formattedBuffer), QoS::QoS0, Retain::No });
+        mApp.publishAsync(AsyncPublishData{ LOG_TOPIC, std::move(formattedBuffer), QoS::QoS0, Retain::No });
     }
 
     void flush_() override {
@@ -248,6 +248,7 @@ int main() {
         uWS::Loop& mLoop;
     };
 
+    // TODO this subscription takes about 30% of our processing time! -> Remove!
     app.requestChange(
         ChangeRequestSubscribe{ std::make_shared<WSSubscriber>(webApp, *loop), "#", { "#" }, nioev::SubscriptionType::OMNI, QoS::QoS0 });
 

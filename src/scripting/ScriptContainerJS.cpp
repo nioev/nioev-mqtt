@@ -320,7 +320,7 @@ void ScriptContainerJS::handleScriptActions(const JSValue& actions, ScriptStatus
                 status.error(mName, "Missing either payloadStr or payloadBytes");
                 return;
             }
-            mApp.requestChange(ChangeRequestPublish{std::move(*topic), std::move(*payload), qos, retain});
+            mApp.publishAsync(AsyncPublishData{std::move(*topic), std::move(*payload), qos, retain});
 
         } else if(actionType == "subscribe") {
             auto topic = getJSStringProperty(action, "topic");

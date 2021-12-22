@@ -12,6 +12,7 @@
 #include <condition_variable>
 #include "TcpClientHandlerInterface.hpp"
 #include "Timers.hpp"
+#include "AsyncPublisher.hpp"
 #include "scripting/ScriptContainer.hpp"
 
 namespace nioev {
@@ -64,14 +65,7 @@ struct ChangeRequestAddScript {
     ScriptStatusOutput statusOutput;
 };
 
-struct ChangeRequestPublish {
-    std::string topic;
-    std::vector<uint8_t> payload;
-    QoS qos;
-    Retain retain;
-};
-
-using ChangeRequest = std::variant<ChangeRequestSubscribe, ChangeRequestUnsubscribe, ChangeRequestRetain, ChangeRequestDisconnectClient, ChangeRequestLoginClient, ChangeRequestAddScript, ChangeRequestPublish>;
+using ChangeRequest = std::variant<ChangeRequestSubscribe, ChangeRequestUnsubscribe, ChangeRequestRetain, ChangeRequestDisconnectClient, ChangeRequestLoginClient, ChangeRequestAddScript>;
 
 struct PersistentClientState {
     static_assert(std::is_same_v<decltype(std::chrono::steady_clock::time_point{}.time_since_epoch().count()), int64_t>);
@@ -96,9 +90,6 @@ public:
     : std::unique_lock<T>(lock), mTid(tid) {
         tid = std::this_thread::get_id();
     }
-    ~UniqueLockWithAtomicTidUpdate() {
-
-    }
 };
 
 class ApplicationState : public TcpClientHandlerInterface {
@@ -119,9 +110,22 @@ public:
     void operator()(ChangeRequestLoginClient&& req);
     void operator()(ChangeRequestDisconnectClient&& req);
     void operator()(ChangeRequestAddScript&& req);
-    void operator()(ChangeRequestPublish&& req);
 
     void publish(std::string&& topic, std::vector<uint8_t>&& msg, std::optional<QoS> qos, Retain retain);
+    // The one-stop solution for all your async publishing needs! Need to publish something but you are actually called by publish itself, which
+    // would cause deadlocks or stack overflows? Don't worry! Just call publishAsync and be certain that another thread will handle this problem for you!
+    // This will probably even increase performance in case there are many subscribers and you are really busy yourself, because this will free up processing
+    // time for you.
+    // Serious note: Publishing doesn't change the application state, so there is no need to cram it into a ChangeRequest (which was actually how it
+    // previously worked). This architecture caused problems because it meant that you had be really cautious when you log, because logging something
+    // needs to publish data, which meant calling requestChange, but you aren't allowed to call requestChange while holding mMutex read-only, because
+    // then we can't add stuff to mQueue, because that could cause deadlocks etc. This new architecture allows you to log at anytime anywhere (except
+    // in publishAsync itself), though be aware that infinite loops are still possible if every logged message causes another message to be logged, which
+    // causes another message to be logged etc. etc.
+    void publishAsync(AsyncPublishData&& data) {
+        mAsyncPublisher.publishAsync(std::move(data));
+    }
+
     void handleNewClientConnection(TcpClientConnection&&) override;
 
     struct ScriptsInfo {
@@ -237,6 +241,9 @@ private:
 
     Timers mTimers;
     std::unordered_map<std::string, std::shared_ptr<ScriptContainer>> mScripts;
+
+
+    AsyncPublisher mAsyncPublisher;
 
     // needs to initialized last because it starts a thread which calls us
     ClientThreadManager mClientManager;
