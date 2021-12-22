@@ -157,9 +157,6 @@ void ApplicationState::cleanup() {
     }
     mClientManager.resumeAllThreads();
 }
-void ApplicationState::operator()(ChangeRequestDisconnectClient&& req) {
-    logoutClient(*req.client);
-}
 void ApplicationState::operator()(ChangeRequestLoginClient&& req) {
     constexpr char AVAILABLE_RANDOM_CHARS[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890";
 
@@ -232,6 +229,9 @@ void ApplicationState::operator()(ChangeRequestLoginClient&& req) {
 
     req.client->sendData(response.moveData());
     req.client->setState(MQTTClientConnection::ConnectionState::CONNECTED);
+}
+void ApplicationState::operator()(ChangeRequestLogoutClient&& req) {
+    logoutClient(*req.client);
 }
 void ApplicationState::operator()(ChangeRequestAddScript&& req) {
     auto existingScript = mScripts.find(req.name);
@@ -328,7 +328,7 @@ void ApplicationState::publishNoLockNoRetain(const std::string& topic, const std
 void ApplicationState::handleNewClientConnection(TcpClientConnection&& conn) {
     UniqueLockWithAtomicTidUpdate<std::shared_mutex> lock{mMutex, mCurrentRWHolderOfMMutex};
     spdlog::info("New connection from [{}:{}]", conn.getRemoteIp(), conn.getRemotePort());
-    auto newClient = mClients.emplace_back(std::make_shared<MQTTClientConnection>(std::move(conn)));
+    auto newClient = mClients.emplace_back(std::make_shared<MQTTClientConnection>(*this, std::move(conn)));
     mClientManager.addClientConnection(*newClient);
 }
 void ApplicationState::deleteAllSubscriptions(Subscriber& sub) {

@@ -179,10 +179,10 @@ void ClientThreadManager::receiverThreadFunction() {
                     } while(bytesReceived > 0);
                 }
             } catch(CleanDisconnectException&) {
-                mApp.requestChange(ChangeRequestDisconnectClient{client.makeShared()});
+                mApp.requestChange(ChangeRequestLogoutClient{client.makeShared()});
             } catch(std::exception& e) {
                 spdlog::error("Caught: {}", e.what());
-                mApp.requestChange(ChangeRequestDisconnectClient{client.makeShared()});
+                mApp.requestChange(ChangeRequestLogoutClient{client.makeShared()});
             }
         }
     }

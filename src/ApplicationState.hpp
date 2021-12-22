@@ -55,8 +55,7 @@ struct ChangeRequestLoginClient {
     std::string clientId;
     CleanSession cleanSession;
 };
-
-struct ChangeRequestDisconnectClient {
+struct ChangeRequestLogoutClient {
     std::shared_ptr<MQTTClientConnection> client;
 };
 
@@ -66,7 +65,7 @@ struct ChangeRequestAddScript {
     ScriptStatusOutput statusOutput;
 };
 
-using ChangeRequest = std::variant<ChangeRequestSubscribe, ChangeRequestUnsubscribe, ChangeRequestRetain, ChangeRequestDisconnectClient, ChangeRequestLoginClient, ChangeRequestAddScript>;
+using ChangeRequest = std::variant<ChangeRequestSubscribe, ChangeRequestUnsubscribe, ChangeRequestRetain, ChangeRequestLoginClient, ChangeRequestAddScript, ChangeRequestLogoutClient>;
 
 struct PersistentClientState {
     static_assert(std::is_same_v<decltype(std::chrono::steady_clock::time_point{}.time_since_epoch().count()), int64_t>);
@@ -109,7 +108,7 @@ public:
     void operator()(ChangeRequestUnsubscribe&& req);
     void operator()(ChangeRequestRetain&& req);
     void operator()(ChangeRequestLoginClient&& req);
-    void operator()(ChangeRequestDisconnectClient&& req);
+    void operator()(ChangeRequestLogoutClient&& req);
     void operator()(ChangeRequestAddScript&& req);
 
     void publish(std::string&& topic, std::vector<uint8_t>&& msg, std::optional<QoS> qos, Retain retain);
