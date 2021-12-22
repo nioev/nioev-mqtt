@@ -10,6 +10,9 @@ ApplicationState::ApplicationState()
     mTimers.addPeriodicTask(std::chrono::seconds(2), [this] () mutable {
         cleanup();
     });
+    mTimers.addPeriodicTask(std::chrono::hours(1), [this] () mutable {
+        syncRetainedMessagesToDb();
+    });
     // initialize db
     mDb.exec("CREATE TABLE IF NOT EXISTS script (name TEXT UNIQUE PRIMARY KEY NOT NULL, code TEXT NOT NULL, persistent_state TEXT);");
     mDb.exec("CREATE TABLE IF NOT EXISTS retained_msg (topic TEXT UNIQUE PRIMARY KEY NOT NULL, payload BLOB NOT NULL, timestamp TIMESTAMP NOT NULL);");
