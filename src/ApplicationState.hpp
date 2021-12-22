@@ -54,11 +54,6 @@ struct ChangeRequestLoginClient {
     CleanSession cleanSession;
 };
 
-
-struct ChangeRequestCleanup {
-
-};
-
 struct ChangeRequestDisconnectClient {
     std::shared_ptr<MQTTClientConnection> client;
 };
@@ -76,7 +71,7 @@ struct ChangeRequestPublish {
     Retain retain;
 };
 
-using ChangeRequest = std::variant<ChangeRequestSubscribe, ChangeRequestUnsubscribe, ChangeRequestRetain, ChangeRequestCleanup, ChangeRequestDisconnectClient, ChangeRequestLoginClient, ChangeRequestAddScript, ChangeRequestPublish>;
+using ChangeRequest = std::variant<ChangeRequestSubscribe, ChangeRequestUnsubscribe, ChangeRequestRetain, ChangeRequestDisconnectClient, ChangeRequestLoginClient, ChangeRequestAddScript, ChangeRequestPublish>;
 
 struct PersistentClientState {
     static_assert(std::is_same_v<decltype(std::chrono::steady_clock::time_point{}.time_since_epoch().count()), int64_t>);
@@ -91,6 +86,19 @@ struct PersistentClientState {
         QoS qos;
     };
     std::vector<PersistentSubscription> subscriptions;
+};
+
+template<typename T>
+class UniqueLockWithAtomicTidUpdate : public std::unique_lock<T> {
+    std::atomic<std::thread::id>& mTid;
+public:
+    UniqueLockWithAtomicTidUpdate(T& lock, std::atomic<std::thread::id>& tid)
+    : std::unique_lock<T>(lock), mTid(tid) {
+        tid = std::this_thread::get_id();
+    }
+    ~UniqueLockWithAtomicTidUpdate() {
+
+    }
 };
 
 class ApplicationState : public TcpClientHandlerInterface {
@@ -108,7 +116,6 @@ public:
     void operator()(ChangeRequestSubscribe&& req);
     void operator()(ChangeRequestUnsubscribe&& req);
     void operator()(ChangeRequestRetain&& req);
-    void operator()(ChangeRequestCleanup&& req);
     void operator()(ChangeRequestLoginClient&& req);
     void operator()(ChangeRequestDisconnectClient&& req);
     void operator()(ChangeRequestAddScript&& req);
@@ -138,7 +145,7 @@ public:
             originalError(scriptName, error);
             onError(scriptName, error);
         };
-        requestChange(ChangeRequestAddScript{name, std::move(lambda), std::move(statusOutput)});
+        requestChange(ChangeRequestAddScript{std::move(name), std::move(lambda), std::move(statusOutput)});
     }
 private:
     struct Subscription {
@@ -152,7 +159,10 @@ private:
         }
     };
 
-    void publishWithoutAcquiringMutex(std::string&& topic, std::vector<uint8_t>&& msg, std::optional<QoS> qos, Retain retain);
+    // basically the same as publish but without acquiring a read-only lock
+    void publishInternal(std::string&& topic, std::vector<uint8_t>&& msg, std::optional<QoS> qos, Retain retain);
+
+    void publishNoLockNoRetain(const std::string& topic, const std::vector<uint8_t>& msg, std::optional<QoS> qos, Retain retain);
     void executeChangeRequest(ChangeRequest&&);
     void workerThreadFunc();
 
@@ -208,8 +218,10 @@ private:
     std::list<std::shared_ptr<MQTTClientConnection>> mClients;
 
     std::shared_mutex mMutex;
+    std::atomic<std::thread::id> mCurrentRWHolderOfMMutex;
+
     std::queue<ChangeRequest> mQueueInternal;
-    atomic_queue::AtomicQueue2<ChangeRequest, 1024> mQueue;
+    atomic_queue::AtomicQueue2<ChangeRequest, 2048> mQueue;
     std::unordered_multimap<std::string, Subscription> mSimpleSubscriptions;
     std::vector<Subscription> mWildcardSubscriptions;
     std::vector<Subscription> mOmniSubscriptions;

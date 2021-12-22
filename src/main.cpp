@@ -1,4 +1,5 @@
 #include "spdlog/sinks/base_sink.h"
+#include "spdlog/details/null_mutex.h"
 #include "spdlog/spdlog.h"
 
 #include "ApplicationState.hpp"
@@ -23,7 +24,7 @@ std::atomic<struct us_listen_socket_t*> gListenSocket = nullptr;
 constexpr const char* LOG_PATTERN = "[%Y-%m-%d %H:%M:%S.%e] %^[%-7l]%$ [%-15N] %v";
 
 
-class LogSink : public spdlog::sinks::base_sink<std::mutex> {
+class LogSink : public spdlog::sinks::base_sink<spdlog::details::null_mutex> {
 public:
     LogSink(ApplicationState& app) : mApp(app) {
         set_pattern_(LOG_PATTERN);
@@ -32,14 +33,13 @@ public:
 protected:
     void sink_it_(const spdlog::details::log_msg& msg) override {
         spdlog::memory_buf_t formatted;
-        spdlog::sinks::base_sink<std::mutex>::formatter_->format(msg, formatted);
+        spdlog::sinks::base_sink<spdlog::details::null_mutex>::formatter_->format(msg, formatted);
         assert(formatted.size() > 0);
         std::vector<uint8_t> formattedBuffer((uint8_t*)formatted.begin(), (uint8_t*)formatted.end() - 1);
         mApp.requestChange(ChangeRequestPublish{ LOG_TOPIC, std::move(formattedBuffer), QoS::QoS0, Retain::No });
     }
 
     void flush_() override {
-        std::cout << std::flush;
     }
     ApplicationState& mApp;
 };

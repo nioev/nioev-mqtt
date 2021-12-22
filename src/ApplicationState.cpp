@@ -17,10 +17,10 @@ ApplicationState::~ApplicationState() {
 void ApplicationState::workerThreadFunc() {
     pthread_setname_np(pthread_self(), "app-state");
     auto processInternalQueue = [this] {
-        std::unique_lock<std::shared_mutex> lock{mMutex};
+        UniqueLockWithAtomicTidUpdate<std::shared_mutex> lock{mMutex, mCurrentRWHolderOfMMutex};
         while(!mQueueInternal.empty()) {
             // don't call executeChangeRequest because that function acquires a lock
-            std::visit(*this, std::move(std::move(mQueueInternal.front())));
+            std::visit(*this, std::move(mQueueInternal.front()));
             mQueueInternal.pop();
         }
     };
@@ -35,20 +35,26 @@ void ApplicationState::workerThreadFunc() {
 }
 
 void ApplicationState::requestChange(ChangeRequest&& changeRequest, ApplicationState::RequestChangeMode mode) {
-    if(mode == RequestChangeMode::SYNC_WHEN_IDLE) {
+    if(mode == RequestChangeMode::SYNC_WHEN_IDLE || mode == RequestChangeMode::SYNC) {
         executeChangeRequest(std::move(changeRequest));
     } else if(mode == RequestChangeMode::ASYNC) {
-        mQueue.push(std::move(changeRequest));
-    } else if(mode == RequestChangeMode::SYNC) {
-        // TODO smarter algorithm here
-        executeChangeRequest(std::move(changeRequest));
+        /* Because of it's finite size, we can only use the lockless queue if we don't hold the mutex currently; if we push an element
+         * while holding the mutex we might hang indefinitly as the worker thread is unable to execute entries from the queue.
+         * Note that this also means that we can't hold a read-only version of mMutex, so be cautious when calling requestChange!
+         */
+        if(mCurrentRWHolderOfMMutex == std::this_thread::get_id()) {
+            mQueueInternal.emplace(std::move(changeRequest));
+        } else {
+            mQueue.push(std::move(changeRequest));
+        }
+
     } else {
         assert(false);
     }
 }
 
 void ApplicationState::executeChangeRequest(ChangeRequest&& changeRequest) {
-    std::unique_lock<std::shared_mutex> lock{mMutex};
+    UniqueLockWithAtomicTidUpdate<std::shared_mutex> lock{mMutex, mCurrentRWHolderOfMMutex};
     std::visit(*this, std::move(changeRequest));
 }
 void ApplicationState::operator()(ChangeRequestSubscribe&& req) {
@@ -116,11 +122,8 @@ void ApplicationState::operator()(ChangeRequestUnsubscribe&& req) {
 void ApplicationState::operator()(ChangeRequestRetain&& req) {
     mRetainedMessages.emplace(std::move(req.topic), RetainedMessage{std::move(req.payload)});
 }
-void ApplicationState::operator()(ChangeRequestCleanup&& req) {
-    cleanup();
-}
 void ApplicationState::cleanup() {
-    std::unique_lock<std::shared_mutex> lock{mMutex};
+    UniqueLockWithAtomicTidUpdate<std::shared_mutex> lock{mMutex, mCurrentRWHolderOfMMutex};
     for(auto it = mClients.begin(); it != mClients.end(); ++it) {
         if(it->get()->getLastDataRecvTimestamp() + (int64_t)it->get()->getKeepAliveIntervalSeconds() * 2'000'000'000 <= std::chrono::steady_clock::now().time_since_epoch().count()) {
             // timeout
@@ -194,7 +197,7 @@ void ApplicationState::operator()(ChangeRequestLoginClient&& req) {
             existingSession->second.cleanSession = req.cleanSession;
             req.client->setPersistentState(&existingSession->second);
             for(auto& sub: existingSession->second.subscriptions) {
-                mQueueInternal.emplace(ChangeRequestSubscribe{req.client, sub.topic, util::splitTopics(sub.topic), util::hasWildcard(sub.topic) ? SubscriptionType::WILDCARD : SubscriptionType::SIMPLE, sub.qos});
+                requestChange(ChangeRequestSubscribe{req.client, sub.topic, util::splitTopics(sub.topic), util::hasWildcard(sub.topic) ? SubscriptionType::WILDCARD : SubscriptionType::SIMPLE, sub.qos});
             }
         }
     } else {
@@ -225,7 +228,7 @@ void ApplicationState::operator()(ChangeRequestAddScript&& req) {
     script.first->second->init(std::move(req.statusOutput));
 }
 void ApplicationState::operator()(ChangeRequestPublish&& req) {
-    publishWithoutAcquiringMutex(std::move(req.topic), std::move(req.payload), req.qos, req.retain);
+    publishInternal(std::move(req.topic), std::move(req.payload), req.qos, req.retain);
 }
 void ApplicationState::deleteScript(std::unordered_map<std::string, std::shared_ptr<ScriptContainer>>::iterator it) {
     if(it == mScripts.end())
@@ -242,7 +245,7 @@ void ApplicationState::logoutClient(MQTTClientConnection& client) {
         // perform will
         auto willMsg = client.moveWill();
         if(willMsg) {
-            publishWithoutAcquiringMutex(std::move(willMsg->topic), std::move(willMsg->msg), willMsg->qos, willMsg->retain);
+            publishInternal(std::move(willMsg->topic), std::move(willMsg->msg), willMsg->qos, willMsg->retain);
         }
     }
     deleteAllSubscriptions(client);
@@ -266,22 +269,39 @@ void ApplicationState::logoutClient(MQTTClientConnection& client) {
     client.notifyLoggedOut();
 }
 void ApplicationState::publish(std::string&& topic, std::vector<uint8_t>&& msg, std::optional<QoS> qos, Retain retain) {
-    std::shared_lock<std::shared_mutex> lock{ mMutex };
-    publishWithoutAcquiringMutex(std::move(topic), std::move(msg), qos, retain);
-}
-void ApplicationState::publishWithoutAcquiringMutex(std::string&& topic, std::vector<uint8_t>&& msg, std::optional<QoS> qos, Retain retain) {
 #ifndef NDEBUG
     if(topic != LOG_TOPIC) {
         std::string dataAsStr{msg.begin(), msg.end()};
         spdlog::info("Publishing on '{}' data '{}'", topic, dataAsStr);
     }
 #endif
+    std::shared_lock<std::shared_mutex> lock{ mMutex };
+    publishNoLockNoRetain(topic, msg, qos, retain);
+    lock.unlock();
+    if(retain == Retain::Yes) {
+        // we aren't allowed to call requestChange from another thread while holding a lock, so we need to do it here
+        requestChange(ChangeRequestRetain{std::move(topic), std::move(msg)});
+    }
+}
+void ApplicationState::publishInternal(std::string&& topic, std::vector<uint8_t>&& msg, std::optional<QoS> qos, Retain retain) {
+#ifndef NDEBUG
+    if(topic != LOG_TOPIC) {
+        std::string dataAsStr{msg.begin(), msg.end()};
+        spdlog::info("Publishing on '{}' data '{}'", topic, dataAsStr);
+    }
+#endif
+    publishNoLockNoRetain(topic, msg, qos, retain);
+    if(retain == Retain::Yes) {
+        requestChange(ChangeRequestRetain{std::move(topic), std::move(msg)});
+    }
+}
+void ApplicationState::publishNoLockNoRetain(const std::string& topic, const std::vector<uint8_t>& msg, std::optional<QoS> qos, Retain retain) {
+    // NOTE: It's possible that we only have a read-only lock here, so we aren't allowed to call requestChange, which means we can't log anything here!
     // first check for publish to $NIOEV
     if(util::startsWith(topic, "$NIOEV")) {
         //performSystemAction(topic, msg);
     }
     // second run scripts
-    // TODO optimize forEachSubscriberThatIsOfT so that it skips other subscriptions automatically, avoiding unnecessary work checking for all matches
     auto action = SyncAction::Continue;
     forEachSubscriberThatIsOfT<ScriptContainer>(topic, [&topic, &msg, &action](Subscription& sub) {
         sub.subscriber->publish(topic, msg, *sub.qos, Retained::No);
@@ -297,12 +317,10 @@ void ApplicationState::publishWithoutAcquiringMutex(std::string&& topic, std::ve
     // this order is neccessary to allow the scripts to abort the message delivery to clients
     forEachSubscriberThatIsNotOfT<ScriptContainer>(
         topic, [&topic, &msg](Subscription& sub) { sub.subscriber->publish(topic, msg, *sub.qos, Retained::No); });
-    if(retain == Retain::Yes) {
-        mQueueInternal.emplace(ChangeRequestRetain{std::move(topic), std::move(msg)});
-    }
+
 }
 void ApplicationState::handleNewClientConnection(TcpClientConnection&& conn) {
-    std::lock_guard<std::shared_mutex> lock{mMutex};
+    UniqueLockWithAtomicTidUpdate<std::shared_mutex> lock{mMutex, mCurrentRWHolderOfMMutex};
     spdlog::info("New connection from [{}:{}]", conn.getRemoteIp(), conn.getRemotePort());
     auto newClient = mClients.emplace_back(std::make_shared<MQTTClientConnection>(std::move(conn)));
     mClientManager.addClientConnection(*newClient);
