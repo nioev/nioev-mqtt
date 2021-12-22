@@ -296,7 +296,7 @@ void ApplicationState::publishInternal(std::string&& topic, std::vector<uint8_t>
     }
 }
 void ApplicationState::publishNoLockNoRetain(const std::string& topic, const std::vector<uint8_t>& msg, std::optional<QoS> qos, Retain retain) {
-    // NOTE: It's possible that we only have a read-only lock here, so we aren't allowed to call requestChange, which means we can't log anything here!
+    // NOTE: It's possible that we only have a read-only lock here, so we aren't allowed to call requestChange
     #ifndef NDEBUG
         if(topic != LOG_TOPIC) {
             std::string dataAsStr{msg.begin(), msg.end()};
