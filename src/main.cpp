@@ -58,6 +58,11 @@ int main() {
     pthread_sigmask(SIG_BLOCK, &exitSignals, nullptr);
     signal(SIGUSR1, [](int) {});
 
+    spdlog::set_level(spdlog::level::info);
+    spdlog::set_pattern(LOG_PATTERN);
+    ApplicationState app;
+    spdlog::default_logger()->sinks().push_back(std::make_shared<LogSink>(app));
+
     uWS::App webApp;
     auto loop = uWS::Loop::get();
     assert(loop);
@@ -74,6 +79,8 @@ int main() {
                 gTcpServer.load()->requestStop();
                 gTcpServer = nullptr;
             }
+
+            app.syncRetainedMessagesToDb();
             /* uWebSockets (the web library we're using) is a bit weird in that it doesn't have an exit or close function, but instead just exits
              * it's main loop when all active connections are dead. To speed that process up, we just close all connections manually here. If there is
              * data still in transit, that's not our problem, network connection can drop at any point anyways.
@@ -93,16 +100,6 @@ int main() {
             });
         }
     };
-    spdlog::set_level(spdlog::level::info);
-    spdlog::set_pattern(LOG_PATTERN);
-    ApplicationState app;
-    spdlog::default_logger()->sinks().push_back(std::make_shared<LogSink>(app));
-
-    TcpServer server{ 1883, app };
-    gTcpServer = &server;
-    spdlog::info("MQTT Broker started");
-
-
 
     webApp
         .post(
@@ -247,6 +244,10 @@ int main() {
         uWS::App& mWebApp;
         uWS::Loop& mLoop;
     };
+
+    TcpServer server{ 1883, app };
+    gTcpServer = &server;
+    spdlog::info("MQTT Broker started");
 
     // TODO this subscription takes about 30% of our processing time! -> Remove!
     app.requestChange(

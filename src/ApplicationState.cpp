@@ -1,14 +1,21 @@
 #include <fstream>
 #include "ApplicationState.hpp"
 #include "scripting/ScriptContainer.hpp"
+#include "SQLiteCpp/Transaction.h"
 
 namespace nioev {
 
 ApplicationState::ApplicationState()
-: mClientManager(*this, 5), mWorkerThread([this]{workerThreadFunc();}) {
+: mClientManager(*this, 5), mWorkerThread([this]{workerThreadFunc();}), mAsyncPublisher(*this) {
     mTimers.addPeriodicTask(std::chrono::seconds(2), [this] () mutable {
         cleanup();
     });
+    // initialize db
+    mDb.exec("CREATE TABLE IF NOT EXISTS script (name TEXT UNIQUE PRIMARY KEY NOT NULL, code TEXT NOT NULL, persistent_state TEXT);");
+    mDb.exec("CREATE TABLE IF NOT EXISTS retained_msg (topic TEXT UNIQUE PRIMARY KEY NOT NULL, payload BLOB NOT NULL, timestamp TIMESTAMP NOT NULL);");
+    mDb.exec("PRAGMA journal_mode=WAL;");
+    mQueryInsertScript.emplace(mDb, "INSERT OR REPLACE INTO script (name, code) VALUES (?, ?)");
+    mQueryInsertRetainedMsg.emplace(mDb, "INSERT OR REPLACE INTO retained_msg (topic, payload, timestamp) VALUES (?, ?, CURRENT_TIMESTAMP)");
 }
 ApplicationState::~ApplicationState() {
     mShouldRun = false;
@@ -339,6 +346,18 @@ ApplicationState::ScriptsInfo ApplicationState::getScriptsInfo() {
         ret.scripts.emplace_back(std::move(scriptInfo));
     }
     return ret;
+}
+void ApplicationState::syncRetainedMessagesToDb() {
+    UniqueLockWithAtomicTidUpdate lock{mMutex, mCurrentRWHolderOfMMutex};
+    SQLite::Transaction transaction{mDb};
+    for(auto& msg: mRetainedMessages) {
+        mQueryInsertRetainedMsg->bindNoCopy(1, msg.first);
+        mQueryInsertRetainedMsg->bindNoCopy(2, msg.second.payload.data(), msg.second.payload.size());
+        mQueryInsertRetainedMsg->exec();
+        mQueryInsertRetainedMsg->clearBindings();
+        mQueryInsertRetainedMsg->reset();
+    }
+    transaction.commit();
 }
 }
 

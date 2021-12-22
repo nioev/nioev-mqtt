@@ -16,6 +16,8 @@ include_directories(thirdparty/atomic_queue/include)
 include_directories(thirdparty/rapidjson/include)
 add_subdirectory(thirdparty/uWebSockets-CMake)
 add_subdirectory(thirdparty/zstd/build/cmake)
+add_subdirectory(thirdparty/SQLiteCpp)
+
 
 add_executable(nioev
         src/main.cpp
@@ -36,6 +38,14 @@ add_executable(nioev
         src/scripting/ScriptContainerJS.hpp
         src/BigString.hpp
         src/BigVector.hpp
-        ${UWEBSOCKETS_FILES} src/Timers.cpp src/Timers.hpp src/scripting/ScriptCustomTCPServer.cpp src/scripting/ScriptCustomTCPServer.hpp src/scripting/ScriptContainerManager.cpp src/ApplicationState.cpp src/ApplicationState.hpp src/Subscriber.hpp)
+        ${UWEBSOCKETS_FILES} src/Timers.cpp src/Timers.hpp src/scripting/ScriptCustomTCPServer.cpp src/scripting/ScriptCustomTCPServer.hpp src/scripting/ScriptContainerManager.cpp src/ApplicationState.cpp src/ApplicationState.hpp src/Subscriber.hpp src/AsyncPublisher.cpp src/AsyncPublisher.hpp)
 
-target_link_libraries(nioev libzstd_static uWebSockets spdlog quickjs pthread dl)
+target_link_libraries(nioev
+        libzstd_static
+        uWebSockets
+        spdlog
+        quickjs
+        SQLiteCpp
+        sqlite3
+        pthread
+        dl dl)

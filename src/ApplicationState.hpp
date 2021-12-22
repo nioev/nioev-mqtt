@@ -14,6 +14,7 @@
 #include "Timers.hpp"
 #include "AsyncPublisher.hpp"
 #include "scripting/ScriptContainer.hpp"
+#include "SQLiteCpp/Database.h"
 
 namespace nioev {
 
@@ -137,10 +138,15 @@ public:
     };
     ScriptsInfo getScriptsInfo();
 
-    template<typename T, typename... Args>
-    void addScript(const std::string& name, std::function<void(const std::string& scriptName)>&& onSuccess, std::function<void(const std::string& scriptName, const std::string&)>&& onError, Args&&... args) {
-        auto lambda = [this, name, args = std::move(args...)] () mutable -> std::shared_ptr<ScriptContainer> {
-            return std::dynamic_pointer_cast<ScriptContainer>(std::make_shared<T>(*this, name, std::forward<Args>(args)...));
+    template<typename T>
+    void addScript(std::string name, std::function<void(const std::string& scriptName)>&& onSuccess, std::function<void(const std::string& scriptName, const std::string&)>&& onError, std::string code) {
+        mQueryInsertScript->bindNoCopy(1, name);
+        mQueryInsertScript->bindNoCopy(2, code);
+        mQueryInsertScript->exec();
+        mQueryInsertScript->reset();
+        mQueryInsertScript->clearBindings();
+        auto lambda = [this, name, code = std::move(code)] () mutable -> std::shared_ptr<ScriptContainer> {
+            return std::dynamic_pointer_cast<ScriptContainer>(std::make_shared<T>(*this, name, std::move(code)));
         };
         ScriptStatusOutput statusOutput;
         statusOutput.success = std::move(onSuccess);
@@ -151,6 +157,8 @@ public:
         };
         requestChange(ChangeRequestAddScript{std::move(name), std::move(lambda), std::move(statusOutput)});
     }
+
+    void syncRetainedMessagesToDb();
 private:
     struct Subscription {
         std::shared_ptr<Subscriber> subscriber;
@@ -242,6 +250,9 @@ private:
     Timers mTimers;
     std::unordered_map<std::string, std::shared_ptr<ScriptContainer>> mScripts;
 
+    SQLite::Database mDb{"nioev.db3", SQLite::OPEN_READWRITE|SQLite::OPEN_CREATE};
+    std::optional<SQLite::Statement> mQueryInsertScript;
+    std::optional<SQLite::Statement> mQueryInsertRetainedMsg;
 
     AsyncPublisher mAsyncPublisher;
 
