@@ -127,7 +127,11 @@ void ApplicationState::operator()(ChangeRequestUnsubscribe&& req) {
     }
 }
 void ApplicationState::operator()(ChangeRequestRetain&& req) {
-    mRetainedMessages.emplace(std::move(req.topic), RetainedMessage{std::move(req.payload)});
+    if(req.payload.empty()) {
+        mRetainedMessages.erase(req.topic);
+    } else {
+        mRetainedMessages.insert_or_assign(std::move(req.topic), RetainedMessage{std::move(req.payload)});
+    }
 }
 void ApplicationState::cleanup() {
     UniqueLockWithAtomicTidUpdate<std::shared_mutex> lock{mMutex, mCurrentRWHolderOfMMutex};
