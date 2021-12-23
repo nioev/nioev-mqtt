@@ -148,10 +148,22 @@ void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
     while(!mShouldAbort) {
         std::unique_lock<std::mutex> lock{mTasksMutex};
         while(mTasks.empty()) {
-           mTasksCV.wait(lock);
-           if(mShouldAbort) {
+            if(mIntervalData) {
+                auto sleepFor = mIntervalData->mIntervalTimeout - (std::chrono::steady_clock::now() - mIntervalData->mLastIntervalCall);
+                if(sleepFor.count() > 0) {
+                    if(mTasksCV.wait_for(lock, sleepFor) == std::cv_status::timeout) {
+                        continue;
+                    }
+                } else {
+                    mTasks.push(std::make_pair(ScriptRunArgsInterval{}, ScriptStatusOutput{}));
+                    mIntervalData->mLastIntervalCall = std::chrono::steady_clock::now();
+                }
+            } else {
+                mTasksCV.wait(lock);
+            }
+            if(mShouldAbort) {
                return;
-           }
+            }
         }
         auto[input, status] = std::move(mTasks.front());
         mTasks.pop();
@@ -220,6 +232,12 @@ void ScriptContainerJS::performRun(const ScriptInputArgs& input, ScriptStatusOut
         auto& cppParams = std::get<3>(input);
         JS_SetPropertyStr(mJSContext, paramObj, "type", JS_NewString(mJSContext, "tcp_delete_client"));
         JS_SetPropertyStr(mJSContext, paramObj, "fd", JS_NewInt32(mJSContext, cppParams.fd));
+        break;
+    }
+    case 4: {
+        // interval
+        auto& cppParams = std::get<4>(input);
+        JS_SetPropertyStr(mJSContext, paramObj, "type", JS_NewString(mJSContext, "interval"));
         break;
     }
     default:
@@ -337,6 +355,18 @@ void ScriptContainerJS::handleScriptActions(const JSValue& actions, ScriptStatus
                 return;
             }
             mApp.requestChange(ChangeRequestUnsubscribe{makeShared(), *topic});
+
+        } else if(actionType == "start_interval") {
+            auto timeout = getJSIntProperty(action, "timeout_ms");
+            if(!timeout) {
+                status.error(mName, "timeout_ms field is missing");
+                return;
+            }
+            if(*timeout <= 0) {
+                status.error(mName, "timeout_ms must be >= 0");
+            }
+            mIntervalData.emplace(IntervalData{});
+            mIntervalData->mIntervalTimeout = std::chrono::milliseconds(*timeout);
 
         } else if(actionType == "tcp_listen") {
             auto identifier = getJSStringProperty(action, "identifier");

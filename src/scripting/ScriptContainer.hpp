@@ -42,7 +42,11 @@ struct ScriptRunArgsTcpDeleteClient {
     int fd;
 };
 
-using ScriptInputArgs = std::variant<ScriptRunArgsMqttMessage, ScriptRunArgsTcpNewClient, ScriptRunArgsTcpNewDataFromClient, ScriptRunArgsTcpDeleteClient>;
+struct ScriptRunArgsInterval {
+
+};
+
+using ScriptInputArgs = std::variant<ScriptRunArgsMqttMessage, ScriptRunArgsTcpNewClient, ScriptRunArgsTcpNewDataFromClient, ScriptRunArgsTcpDeleteClient, ScriptRunArgsInterval>;
 
 enum class SyncAction {
     Continue,

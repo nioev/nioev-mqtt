@@ -37,6 +37,12 @@ private:
     std::condition_variable mTasksCV;
     std::queue<std::pair<ScriptInputArgs, ScriptStatusOutput>> mTasks;
     std::string mInitFailureMessage; // protected by tasks mutex
+
+    struct IntervalData {
+        std::chrono::steady_clock::time_point mLastIntervalCall{std::chrono::steady_clock::now()};
+        std::chrono::milliseconds mIntervalTimeout{0};
+    };
+    std::optional<IntervalData> mIntervalData;
 };
 
 }
