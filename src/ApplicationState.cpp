@@ -18,7 +18,7 @@ ApplicationState::ApplicationState()
     mDb.exec("CREATE TABLE IF NOT EXISTS retained_msg (topic TEXT UNIQUE PRIMARY KEY NOT NULL, payload BLOB NOT NULL, timestamp TIMESTAMP NOT NULL);");
     mDb.exec("PRAGMA journal_mode=WAL;");
     mQueryInsertScript.emplace(mDb, "INSERT OR REPLACE INTO script (name, code) VALUES (?, ?)");
-    mQueryInsertRetainedMsg.emplace(mDb, "INSERT OR REPLACE INTO retained_msg (topic, payload, timestamp) VALUES (?, ?, CURRENT_TIMESTAMP)");
+    mQueryInsertRetainedMsg.emplace(mDb, "INSERT INTO retained_msg (topic, payload, timestamp) VALUES (?, ?, ?)");
 }
 ApplicationState::~ApplicationState() {
     mShouldRun = false;
@@ -133,7 +133,7 @@ void ApplicationState::operator()(ChangeRequestRetain&& req) {
     if(req.payload.empty()) {
         mRetainedMessages.erase(req.topic);
     } else {
-        mRetainedMessages.insert_or_assign(std::move(req.topic), RetainedMessage{std::move(req.payload)});
+        mRetainedMessages.insert_or_assign(std::move(req.topic), RetainedMessage{std::move(req.payload), time(nullptr)});
     }
 }
 void ApplicationState::cleanup() {
@@ -357,14 +357,23 @@ ApplicationState::ScriptsInfo ApplicationState::getScriptsInfo() {
 void ApplicationState::syncRetainedMessagesToDb() {
     UniqueLockWithAtomicTidUpdate lock{mMutex, mCurrentRWHolderOfMMutex};
     SQLite::Transaction transaction{mDb};
+    mDb.exec("DELETE FROM retained_msg");
     for(auto& msg: mRetainedMessages) {
         mQueryInsertRetainedMsg->bindNoCopy(1, msg.first);
         mQueryInsertRetainedMsg->bindNoCopy(2, msg.second.payload.data(), msg.second.payload.size());
+        struct tm res;
+        gmtime_r(&msg.second.timestamp, &res);
+        std::stringstream timestampAsStr;
+        timestampAsStr << std::put_time(&res, "%Y-%m-%d %H-%M-%S.000");
+        mQueryInsertRetainedMsg->bind(3, timestampAsStr.str());
+
         mQueryInsertRetainedMsg->exec();
         mQueryInsertRetainedMsg->clearBindings();
         mQueryInsertRetainedMsg->reset();
     }
     transaction.commit();
+    mDb.exec("VACUUM");
+    spdlog::info("Synced retained messages to db");
 }
 }
 

@@ -239,6 +239,7 @@ private:
 
     struct RetainedMessage {
         std::vector<uint8_t> payload;
+        std::time_t timestamp;
     };
     std::unordered_map<std::string, RetainedMessage> mRetainedMessages;
     std::unordered_map<std::string, PersistentClientState> mPersistentClientStates;
