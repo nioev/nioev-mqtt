@@ -80,7 +80,6 @@ int main() {
                 gTcpServer = nullptr;
             }
 
-            app.syncRetainedMessagesToDb();
             /* uWebSockets (the web library we're using) is a bit weird in that it doesn't have an exit or close function, but instead just exits
              * it's main loop when all active connections are dead. To speed that process up, we just close all connections manually here. If there is
              * data still in transit, that's not our problem, network connection can drop at any point anyways.

@@ -25,10 +25,22 @@ ApplicationState::ApplicationState()
     while(scriptQuery.executeStep()) {
         mQueueInternal.emplace(ChangeRequestAddScript{scriptQuery.getColumn(0), scriptQuery.getColumn(1)});
     }
+    // fetch retained messages
+    SQLite::Statement retainedMsgQuery(mDb, "SELECT topic,payload,timestamp FROM retained_msg");
+    while(retainedMsgQuery.executeStep()) {
+        auto payloadColumn = retainedMsgQuery.getColumn(1);
+        std::vector<uint8_t> payload{(uint8_t*)payloadColumn.getBlob(), (uint8_t*)payloadColumn.getBlob() + payloadColumn.getBytes()};
+
+        std::stringstream timestampStr{retainedMsgQuery.getColumn(2).getString()};
+        struct tm timestamp = { 0 };
+        timestampStr >> std::get_time(&timestamp, "%Y-%m-%d %H-%M-%S");
+        mRetainedMessages.emplace(retainedMsgQuery.getColumn(0), RetainedMessage{std::move(payload), mktime(&timestamp)});
+    }
 }
 ApplicationState::~ApplicationState() {
     mShouldRun = false;
     mWorkerThread.join();
+    syncRetainedMessagesToDb();
 }
 void ApplicationState::workerThreadFunc() {
     pthread_setname_np(pthread_self(), "app-state");
