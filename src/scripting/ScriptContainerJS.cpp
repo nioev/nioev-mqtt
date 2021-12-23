@@ -198,6 +198,7 @@ void ScriptContainerJS::performRun(const ScriptInputArgs& input, ScriptStatusOut
         auto& cppParams = std::get<0>(input);
         JS_SetPropertyStr(mJSContext, paramObj, "type", JS_NewString(mJSContext, "publish"));
         JS_SetPropertyStr(mJSContext, paramObj, "topic", JS_NewString(mJSContext, cppParams.topic.c_str()));
+        JS_SetPropertyStr(mJSContext, paramObj, "retained", JS_NewBool(mJSContext, cppParams.retained == Retained::Yes));
 
         auto arrayBuffer = JS_NewArrayBuffer(mJSContext, const_cast<uint8_t*>(cppParams.payload.data()), cppParams.payload.size(), [](JSRuntime*, void*, void*) {}, nullptr, true);
         util::DestructWrapper destructArrayBuffer{[&]{ JS_FreeValue(mJSContext, arrayBuffer); }};
