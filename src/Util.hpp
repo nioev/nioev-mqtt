@@ -211,5 +211,10 @@ inline bool hasWildcard(const std::string& topic) {
     });
 }
 
+// return e.g. ".js" or ".mp3"
+inline std::string_view getFileExtension(const std::string& filename) {
+    return std::string_view{filename}.substr(filename.find_last_of("."));
+}
+
 }
 }

@@ -61,7 +61,7 @@ struct ChangeRequestLogoutClient {
 
 struct ChangeRequestAddScript {
     std::string name;
-    std::function<std::shared_ptr<ScriptContainer>()> constructor;
+    std::string code;
     ScriptStatusOutput statusOutput;
 };
 
@@ -137,25 +137,7 @@ public:
     };
     ScriptsInfo getScriptsInfo();
 
-    template<typename T>
-    void addScript(std::string name, std::function<void(const std::string& scriptName)>&& onSuccess, std::function<void(const std::string& scriptName, const std::string&)>&& onError, std::string code) {
-        mQueryInsertScript->bindNoCopy(1, name);
-        mQueryInsertScript->bindNoCopy(2, code);
-        mQueryInsertScript->exec();
-        mQueryInsertScript->reset();
-        mQueryInsertScript->clearBindings();
-        auto lambda = [this, name, code = std::move(code)] () mutable -> std::shared_ptr<ScriptContainer> {
-            return std::dynamic_pointer_cast<ScriptContainer>(std::make_shared<T>(*this, name, std::move(code)));
-        };
-        ScriptStatusOutput statusOutput;
-        statusOutput.success = std::move(onSuccess);
-        auto originalError = std::move(statusOutput.error);
-        statusOutput.error = [onError = std::move(onError), originalError = std::move(originalError)] (auto& scriptName, const auto& error) {
-            originalError(scriptName, error);
-            onError(scriptName, error);
-        };
-        requestChange(ChangeRequestAddScript{std::move(name), std::move(lambda), std::move(statusOutput)});
-    }
+    void addScript(std::string name, std::function<void(const std::string& scriptName)>&& onSuccess, std::function<void(const std::string& scriptName, const std::string&)>&& onError, std::string code);
 
     void syncRetainedMessagesToDb();
 private:

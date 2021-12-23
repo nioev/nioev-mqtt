@@ -1,6 +1,7 @@
 #include <fstream>
 #include "ApplicationState.hpp"
 #include "scripting/ScriptContainer.hpp"
+#include "scripting/ScriptContainerJS.hpp"
 #include "SQLiteCpp/Transaction.h"
 
 namespace nioev {
@@ -19,6 +20,11 @@ ApplicationState::ApplicationState()
     mDb.exec("PRAGMA journal_mode=WAL;");
     mQueryInsertScript.emplace(mDb, "INSERT OR REPLACE INTO script (name, code) VALUES (?, ?)");
     mQueryInsertRetainedMsg.emplace(mDb, "INSERT INTO retained_msg (topic, payload, timestamp) VALUES (?, ?, ?)");
+    // fetch scripts
+    SQLite::Statement scriptQuery(mDb, "SELECT name,code FROM script");
+    while(scriptQuery.executeStep()) {
+        mQueueInternal.emplace(ChangeRequestAddScript{scriptQuery.getColumn(0), scriptQuery.getColumn(1)});
+    }
 }
 ApplicationState::~ApplicationState() {
     mShouldRun = false;
@@ -238,8 +244,16 @@ void ApplicationState::operator()(ChangeRequestAddScript&& req) {
     if(existingScript != mScripts.end()) {
         deleteScript(existingScript);
     }
-    auto script = mScripts.emplace(req.name, req.constructor());
-    script.first->second->init(std::move(req.statusOutput));
+    std::shared_ptr<ScriptContainer> script;
+    auto extension = util::getFileExtension(req.name);
+    if(extension == ".js") {
+        script = std::make_shared<ScriptContainerJS>(*this, req.name, std::move(req.code));
+    } else {
+        req.statusOutput.error(req.name, "Invalid script filename: " + req.name);
+        return;
+    }
+    mScripts.emplace(req.name, script);
+    script->init(std::move(req.statusOutput));
 }
 void ApplicationState::deleteScript(std::unordered_map<std::string, std::shared_ptr<ScriptContainer>>::iterator it) {
     if(it == mScripts.end())
@@ -374,6 +388,23 @@ void ApplicationState::syncRetainedMessagesToDb() {
     transaction.commit();
     mDb.exec("VACUUM");
     spdlog::info("Synced retained messages to db");
+}
+void ApplicationState::addScript(
+    std::string name, std::function<void(const std::string&)>&& onSuccess, std::function<void(const std::string&, const std::string&)>&& onError,
+    std::string code) {
+    mQueryInsertScript->bindNoCopy(1, name);
+    mQueryInsertScript->bindNoCopy(2, code);
+    mQueryInsertScript->exec();
+    mQueryInsertScript->reset();
+    mQueryInsertScript->clearBindings();
+    ScriptStatusOutput statusOutput;
+    statusOutput.success = std::move(onSuccess);
+    auto originalError = std::move(statusOutput.error);
+    statusOutput.error = [onError = std::move(onError), originalError = std::move(originalError)] (auto& scriptName, const auto& error) {
+        originalError(scriptName, error);
+        onError(scriptName, error);
+    };
+    requestChange(ChangeRequestAddScript{std::move(name), std::move(code), std::move(statusOutput)});
 }
 }
 

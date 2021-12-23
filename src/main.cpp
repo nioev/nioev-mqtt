@@ -186,7 +186,7 @@ int main() {
                             return;
                         }
                         spdlog::info("Adding script from Web-API: {}", scriptName);
-                        app.addScript<ScriptContainerJS>(
+                        app.addScript(
                             std::string{ scriptName }, [res](auto&) { res->end("ok"); },
                             [res](auto&, const auto& error) {
                                 res->writeStatus("500 Internal Server Error");
