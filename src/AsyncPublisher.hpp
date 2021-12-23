@@ -32,7 +32,7 @@ private:
     std::queue<AsyncPublishData> mQueue;
     std::condition_variable mQueueCV;
     std::thread mThread;
-    bool mShouldRun;
+    bool mShouldRun{true};
 };
 
 }
