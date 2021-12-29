@@ -172,6 +172,7 @@ void ApplicationState::cleanup() {
     // delete disconnected clients
     mClientManager.suspendAllThreads();
     lock.lock();
+    mCurrentRWHolderOfMMutex = std::this_thread::get_id();
     for(auto it = mClients.begin(); it != mClients.end();) {
         if((*it)->isLoggedOut()) {
             it = mClients.erase(it);
