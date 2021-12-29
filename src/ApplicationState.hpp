@@ -236,10 +236,19 @@ private:
     std::atomic<std::thread::id> mCurrentRWHolderOfMMutex;
 
     std::queue<ChangeRequest> mQueueInternal;
-    atomic_queue::AtomicQueue2<ChangeRequest, 2048> mQueue;
+    atomic_queue::AtomicQueue2<ChangeRequest, 4096> mQueue;
     std::unordered_multimap<std::string, Subscription> mSimpleSubscriptions;
     std::vector<Subscription> mWildcardSubscriptions;
     std::vector<Subscription> mOmniSubscriptions;
+
+    enum class WorkerThreadSleepLevel {
+        YIELD,
+        MICROSECONDS,
+        MILLISECONDS,
+        TENS_OF_MILLISECONDS
+    };
+    WorkerThreadSleepLevel mSleepLevel = WorkerThreadSleepLevel::MILLISECONDS;
+    uint mSleepCounter = 0;
 
     struct RetainedMessage {
         std::vector<uint8_t> payload;
