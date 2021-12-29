@@ -160,8 +160,11 @@ void ApplicationState::operator()(ChangeRequestRetain&& req) {
 void ApplicationState::cleanup() {
     UniqueLockWithAtomicTidUpdate<std::shared_mutex> lock{mMutex, mCurrentRWHolderOfMMutex};
     for(auto it = mClients.begin(); it != mClients.end(); ++it) {
-        if(it->get()->getLastDataRecvTimestamp() + (int64_t)it->get()->getKeepAliveIntervalSeconds() * 2'000'000'000 <= std::chrono::steady_clock::now().time_since_epoch().count()) {
-            // timeout
+        if(!it->get()->isLoggedOut() && it->get()->getLastDataRecvTimestamp() + (int64_t)it->get()->getKeepAliveIntervalSeconds() * 2'000'000'000 <= std::chrono::steady_clock::now().time_since_epoch().count()) {
+            spdlog::info("[{}] Timeout after {} seconds, keep alive is {}",
+                         it->get()->getClientId(),
+                         (std::chrono::steady_clock::now().time_since_epoch().count() - it->get()->getLastDataRecvTimestamp()) / 1'000'000'000,
+                         it->get()->getKeepAliveIntervalSeconds());
             logoutClient(*it->get());
         }
     }
