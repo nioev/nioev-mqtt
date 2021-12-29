@@ -17,8 +17,8 @@ AsyncPublisher::~AsyncPublisher() {
 void AsyncPublisher::publishAsync(AsyncPublishData&& publish) {
     std::unique_lock<std::mutex> lock{mQueueMutex};
     mQueue.emplace(std::move(publish));
-    lock.unlock();
     mQueueCV.notify_all();
+    lock.unlock();
 }
 void AsyncPublisher::secondThreadFunc() {
     pthread_setname_np(pthread_self(), "async-pub");

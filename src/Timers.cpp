@@ -8,8 +8,8 @@ namespace nioev {
 Timers::~Timers() {
     std::unique_lock<std::mutex> lock{ mTasksMutex };
     mShouldRun = false;
-    lock.unlock();
     mTasksCV.notify_all();
+    lock.unlock();
     mThread.join();
 }
 void Timers::tasksThreadFunc() {
