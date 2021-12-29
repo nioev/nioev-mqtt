@@ -44,6 +44,9 @@ ApplicationState::~ApplicationState() {
 }
 void ApplicationState::workerThreadFunc() {
     pthread_setname_np(pthread_self(), "app-state");
+    WorkerThreadSleepLevel sleepLevel = WorkerThreadSleepLevel::MILLISECONDS;
+    uint sleepCounter = 0;
+
     uint tasksPerformed = 0;
     auto processInternalQueue = [this, &tasksPerformed] {
         UniqueLockWithAtomicTidUpdate<std::shared_mutex> lock{mMutex, mCurrentRWHolderOfMMutex};
@@ -66,29 +69,29 @@ void ApplicationState::workerThreadFunc() {
             processInternalQueue();
         }
         if(tasksPerformed == 0) {
-            mSleepCounter += 1;
-            switch(mSleepLevel) {
+            sleepCounter += 1;
+            switch(sleepLevel) {
             case WorkerThreadSleepLevel::YIELD:
                 std::this_thread::yield();
-                if(mSleepCounter >= 5) {
+                if(sleepCounter >= 5) {
                     // tests show that after 5 yields, we only very rarely find something in the queue again (at least on my system)
                     // maybe we should make these points configurable or adjust them dynamically?
                     spdlog::debug("Switching to 10µs sleep interval");
-                    mSleepLevel = WorkerThreadSleepLevel::MICROSECONDS;
+                    sleepLevel = WorkerThreadSleepLevel::MICROSECONDS;
                 }
                 break;
             case WorkerThreadSleepLevel::MICROSECONDS:
                 std::this_thread::sleep_for(std::chrono::microseconds(10));
-                if(mSleepCounter > 200) {
+                if(sleepCounter > 200) {
                     spdlog::debug("Switching to 1ms sleep interval");
-                    mSleepLevel = WorkerThreadSleepLevel::MILLISECONDS;
+                    sleepLevel = WorkerThreadSleepLevel::MILLISECONDS;
                 }
                 break;
             case WorkerThreadSleepLevel::MILLISECONDS:
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
-                if(mSleepCounter > 100) {
+                if(sleepCounter > 100) {
                     spdlog::debug("Switching to 10ms sleep interval");
-                    mSleepLevel = WorkerThreadSleepLevel::TENS_OF_MILLISECONDS;
+                    sleepLevel = WorkerThreadSleepLevel::TENS_OF_MILLISECONDS;
                 }
                 break;
             case WorkerThreadSleepLevel::TENS_OF_MILLISECONDS:
@@ -96,11 +99,11 @@ void ApplicationState::workerThreadFunc() {
                 break;
             }
         } else {
-            if(mSleepLevel == WorkerThreadSleepLevel::YIELD)
-                spdlog::debug("Yield helped {} sleep level: {}", yieldHelpCount++, mSleepCounter);
-            mSleepCounter = 0;
-            if(static_cast<uint>(mSleepLevel) > static_cast<uint>(WorkerThreadSleepLevel::YIELD)) {
-                mSleepLevel = static_cast<WorkerThreadSleepLevel>(static_cast<uint>(mSleepLevel) - 1);
+            if(sleepLevel == WorkerThreadSleepLevel::YIELD)
+                spdlog::debug("Yield helped {} sleep level: {}", yieldHelpCount++, sleepCounter);
+            sleepCounter = 0;
+            if(static_cast<uint>(sleepLevel) > static_cast<uint>(WorkerThreadSleepLevel::YIELD)) {
+                sleepLevel = static_cast<WorkerThreadSleepLevel>(static_cast<uint>(sleepLevel) - 1);
                 spdlog::debug("Decreasing sleep interval");
                 // TODO add a configuration option for always jumping immediately to YIELD instead of slowly scaling down
             }

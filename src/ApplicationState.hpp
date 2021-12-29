@@ -247,8 +247,6 @@ private:
         MILLISECONDS,
         TENS_OF_MILLISECONDS
     };
-    WorkerThreadSleepLevel mSleepLevel = WorkerThreadSleepLevel::MILLISECONDS;
-    uint mSleepCounter = 0;
 
     struct RetainedMessage {
         std::vector<uint8_t> payload;
