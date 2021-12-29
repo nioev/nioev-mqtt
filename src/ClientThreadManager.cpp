@@ -11,13 +11,14 @@
 
 namespace nioev {
 
-ClientThreadManager::ClientThreadManager(ApplicationState& app, uint threadCount)
+ClientThreadManager::ClientThreadManager(ApplicationState& app)
 : mApp(app) {
     mEpollFd = epoll_create1(EPOLL_CLOEXEC);
     if(mEpollFd < 0) {
         spdlog::critical("Failed to create epoll fd: " + util::errnoToString());
         exit(5);
     }
+    uint threadCount = std::max<uint>(4, std::thread::hardware_concurrency() / 2);
     for(uint i = 0; i < threadCount; ++i) {
         mReceiverThreads.emplace_back([this, i] {
             std::string threadName = "C-" + std::to_string(i);

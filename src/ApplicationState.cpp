@@ -7,7 +7,7 @@
 namespace nioev {
 
 ApplicationState::ApplicationState()
-: mClientManager(*this, 5), mWorkerThread([this]{workerThreadFunc();}), mAsyncPublisher(*this) {
+: mClientManager(*this), mWorkerThread([this]{workerThreadFunc();}), mAsyncPublisher(*this) {
     mTimers.addPeriodicTask(std::chrono::seconds(2), [this] () mutable {
         cleanup();
     });

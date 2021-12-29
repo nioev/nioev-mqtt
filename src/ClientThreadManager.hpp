@@ -10,7 +10,7 @@ namespace nioev {
 
 class ClientThreadManager {
 public:
-    explicit ClientThreadManager(ApplicationState& bridge, uint threadCount);
+    explicit ClientThreadManager(ApplicationState& bridge);
     ~ClientThreadManager();
     void addClientConnection(MQTTClientConnection& conn);
     void removeClientConnection(MQTTClientConnection& connection);
