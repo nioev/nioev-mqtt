@@ -87,6 +87,7 @@ public:
         std::unique_lock lock{mRemaingingMutex};
         mPersistentState = newState;
     }
+    // TODO Remove mutex - I'm pretty sure we don't actually need it anymore, but it doesn't really matter and I'm not 100% sure
     std::pair<PersistentClientState*&, std::unique_lock<std::mutex>> getPersistentState() {
         std::unique_lock lock{mRemaingingMutex};
         return {mPersistentState, std::move(lock)};
