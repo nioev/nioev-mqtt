@@ -217,19 +217,24 @@ void ApplicationState::cleanup() {
             logoutClient(*it->get());
         }
     }
-    lock.unlock();
-    // delete disconnected clients
-    mClientManager.suspendAllThreads();
-    lock.lock();
-    mCurrentRWHolderOfMMutex = std::this_thread::get_id();
-    for(auto it = mClients.begin(); it != mClients.end();) {
-        if((*it)->isLoggedOut()) {
-            it = mClients.erase(it);
-        } else {
-            it++;
+    // Delete disconnected clients.
+    // As we need to suspend all client threads for this, this operation is really expensive, so we delete the clients if there are actually ones
+    // that need to be deleted.
+    if(mClientsWereLoggedOutSinceLastCleanup) {
+        lock.unlock();
+        mClientManager.suspendAllThreads();
+        lock.lock();
+        mCurrentRWHolderOfMMutex = std::this_thread::get_id();
+        for(auto it = mClients.begin(); it != mClients.end();) {
+            if((*it)->isLoggedOut()) {
+                it = mClients.erase(it);
+            } else {
+                it++;
+            }
         }
+        mClientsWereLoggedOutSinceLastCleanup = false;
+        mClientManager.resumeAllThreads();
     }
-    mClientManager.resumeAllThreads();
 }
 void ApplicationState::operator()(ChangeRequestLoginClient&& req) {
     constexpr char AVAILABLE_RANDOM_CHARS[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890";
@@ -331,6 +336,7 @@ void ApplicationState::deleteScript(std::unordered_map<std::string, std::shared_
     mScripts.erase(it);
 }
 void ApplicationState::logoutClient(MQTTClientConnection& client) {
+    mClientsWereLoggedOutSinceLastCleanup = true;
     if(client.isLoggedOut())
         return;
     mClientManager.removeClientConnection(client);

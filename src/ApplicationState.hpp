@@ -231,6 +231,7 @@ private:
     void deleteAllSubscriptions(Subscriber& sub);
 
     std::list<std::shared_ptr<MQTTClientConnection>> mClients;
+    bool mClientsWereLoggedOutSinceLastCleanup = false;
 
     std::shared_mutex mMutex;
     std::atomic<std::thread::id> mCurrentRWHolderOfMMutex;
