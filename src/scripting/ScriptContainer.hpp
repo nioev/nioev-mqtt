@@ -59,7 +59,7 @@ struct ScriptStatusOutput {
     std::function<void(const std::string& scriptName, SyncAction action)> syncAction = [](auto&, auto) {};
 };
 
-class ScriptContainer : public Subscriber, public std::enable_shared_from_this<ScriptContainer> {
+class ScriptContainer : public Subscriber {
 public:
     explicit ScriptContainer(ApplicationState& p, std::string code)
     : mApp(p), mCode(std::move(code)) {
@@ -73,11 +73,11 @@ public:
         return mScriptInitReturn;
     }
     virtual void forceQuit() = 0;
-
     auto makeShared() {
-        return shared_from_this();
+        return std::dynamic_pointer_cast<ScriptContainer>(shared_from_this());
     }
-    void publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained) {
+
+    void publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained) override {
         run(ScriptRunArgsMqttMessage{topic, payload, retained}, ScriptStatusOutput{});
     }
     const auto& getCode() const {

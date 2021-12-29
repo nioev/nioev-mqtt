@@ -45,6 +45,9 @@ struct ChangeRequestUnsubscribe {
     std::shared_ptr<Subscriber> subscriber;
     std::string topic;
 };
+struct ChangeRequestUnsubscribeFromAll {
+    std::shared_ptr<Subscriber> subscriber;
+};
 
 struct ChangeRequestRetain {
     std::string topic;
@@ -65,7 +68,25 @@ struct ChangeRequestAddScript {
     ScriptStatusOutput statusOutput;
 };
 
-using ChangeRequest = std::variant<ChangeRequestSubscribe, ChangeRequestUnsubscribe, ChangeRequestRetain, ChangeRequestLoginClient, ChangeRequestAddScript, ChangeRequestLogoutClient>;
+using ChangeRequest = std::variant<ChangeRequestSubscribe, ChangeRequestUnsubscribe, ChangeRequestRetain, ChangeRequestLoginClient, ChangeRequestAddScript, ChangeRequestLogoutClient, ChangeRequestUnsubscribeFromAll>;
+
+static inline ChangeRequest makeChangeRequestSubscribe(std::shared_ptr<Subscriber> sub, std::string&& topic, QoS qos = QoS::QoS0, bool isOmni = false) {
+    assert(isOmni == false); // they are currently not used, so if you need an omni subscription, test thorougly!
+    auto split = util::splitTopics(topic);
+    SubscriptionType type;
+    if(isOmni) {
+        type = SubscriptionType::OMNI;
+    } else {
+        type = util::hasWildcard(topic) ? SubscriptionType::WILDCARD : SubscriptionType::SIMPLE;
+    }
+    return ChangeRequestSubscribe{
+        std::move(sub),
+        std::move(topic),
+        std::move(split),
+        type,
+        qos
+    };
+}
 
 struct PersistentClientState {
     static_assert(std::is_same_v<decltype(std::chrono::steady_clock::time_point{}.time_since_epoch().count()), int64_t>);
@@ -106,6 +127,7 @@ public:
     // DON'T CALL THESE! They exist only for std::visit to work!
     void operator()(ChangeRequestSubscribe&& req);
     void operator()(ChangeRequestUnsubscribe&& req);
+    void operator()(ChangeRequestUnsubscribeFromAll&& req);
     void operator()(ChangeRequestRetain&& req);
     void operator()(ChangeRequestLoginClient&& req);
     void operator()(ChangeRequestLogoutClient&& req);

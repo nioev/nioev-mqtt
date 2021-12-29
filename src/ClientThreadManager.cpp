@@ -350,9 +350,7 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
                     protocolViolation();
                 }
                 auto qos = static_cast<QoS>(qosInt);
-                auto topicSplit = util::splitTopics(topic);
-                auto hasWildcard = util::hasWildcard(topic);
-                mApp.requestChange(ChangeRequestSubscribe{client.makeShared(), std::move(topic), std::move(topicSplit), hasWildcard ? SubscriptionType::WILDCARD : SubscriptionType::SIMPLE, qos});
+                mApp.requestChange(makeChangeRequestSubscribe(client.makeShared(), std::move(topic), qos));
             } while(!decoder.empty());
 
 

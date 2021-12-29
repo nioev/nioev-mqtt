@@ -15,7 +15,7 @@
 
 namespace nioev {
 
-class MQTTClientConnection final : public Subscriber, public std::enable_shared_from_this<MQTTClientConnection> {
+class MQTTClientConnection final : public Subscriber {
 public:
     MQTTClientConnection(ApplicationState& app, TcpClientConnection&& conn)
     : mConn(std::move(conn)), mApp(app) {
@@ -115,9 +115,8 @@ public:
         std::lock_guard lock{mRemaingingMutex};
         return mClientId;
     }
-
     auto makeShared() {
-        return shared_from_this();
+        return std::dynamic_pointer_cast<MQTTClientConnection>(shared_from_this());
     }
     int64_t getLastDataRecvTimestamp() const {
         return mLastDataReceivedTimestamp;

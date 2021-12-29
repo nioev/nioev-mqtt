@@ -147,6 +147,9 @@ void ApplicationState::operator()(ChangeRequestUnsubscribe&& req) {
         }
     }
 }
+void ApplicationState::operator()(ChangeRequestUnsubscribeFromAll&& req) {
+    deleteAllSubscriptions(*req.subscriber);
+}
 void ApplicationState::operator()(ChangeRequestRetain&& req) {
     if(req.payload.empty()) {
         mRetainedMessages.erase(req.topic);
