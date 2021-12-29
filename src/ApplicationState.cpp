@@ -404,6 +404,7 @@ void ApplicationState::syncRetainedMessagesToDb() {
 void ApplicationState::addScript(
     std::string name, std::function<void(const std::string&)>&& onSuccess, std::function<void(const std::string&, const std::string&)>&& onError,
     std::string code) {
+    UniqueLockWithAtomicTidUpdate<std::shared_mutex> lock{mMutex, mCurrentRWHolderOfMMutex};
     mQueryInsertScript->bindNoCopy(1, name);
     mQueryInsertScript->bindNoCopy(2, code);
     mQueryInsertScript->exec();
@@ -416,6 +417,7 @@ void ApplicationState::addScript(
         originalError(scriptName, error);
         onError(scriptName, error);
     };
+    lock.unlock();
     requestChange(ChangeRequestAddScript{std::move(name), std::move(code), std::move(statusOutput)});
 }
 }
