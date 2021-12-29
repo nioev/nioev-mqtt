@@ -62,6 +62,7 @@ void ClientThreadManager::receiverThreadFunction() {
             auto& client = * (MQTTClientConnection*)events[i].data.ptr;
             try {
                 if(events[i].events & EPOLLERR) {
+                    client.getTcpClient().recv(bytes); // try to trigger proper error message
                     throw std::runtime_error{"Socket error!"};
                 }
                 if(events[i].events & EPOLLOUT) {
