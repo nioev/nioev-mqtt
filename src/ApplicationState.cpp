@@ -420,7 +420,6 @@ void ApplicationState::addScript(
         originalError(scriptName, error);
         onError(scriptName, error);
     };
-    lock.unlock();
     requestChange(ChangeRequestAddScript{std::move(name), std::move(code), std::move(statusOutput)});
 }
 }
