@@ -47,7 +47,7 @@ struct PerWebsocketClientData {
 };
 inline static std::string ptrToString(void* ptr) {
     char buffer[sizeof(ptr) + 1] = { 0 };
-    snprintf(buffer, sizeof(ptr) + 1, "%p", ptr);
+    memcpy(buffer, &ptr, 8);
     return buffer;
 }
 class WSSubscriber : public nioev::Subscriber {
