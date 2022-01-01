@@ -1,9 +1,20 @@
 #include "MQTTClientConnection.hpp"
 #include "ApplicationState.hpp"
+#include "Util.hpp"
+#include "MQTTPublishPacketBuilder.hpp"
 
 namespace nioev {
 
-void MQTTClientConnection::sendData(std::vector<uint8_t>&& bytes) {
+void MQTTClientConnection::publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained, MQTTPublishPacketBuilder& packetBuilder) {
+    auto packet = packetBuilder.getPacket(qos);
+    if(qos == QoS::QoS1){
+        auto[persistentState, lock] = getPersistentState();
+        persistentState->qos1sendingPackets.emplace(mPublishPacketId - 1, packet);
+    }
+    sendData(std::move(packet));
+}
+
+void MQTTClientConnection::sendData(util::SharedBuffer&& bytes) {
     try {
         uint totalBytesSent = 0;
         uint bytesSent = 0;

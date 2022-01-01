@@ -38,7 +38,7 @@ add_executable(nioev
         src/scripting/ScriptContainerJS.hpp
         src/BigString.hpp
         src/BigVector.hpp
-        ${UWEBSOCKETS_FILES} src/Timers.cpp src/Timers.hpp src/scripting/ScriptCustomTCPServer.cpp src/scripting/ScriptCustomTCPServer.hpp src/scripting/ScriptContainerManager.cpp src/ApplicationState.cpp src/ApplicationState.hpp src/Subscriber.hpp src/AsyncPublisher.cpp src/AsyncPublisher.hpp src/MQTTClientConnection.cpp)
+        ${UWEBSOCKETS_FILES} src/Timers.cpp src/Timers.hpp src/scripting/ScriptCustomTCPServer.cpp src/scripting/ScriptCustomTCPServer.hpp src/scripting/ScriptContainerManager.cpp src/ApplicationState.cpp src/ApplicationState.hpp src/Subscriber.hpp src/AsyncPublisher.cpp src/AsyncPublisher.hpp src/MQTTClientConnection.cpp src/Util.cpp src/MQTTPublishPacketBuilder.hpp src/MQTTPublishPacketBuilder.cpp)
 
 target_link_libraries(nioev
         libzstd_static

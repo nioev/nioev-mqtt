@@ -58,7 +58,7 @@ public:
     : mApp(app), mWebApp(webApp), mLoop(loop), mWS(ws) {
         mWSId = ptrToString(ws);
     }
-    void publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained) override {
+    void publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained, MQTTPublishPacketBuilder&) override {
         mLoop.defer([this, topic, payload] {
             mWebApp.publish(mWSId, std::string_view{ (const char*)payload.data(), payload.size() }, uWS::BINARY, false);
         });

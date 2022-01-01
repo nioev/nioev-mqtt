@@ -77,7 +77,7 @@ public:
         return std::dynamic_pointer_cast<ScriptContainer>(shared_from_this());
     }
 
-    void publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained) override {
+    void publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained, MQTTPublishPacketBuilder& packetBuilder) override {
         run(ScriptRunArgsMqttMessage{topic, payload, retained}, ScriptStatusOutput{});
     }
     const auto& getCode() const {

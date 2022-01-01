@@ -10,5 +10,6 @@ class MQTTPersistentState;
 class PersistentClientState;
 class ScriptContainerManager;
 class ScriptContainer;
+class MQTTPublishPacketBuilder;
 
 }

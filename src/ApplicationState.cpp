@@ -3,6 +3,7 @@
 #include "scripting/ScriptContainer.hpp"
 #include "scripting/ScriptContainerJS.hpp"
 #include "SQLiteCpp/Transaction.h"
+#include "MQTTPublishPacketBuilder.hpp"
 
 namespace nioev {
 
@@ -134,12 +135,18 @@ void ApplicationState::executeChangeRequest(ChangeRequest&& changeRequest) {
     UniqueLockWithAtomicTidUpdate<std::shared_mutex> lock{mMutex, mCurrentRWHolderOfMMutex};
     std::visit(*this, std::move(changeRequest));
 }
+
+static inline void sendPublish(Subscriber& sub, const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained) {
+    MQTTPublishPacketBuilder builder{topic, payload, retained};
+    sub.publish(topic, payload, qos, retained, builder);
+}
+
 void ApplicationState::operator()(ChangeRequestSubscribe&& req) {
     if(req.subType == SubscriptionType::WILDCARD) {
         auto& sub = mWildcardSubscriptions.emplace_back(req.subscriber, req.topic, std::move(req.topicSplit), req.qos);
         for(auto& retainedMessage: mRetainedMessages) {
             if(util::doesTopicMatchSubscription(retainedMessage.first, sub.topicSplit)) {
-                sub.subscriber->publish(retainedMessage.first, retainedMessage.second.payload, req.qos, Retained::Yes);
+                sendPublish(*sub.subscriber, retainedMessage.first, retainedMessage.second.payload, req.qos, Retained::Yes);
             }
         }
 
@@ -149,12 +156,12 @@ void ApplicationState::operator()(ChangeRequestSubscribe&& req) {
                                      std::make_tuple(req.subscriber, req.topic, std::vector<std::string>{}, req.qos));
         auto retainedMessage = mRetainedMessages.find(req.topic);
         if(retainedMessage != mRetainedMessages.end()) {
-            req.subscriber->publish(retainedMessage->first, retainedMessage->second.payload, req.qos, Retained::Yes);
+            sendPublish(*req.subscriber, retainedMessage->first, retainedMessage->second.payload, req.qos, Retained::Yes);
         }
     } else if(req.subType == SubscriptionType::OMNI) {
         auto& sub = mOmniSubscriptions.emplace_back(req.subscriber, req.topic, std::move(req.topicSplit), req.qos);
         for(auto& retainedMessage: mRetainedMessages) {
-            sub.subscriber->publish(retainedMessage.first, retainedMessage.second.payload, req.qos, Retained::Yes);
+            sendPublish(*sub.subscriber, retainedMessage.first, retainedMessage.second.payload, req.qos, Retained::Yes);
         }
     } else {
         assert(false);
@@ -398,7 +405,7 @@ void ApplicationState::publishNoLockNoRetain(const std::string& topic, const std
     // second run scripts
     auto action = SyncAction::Continue;
     forEachSubscriberThatIsOfT<ScriptContainer>(topic, [&topic, &msg, &action](Subscription& sub) {
-        sub.subscriber->publish(topic, msg, *sub.qos, Retained::No);
+        sendPublish(*sub.subscriber, topic, msg, *sub.qos, Retained::No);
         // TODO reimplement sync scripts
         // if(runScriptWithPublishedMessage(std::get<MQTTPersistentState::ScriptName>(sub.subscriber), topic, msg, Retained::No) == SyncAction::AbortPublish) {
         //    action = SyncAction::AbortPublish;
@@ -410,7 +417,7 @@ void ApplicationState::publishNoLockNoRetain(const std::string& topic, const std
     // then send to clients
     // this order is neccessary to allow the scripts to abort the message delivery to clients
     forEachSubscriberThatIsNotOfT<ScriptContainer>(
-        topic, [&topic, &msg](Subscription& sub) { sub.subscriber->publish(topic, msg, *sub.qos, Retained::No); });
+        topic, [&topic, &msg](Subscription& sub) { sendPublish(*sub.subscriber, topic, msg, *sub.qos, Retained::No); });
 
 }
 void ApplicationState::handleNewClientConnection(TcpClientConnection&& conn) {

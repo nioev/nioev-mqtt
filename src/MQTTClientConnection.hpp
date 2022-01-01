@@ -59,7 +59,7 @@ public:
     }
 
     struct SendTask {
-        std::vector<uint8_t> data;
+        util::SharedBuffer bytes;
         uint offset = 0;
     };
     std::pair<std::reference_wrapper<std::queue<SendTask>>, std::unique_lock<std::mutex>> getSendTasks() {
@@ -126,25 +126,8 @@ public:
         mLastDataReceivedTimestamp = newTimestamp;
     }
 
-    void sendData(std::vector<uint8_t>&& bytes);
-    void publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained) override {
-        util::BinaryEncoder encoder;
-        uint8_t firstByte = static_cast<uint8_t>(QoS::QoS0) << 1; //FIXME use actual qos
-        // TODO retain, dup
-        if(retained == Retained::Yes) {
-            firstByte |= 1;
-        }
-        firstByte |= static_cast<uint8_t>(MQTTMessageType::PUBLISH) << 4;
-        encoder.encodeByte(firstByte);
-        encoder.encodeString(topic);
-        if(qos != QoS::QoS0) {
-            // TODO add id
-            assert(false);
-        }
-        encoder.encodeBytes(payload);
-        encoder.insertPacketLength();
-        sendData(encoder.moveData());
-    }
+    void sendData(util::SharedBuffer&& bytes);
+    void publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained, MQTTPublishPacketBuilder& packetBuilder) override;
 private:
     ApplicationState& mApp;
     TcpClientConnection mConn;
@@ -166,6 +149,8 @@ private:
     std::optional<WillStruct> mWill;
     std::atomic<uint16_t> mKeepAliveIntervalSeconds = 10;
     PersistentClientState* mPersistentState = nullptr;
+
+    uint16_t mPublishPacketId = 0;
 
     std::atomic<bool> mLoggedOut = false;
     std::string mClientId;

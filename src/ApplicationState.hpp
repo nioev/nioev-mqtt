@@ -88,12 +88,17 @@ static inline ChangeRequest makeChangeRequestSubscribe(std::shared_ptr<Subscribe
     };
 }
 
+// almost everything here is protected by the ApplicationState::mMutex lock
 struct PersistentClientState {
     static_assert(std::is_same_v<decltype(std::chrono::steady_clock::time_point{}.time_since_epoch().count()), int64_t>);
 
     MQTTClientConnection *currentClient = nullptr;
     int64_t lastDisconnectTime = 0;
+
+    // these two are protected by the lock in MQTTClientConnection::mRemainingMutex
     std::unordered_set<uint16_t> qos3receivingPacketIds;
+    std::unordered_map<uint16_t, util::SharedBuffer> qos1sendingPackets;
+
     std::string clientId;
     CleanSession cleanSession = CleanSession::Yes;
     struct PersistentSubscription {

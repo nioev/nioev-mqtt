@@ -1,5 +1,7 @@
 #pragma once
 
+#include <atomic>
+#include <cstdlib>
 #include <string>
 #include <cstring>
 #include <arpa/inet.h>
@@ -7,6 +9,7 @@
 #include <optional>
 
 #include "spdlog/spdlog.h"
+#include "Enums.hpp"
 
 namespace nioev {
 
@@ -33,21 +36,56 @@ inline void throwErrno(std::string msg) {
     throw std::runtime_error{msg + ": " + errnoToString()};
 }
 
+// basically the same as std::shared_ptr<std::vector<uint8_t>> just with one less memory allocation
+class SharedBuffer final {
+public:
+    SharedBuffer() = default;
+    ~SharedBuffer();
+    SharedBuffer(const SharedBuffer&);
+    SharedBuffer& operator=(const SharedBuffer&);
+    SharedBuffer(SharedBuffer&&) noexcept;
+    SharedBuffer& operator=(SharedBuffer&&) noexcept;
+    void resize(size_t newSize);
+
+    [[nodiscard]] size_t size() const {
+        return mSize;
+    }
+    [[nodiscard]] const uint8_t* data() const {
+        if(mBuffer == nullptr)
+            return nullptr;
+        return (uint8_t*)(mBuffer + sizeof(std::atomic<int>));
+    }
+    [[nodiscard]] uint8_t* data() {
+        if(mBuffer == nullptr)
+            return nullptr;
+        return (uint8_t*)(mBuffer + sizeof(std::atomic<int>));
+    }
+    void append(const void* data, size_t size);
+    void insert(size_t index, const void* data, size_t size);
+private:
+    std::atomic<int>& getRefCounter();
+    void incRefCount();
+    void decRefCount();
+    std::byte* mBuffer { nullptr };
+    size_t mReserved = 0;
+    size_t mSize = 0;
+};
+
 class BinaryEncoder {
 public:
     void encodeByte(uint8_t value) {
-        mData.push_back(value);
+        mData.append(&value, 1);
     }
     void encode2Bytes(uint16_t value) {
         value = htons(value);
-        mData.insert(mData.end(), (uint8_t*)&value, ((uint8_t*)&value) + 2);
+        mData.append((uint8_t*)&value, 2);
     }
     void encodeString(const std::string& str) {
         encode2Bytes(str.size());
-        mData.insert(mData.end(), str.begin(), str.end());
+        mData.append(str.c_str(), str.size());
     }
     void encodeBytes(const std::vector<uint8_t>& data) {
-        mData.insert(mData.end(), data.begin(), data.end());
+        mData.append(data.data(), data.size());
     }
     // this function takes about 33% of total calculation time - TODO optimize
     void insertPacketLength() {
@@ -60,16 +98,16 @@ public:
             if(packetLength > 0) {
                 encodeByte |= 128;
             }
-            mData.insert(mData.begin() + offset, encodeByte);
+            mData.insert(offset, &encodeByte, 1);
             offset += 1;
         } while(packetLength > 0);
     }
-    std::vector<uint8_t>&& moveData() {
+    SharedBuffer&& moveData() {
         return std::move(mData);
     }
 
 private:
-    std::vector<uint8_t> mData;
+    SharedBuffer mData;
 };
 
 class BinaryDecoder {

@@ -75,11 +75,11 @@ void ClientThreadManager::receiverThreadFunction() {
                         // send data
                         uint bytesSend = 0;
                         do {
-                            bytesSend = client.getTcpClient().send(task.data.data() + task.offset, task.data.size() - task.offset);
+                            bytesSend = client.getTcpClient().send(task.bytes.data() + task.offset, task.bytes.size() - task.offset);
                             task.offset += bytesSend;
-                        } while(bytesSend > 0 && task.offset < task.data.size());
+                        } while(bytesSend > 0 && task.offset < task.bytes.size());
 
-                        if(task.offset >= task.data.size()) {
+                        if(task.offset >= task.bytes.size()) {
                             sendTasks.pop();
                             if(client.getState() == MQTTClientConnection::ConnectionState::INVALID_PROTOCOL_VERSION) {
                                 assert(sendTasks.empty());
@@ -215,14 +215,14 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
             uint8_t protocolLevel = decoder.decodeByte();
             if(protocolLevel != 4) {
                 // we only support MQTT 3.1.1
-                std::vector<uint8_t> response;
-                response.push_back(static_cast<uint8_t>(MQTTMessageType::CONNACK) << 4);
-                response.push_back(2); // remaining packet length
-                response.push_back(0); // no session present
-                response.push_back(1); // invalid protocol version
+                util::BinaryEncoder response;
+                response.encodeByte(static_cast<uint8_t>(MQTTMessageType::CONNACK) << 4);
+                response.encodeByte(2); // remaining packet length
+                response.encodeByte(0); // no session present
+                response.encodeByte(1); // invalid protocol version
                 client.setState(MQTTClientConnection::ConnectionState::INVALID_PROTOCOL_VERSION);
                 spdlog::error("Invalid protocol version requested by client: {}", protocolLevel);
-                client.sendData(std::move(response));
+                client.sendData(response.moveData());
                 break;
             }
             uint8_t connectFlags = decoder.decodeByte();
@@ -353,7 +353,7 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
             util::BinaryEncoder encoder;
             encoder.encodeByte(static_cast<uint8_t>(MQTTMessageType::SUBACK) << 4);
             encoder.encode2Bytes(packetIdentifier);
-            encoder.encodeByte(0); // maximum QoS 0 TODO support more
+            encoder.encodeByte(1); // maximum QoS 1 TODO support more
             encoder.insertPacketLength();
             client.sendData(encoder.moveData());
 
