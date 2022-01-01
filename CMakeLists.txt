@@ -48,4 +48,6 @@ target_link_libraries(nioev
         SQLiteCpp
         sqlite3
         pthread
-        dl dl)
+        dl
+        m
+        stdc++)
