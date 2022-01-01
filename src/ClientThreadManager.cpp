@@ -334,6 +334,11 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
                 protocolViolation();
             }
             auto packetIdentifier = decoder.decode2Bytes();
+
+
+            util::BinaryEncoder encoder;
+            encoder.encodeByte(static_cast<uint8_t>(MQTTMessageType::SUBACK) << 4);
+            encoder.encode2Bytes(packetIdentifier);
             do {
                 auto topic = decoder.decodeString();
                 if(topic.empty()) {
@@ -345,15 +350,11 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
                     protocolViolation();
                 }
                 auto qos = static_cast<QoS>(qosInt);
+                encoder.encodeByte(qosInt == 0 ? 0 : 1); // TODO change this when QoS2 is added
                 mApp.requestChange(makeChangeRequestSubscribe(client.makeShared(), std::move(topic), qos));
             } while(!decoder.empty());
 
 
-            // prepare SUBACK
-            util::BinaryEncoder encoder;
-            encoder.encodeByte(static_cast<uint8_t>(MQTTMessageType::SUBACK) << 4);
-            encoder.encode2Bytes(packetIdentifier);
-            encoder.encodeByte(1); // maximum QoS 1 TODO support more
             encoder.insertPacketLength();
             client.sendData(encoder.moveData());
 
