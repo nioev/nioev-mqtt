@@ -189,6 +189,12 @@ private:
 
     void cleanup();
 
+    enum class ShouldPersistSubscription {
+        Yes,
+        No
+    };
+    void subscribeClientInternal(ChangeRequestSubscribe&& req, ShouldPersistSubscription);
+
     void logoutClient(MQTTClientConnection& client);
     // ensure you have at least a readonly lock when calling
     template<typename T = Subscriber>

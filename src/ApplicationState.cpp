@@ -146,8 +146,16 @@ static inline void sendPublish(Subscriber& sub, const std::string& topic, const 
     sub.publish(topic, payload, qos, retained, builder);
 }
 
-void ApplicationState::operator()(ChangeRequestSubscribe&& req) {
+void ApplicationState::subscribeClientInternal(ChangeRequestSubscribe&& req, ShouldPersistSubscription persist) {
     if(req.subType == SubscriptionType::WILDCARD) {
+        // check for existing subscription
+        for(auto& wildcardSub: mWildcardSubscriptions) {
+            if(wildcardSub.subscriber == req.subscriber && wildcardSub.topic == req.topic) {
+                wildcardSub.qos = req.qos;
+                persist = ShouldPersistSubscription::No; // already persisted, so no need
+                break;
+            }
+        }
         auto& sub = mWildcardSubscriptions.emplace_back(req.subscriber, req.topic, std::move(req.topicSplit), req.qos);
         for(auto& retainedMessage: mRetainedMessages) {
             if(util::doesTopicMatchSubscription(retainedMessage.first, sub.topicSplit)) {
@@ -156,6 +164,16 @@ void ApplicationState::operator()(ChangeRequestSubscribe&& req) {
         }
 
     } else if(req.subType == SubscriptionType::SIMPLE) {
+        // check for existing subscription
+        auto[existingSubStart, existingSubEnd] = mSimpleSubscriptions.equal_range(req.topic);
+        for(auto it = existingSubStart; it != existingSubEnd; ++it) {
+            if(it->second.subscriber == req.subscriber) {
+                it->second.qos = req.qos;
+                persist = ShouldPersistSubscription::No; // already persisted, so no need
+                break;
+            }
+        }
+
         mSimpleSubscriptions.emplace(std::piecewise_construct,
                                      std::make_tuple(req.topic),
                                      std::make_tuple(req.subscriber, req.topic, std::vector<std::string>{}, req.qos));
@@ -164,6 +182,8 @@ void ApplicationState::operator()(ChangeRequestSubscribe&& req) {
             sendPublish(*req.subscriber, retainedMessage->first, retainedMessage->second.payload, retainedMessage->second.qos, Retained::Yes);
         }
     } else if(req.subType == SubscriptionType::OMNI) {
+        assert(false);
+        // TODO check for existing subscription
         auto& sub = mOmniSubscriptions.emplace_back(req.subscriber, req.topic, std::move(req.topicSplit), req.qos);
         for(auto& retainedMessage: mRetainedMessages) {
             sendPublish(*sub.subscriber, retainedMessage.first, retainedMessage.second.payload, retainedMessage.second.qos, Retained::Yes);
@@ -171,6 +191,8 @@ void ApplicationState::operator()(ChangeRequestSubscribe&& req) {
     } else {
         assert(false);
     }
+    if(persist == ShouldPersistSubscription::No)
+        return;
     auto subscriberAsMQTTConn = std::dynamic_pointer_cast<MQTTClientConnection>(req.subscriber);
     if(subscriberAsMQTTConn) {
         auto[state, stateLock] = subscriberAsMQTTConn->getPersistentState();
@@ -178,6 +200,9 @@ void ApplicationState::operator()(ChangeRequestSubscribe&& req) {
             state->subscriptions.emplace_back(PersistentClientState::PersistentSubscription{ std::move(req.topic), req.qos });
         }
     }
+}
+void ApplicationState::operator()(ChangeRequestSubscribe&& req) {
+    subscribeClientInternal(std::move(req), ShouldPersistSubscription::Yes);
 }
 void ApplicationState::operator()(ChangeRequestUnsubscribe&& req) {
     auto[start, end] = mSimpleSubscriptions.equal_range(req.topic);
@@ -318,7 +343,8 @@ void ApplicationState::operator()(ChangeRequestLoginClient&& req) {
             req.client->setPersistentState(&existingSession->second);
             auto subs = std::move(existingSession->second.subscriptions);
             for(auto& sub: subs) {
-                requestChange(ChangeRequestSubscribe{req.client, sub.topic, util::splitTopics(sub.topic), util::hasWildcard(sub.topic) ? SubscriptionType::WILDCARD : SubscriptionType::SIMPLE, sub.qos});
+                subscribeClientInternal(ChangeRequestSubscribe{req.client, sub.topic, util::splitTopics(sub.topic), util::hasWildcard(sub.topic) ? SubscriptionType::WILDCARD : SubscriptionType::SIMPLE, sub.qos},
+                    ShouldPersistSubscription::No);
             }
             sendConnack();
             for(auto& qos1packet: existingSession->second.qos1sendingPackets) {
