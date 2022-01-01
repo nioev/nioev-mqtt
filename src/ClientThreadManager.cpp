@@ -311,6 +311,12 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
             mApp.publish(std::move(topic), std::move(data), qos, retain);
             break;
         }
+        case MQTTMessageType::PUBACK: {
+            uint16_t id = decoder.decode2Bytes();
+            auto[state, lock] = client.getPersistentState();
+            state->qos1sendingPackets.erase(id);
+            break;
+        }
         case MQTTMessageType::PUBREL: {
             // QoS 2 part 2
             if(recvData.firstByte != 0x62) {

@@ -9,7 +9,6 @@ MQTTPublishPacketBuilder::MQTTPublishPacketBuilder(const std::string& topic, con
     mPackets.fill({});
 }
 util::SharedBuffer& MQTTPublishPacketBuilder::getPacket(QoS qos) {
-    qos = QoS::QoS0;
     auto qosInt = static_cast<int>(qos);
     auto& packetSlot = mPackets.at(qosInt);
     if(packetSlot.has_value()) {
@@ -19,7 +18,6 @@ util::SharedBuffer& MQTTPublishPacketBuilder::getPacket(QoS qos) {
     if(qos == QoS::QoS2) // FIXME QoS 2 support
         qos = QoS::QoS1;
     uint8_t firstByte = static_cast<uint8_t>(qos) << 1;
-    // TODO dup
     if(mRetained == Retained::Yes) {
         firstByte |= 1;
     }
@@ -27,6 +25,9 @@ util::SharedBuffer& MQTTPublishPacketBuilder::getPacket(QoS qos) {
     encoder.encodeByte(firstByte);
     encoder.encodeString(mTopic);
     if(qos != QoS::QoS0) {
+        // we use a global id here to increase performance - this could cause trouble when you have many clients, so it's not *that* spec compliant
+        // we should have an option for using per-client id counters
+        // TODO make this behaviour configurable in a config file
         encoder.encode2Bytes(gPacketIdCounter.fetch_add(1));
     }
     encoder.encodeBytes(mPayload);

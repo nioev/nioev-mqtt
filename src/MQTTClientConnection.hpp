@@ -126,6 +126,10 @@ public:
         mLastDataReceivedTimestamp = newTimestamp;
     }
 
+    bool hasSendError() {
+        return mSendError;
+    }
+
     void sendData(util::SharedBuffer&& bytes);
     void publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained, MQTTPublishPacketBuilder& packetBuilder) override;
 private:
@@ -152,7 +156,7 @@ private:
 
     uint16_t mPublishPacketId = 0;
 
-    std::atomic<bool> mLoggedOut = false;
+    std::atomic<bool> mLoggedOut = false, mSendError = false;
     std::string mClientId;
     std::atomic<int64_t> mLastDataReceivedTimestamp = std::chrono::steady_clock::now().time_since_epoch().count();
 };

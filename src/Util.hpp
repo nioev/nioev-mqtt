@@ -62,8 +62,10 @@ public:
     }
     void append(const void* data, size_t size);
     void insert(size_t index, const void* data, size_t size);
+    SharedBuffer copy() const;
 private:
     std::atomic<int>& getRefCounter();
+    const std::atomic<int>& getRefCounter() const;
     void incRefCount();
     void decRefCount();
     std::byte* mBuffer { nullptr };

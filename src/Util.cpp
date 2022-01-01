@@ -2,9 +2,6 @@
 
 namespace nioev::util {
 
-std::atomic<int>& SharedBuffer::getRefCounter() {
-    return *(std::atomic<int>*)mBuffer;
-}
 SharedBuffer::~SharedBuffer() {
     decRefCount();
 }
@@ -31,6 +28,12 @@ SharedBuffer& SharedBuffer::operator=(SharedBuffer&& other) noexcept {
     other.mReserved = 0;
     other.mSize = 0;
     return *this;
+}
+std::atomic<int>& SharedBuffer::getRefCounter() {
+    return *(std::atomic<int>*)mBuffer;
+}
+const std::atomic<int>& SharedBuffer::getRefCounter() const {
+    return *(std::atomic<int>*)mBuffer;
 }
 void SharedBuffer::incRefCount() {
     if(mBuffer == nullptr)
@@ -79,6 +82,17 @@ void SharedBuffer::insert(size_t index, const void* data, size_t size) {
     resize(mSize + size);
     memmove(this->data() + index + size, this->data() + index, mSize - index);
     memcpy(this->data() + index, data, size);
+}
+SharedBuffer SharedBuffer::copy() const {
+    if(getRefCounter() == 1) {
+        return *this;
+    }
+    SharedBuffer ret;
+    ret.mSize = mSize;
+    ret.mReserved = mSize;
+    ret.mBuffer = (std::byte*)malloc(mSize + sizeof(std::atomic<int>));
+    memcpy(ret.mBuffer, data(), mSize);
+    return ret;
 }
 
 }

@@ -17,17 +17,17 @@ ApplicationState::ApplicationState()
     });
     // initialize db
     mDb.exec("CREATE TABLE IF NOT EXISTS script (name TEXT UNIQUE PRIMARY KEY NOT NULL, code TEXT NOT NULL, persistent_state TEXT);");
-    mDb.exec("CREATE TABLE IF NOT EXISTS retained_msg (topic TEXT UNIQUE PRIMARY KEY NOT NULL, payload BLOB NOT NULL, timestamp TIMESTAMP NOT NULL);");
+    mDb.exec("CREATE TABLE IF NOT EXISTS retained_msg (topic TEXT UNIQUE PRIMARY KEY NOT NULL, payload BLOB NOT NULL, timestamp TIMESTAMP NOT NULL, qos INTEGER NOT NULL);");
     mDb.exec("PRAGMA journal_mode=WAL;");
     mQueryInsertScript.emplace(mDb, "INSERT OR REPLACE INTO script (name, code) VALUES (?, ?)");
-    mQueryInsertRetainedMsg.emplace(mDb, "INSERT INTO retained_msg (topic, payload, timestamp) VALUES (?, ?, ?)");
+    mQueryInsertRetainedMsg.emplace(mDb, "INSERT INTO retained_msg (topic, payload, timestamp, qos) VALUES (?, ?, ?, ?)");
     // fetch scripts
     SQLite::Statement scriptQuery(mDb, "SELECT name,code FROM script");
     while(scriptQuery.executeStep()) {
         mQueueInternal.emplace(ChangeRequestAddScript{scriptQuery.getColumn(0), scriptQuery.getColumn(1)});
     }
     // fetch retained messages
-    SQLite::Statement retainedMsgQuery(mDb, "SELECT topic,payload,timestamp FROM retained_msg");
+    SQLite::Statement retainedMsgQuery(mDb, "SELECT topic,payload,timestamp,qos FROM retained_msg");
     while(retainedMsgQuery.executeStep()) {
         auto payloadColumn = retainedMsgQuery.getColumn(1);
         std::vector<uint8_t> payload{(uint8_t*)payloadColumn.getBlob(), (uint8_t*)payloadColumn.getBlob() + payloadColumn.getBytes()};
@@ -35,7 +35,7 @@ ApplicationState::ApplicationState()
         std::stringstream timestampStr{retainedMsgQuery.getColumn(2).getString()};
         struct tm timestamp = { 0 };
         timestampStr >> std::get_time(&timestamp, "%Y-%m-%d %H-%M-%S");
-        mRetainedMessages.emplace(retainedMsgQuery.getColumn(0), RetainedMessage{std::move(payload), mktime(&timestamp)});
+        mRetainedMessages.emplace(retainedMsgQuery.getColumn(0), RetainedMessage{std::move(payload), mktime(&timestamp), static_cast<QoS>(retainedMsgQuery.getColumn(3).getInt())});
     }
 }
 ApplicationState::~ApplicationState() {
@@ -51,6 +51,11 @@ void ApplicationState::workerThreadFunc() {
     uint tasksPerformed = 0;
     auto processInternalQueue = [this, &tasksPerformed] {
         UniqueLockWithAtomicTidUpdate<std::shared_mutex> lock{mMutex, mCurrentRWHolderOfMMutex};
+        for(auto& client: mClients) {
+            if(client->hasSendError()) {
+                requestChange(ChangeRequestLogoutClient{client->makeShared()});
+            }
+        }
         while(!mQueueInternal.empty()) {
             // don't call executeChangeRequest because that function acquires a lock
             std::visit(*this, std::move(mQueueInternal.front()));
@@ -146,7 +151,7 @@ void ApplicationState::operator()(ChangeRequestSubscribe&& req) {
         auto& sub = mWildcardSubscriptions.emplace_back(req.subscriber, req.topic, std::move(req.topicSplit), req.qos);
         for(auto& retainedMessage: mRetainedMessages) {
             if(util::doesTopicMatchSubscription(retainedMessage.first, sub.topicSplit)) {
-                sendPublish(*sub.subscriber, retainedMessage.first, retainedMessage.second.payload, req.qos, Retained::Yes);
+                sendPublish(*sub.subscriber, retainedMessage.first, retainedMessage.second.payload, retainedMessage.second.qos, Retained::Yes);
             }
         }
 
@@ -156,12 +161,12 @@ void ApplicationState::operator()(ChangeRequestSubscribe&& req) {
                                      std::make_tuple(req.subscriber, req.topic, std::vector<std::string>{}, req.qos));
         auto retainedMessage = mRetainedMessages.find(req.topic);
         if(retainedMessage != mRetainedMessages.end()) {
-            sendPublish(*req.subscriber, retainedMessage->first, retainedMessage->second.payload, req.qos, Retained::Yes);
+            sendPublish(*req.subscriber, retainedMessage->first, retainedMessage->second.payload, retainedMessage->second.qos, Retained::Yes);
         }
     } else if(req.subType == SubscriptionType::OMNI) {
         auto& sub = mOmniSubscriptions.emplace_back(req.subscriber, req.topic, std::move(req.topicSplit), req.qos);
         for(auto& retainedMessage: mRetainedMessages) {
-            sendPublish(*sub.subscriber, retainedMessage.first, retainedMessage.second.payload, req.qos, Retained::Yes);
+            sendPublish(*sub.subscriber, retainedMessage.first, retainedMessage.second.payload, retainedMessage.second.qos, Retained::Yes);
         }
     } else {
         assert(false);
@@ -210,7 +215,7 @@ void ApplicationState::operator()(ChangeRequestRetain&& req) {
     if(req.payload.empty()) {
         mRetainedMessages.erase(req.topic);
     } else {
-        mRetainedMessages.insert_or_assign(std::move(req.topic), RetainedMessage{std::move(req.payload), time(nullptr)});
+        mRetainedMessages.insert_or_assign(std::move(req.topic), RetainedMessage{std::move(req.payload), time(nullptr), req.qos});
     }
 }
 void ApplicationState::cleanup() {
@@ -278,6 +283,24 @@ void ApplicationState::operator()(ChangeRequestLoginClient&& req) {
         sessionPresent = SessionPresent::No;
     };
 
+    // this part is a lambda because if we need to send a client QoS1 packets that it missed, we need to send CONNACK before that, but that part of
+    // the code is in an if-statement... it's a bit messy, TODO cleanup?
+    bool connackSent = false;
+    auto sendConnack = [&] {
+        if(connackSent)
+            return;
+        connackSent = true;
+        util::BinaryEncoder response;
+        response.encodeByte(static_cast<uint8_t>(MQTTMessageType::CONNACK) << 4);
+        response.encodeByte(2); // remaining packet length
+        response.encodeByte(sessionPresent == SessionPresent::Yes ? 1 : 0);
+        response.encodeByte(0); // everything okay
+
+
+        req.client->sendData(response.moveData());
+        req.client->setState(MQTTClientConnection::ConnectionState::CONNECTED);
+    };
+
     if(existingSession != mPersistentClientStates.end()) {
         // disconnect existing client
         auto existingClient = existingSession->second.currentClient;
@@ -293,8 +316,18 @@ void ApplicationState::operator()(ChangeRequestLoginClient&& req) {
             existingSession->second.currentClient = req.client.get();
             existingSession->second.cleanSession = req.cleanSession;
             req.client->setPersistentState(&existingSession->second);
-            for(auto& sub: existingSession->second.subscriptions) {
+            auto subs = std::move(existingSession->second.subscriptions);
+            for(auto& sub: subs) {
                 requestChange(ChangeRequestSubscribe{req.client, sub.topic, util::splitTopics(sub.topic), util::hasWildcard(sub.topic) ? SubscriptionType::WILDCARD : SubscriptionType::SIMPLE, sub.qos});
+            }
+            sendConnack();
+            for(auto& qos1packet: existingSession->second.qos1sendingPackets) {
+                auto cpy = qos1packet.second.copy();
+                cpy.data()[0] |= 0x08; // set dup flag
+                // On a sidenote: The dup flag is so useless? Like no MQTT implementation really makes use of it, most just hand it to the client who
+                // ignores it. Even we ignore the dup flags for packets we receive. But for that little bit, we need to do a lot of work here with copying
+                // the whole buffer. It doesn't really matter though because this is far removed from the hot code path.
+                req.client->sendData(std::move(cpy));
             }
         }
     } else {
@@ -306,15 +339,7 @@ void ApplicationState::operator()(ChangeRequestLoginClient&& req) {
     // we need to do it here because only here we now the value of the session present flag
     // we could use callbacks, but that seems too complicated
     spdlog::info("[{}] Logged in from [{}:{}]", req.client->getClientId(), req.client->getTcpClient().getRemoteIp(), req.client->getTcpClient().getRemotePort());
-    util::BinaryEncoder response;
-    response.encodeByte(static_cast<uint8_t>(MQTTMessageType::CONNACK) << 4);
-    response.encodeByte(2); // remaining packet length
-    response.encodeByte(sessionPresent == SessionPresent::Yes ? 1 : 0);
-    response.encodeByte(0); // everything okay
-
-
-    req.client->sendData(response.moveData());
-    req.client->setState(MQTTClientConnection::ConnectionState::CONNECTED);
+    sendConnack();
 }
 void ApplicationState::operator()(ChangeRequestLogoutClient&& req) {
     logoutClient(*req.client);
@@ -374,7 +399,7 @@ void ApplicationState::logoutClient(MQTTClientConnection& client) {
     client.getTcpClient().close();
     client.notifyLoggedOut();
 }
-void ApplicationState::publish(std::string&& topic, std::vector<uint8_t>&& msg, std::optional<QoS> qos, Retain retain) {
+void ApplicationState::publish(std::string&& topic, std::vector<uint8_t>&& msg, QoS qos, Retain retain) {
     std::shared_lock<std::shared_mutex> lock{ mMutex };
     publishNoLockNoRetain(topic, msg, qos, retain);
     lock.unlock();
@@ -383,14 +408,13 @@ void ApplicationState::publish(std::string&& topic, std::vector<uint8_t>&& msg, 
         requestChange(ChangeRequestRetain{std::move(topic), std::move(msg)});
     }
 }
-void ApplicationState::publishInternal(std::string&& topic, std::vector<uint8_t>&& msg, std::optional<QoS> qos, Retain retain) {
-
+void ApplicationState::publishInternal(std::string&& topic, std::vector<uint8_t>&& msg, QoS qos, Retain retain) {
     publishNoLockNoRetain(topic, msg, qos, retain);
     if(retain == Retain::Yes) {
-        requestChange(ChangeRequestRetain{std::move(topic), std::move(msg)});
+        requestChange(ChangeRequestRetain{std::move(topic), std::move(msg), qos});
     }
 }
-void ApplicationState::publishNoLockNoRetain(const std::string& topic, const std::vector<uint8_t>& msg, std::optional<QoS> qos, Retain retain) {
+void ApplicationState::publishNoLockNoRetain(const std::string& topic, const std::vector<uint8_t>& msg, QoS publishQoS, Retain retain) {
     // NOTE: It's possible that we only have a read-only lock here, so we aren't allowed to call requestChange
     #ifndef NDEBUG
         if(topic != LOG_TOPIC) {
@@ -402,22 +426,15 @@ void ApplicationState::publishNoLockNoRetain(const std::string& topic, const std
     if(util::startsWith(topic, "$NIOEV")) {
         //performSystemAction(topic, msg);
     }
-    // second run scripts
-    auto action = SyncAction::Continue;
-    forEachSubscriberThatIsOfT<ScriptContainer>(topic, [&topic, &msg, &action](Subscription& sub) {
-        sendPublish(*sub.subscriber, topic, msg, *sub.qos, Retained::No);
-        // TODO reimplement sync scripts
-        // if(runScriptWithPublishedMessage(std::get<MQTTPersistentState::ScriptName>(sub.subscriber), topic, msg, Retained::No) == SyncAction::AbortPublish) {
-        //    action = SyncAction::AbortPublish;
-        // }
+    forEachSubscriberThatIsOfT(topic, [&topic, &msg, publishQoS](Subscription& sub) {
+        // according to the spec, we have to downgrade the publishQoS level here to match that of the publish; TODO allow overriding this behaviour in a config file
+        auto usedQos = sub.qos;
+        if(static_cast<int>(publishQoS) < static_cast<int>(usedQos)) {
+            usedQos = publishQoS;
+        }
+        sendPublish(*sub.subscriber, topic, msg, usedQos, Retained::No);
     });
-    if(action == SyncAction::AbortPublish) {
-        return;
-    }
-    // then send to clients
-    // this order is neccessary to allow the scripts to abort the message delivery to clients
-    forEachSubscriberThatIsNotOfT<ScriptContainer>(
-        topic, [&topic, &msg](Subscription& sub) { sendPublish(*sub.subscriber, topic, msg, *sub.qos, Retained::No); });
+    // TODO reimplement sync scripts
 
 }
 void ApplicationState::handleNewClientConnection(TcpClientConnection&& conn) {
@@ -461,6 +478,7 @@ void ApplicationState::syncRetainedMessagesToDb() {
         std::stringstream timestampAsStr;
         timestampAsStr << std::put_time(&res, "%Y-%m-%d %H-%M-%S.000");
         mQueryInsertRetainedMsg->bind(3, timestampAsStr.str());
+        mQueryInsertRetainedMsg->bind(4, static_cast<int>(msg.second.qos));
 
         mQueryInsertRetainedMsg->exec();
         mQueryInsertRetainedMsg->clearBindings();

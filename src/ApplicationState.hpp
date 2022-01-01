@@ -52,6 +52,7 @@ struct ChangeRequestUnsubscribeFromAll {
 struct ChangeRequestRetain {
     std::string topic;
     std::vector<uint8_t> payload;
+    QoS qos{QoS::QoS0};
 };
 struct ChangeRequestLoginClient {
     std::shared_ptr<MQTTClientConnection> client;
@@ -138,7 +139,7 @@ public:
     void operator()(ChangeRequestLogoutClient&& req);
     void operator()(ChangeRequestAddScript&& req);
 
-    void publish(std::string&& topic, std::vector<uint8_t>&& msg, std::optional<QoS> qos, Retain retain);
+    void publish(std::string&& topic, std::vector<uint8_t>&& msg, QoS qos, Retain retain);
     // The one-stop solution for all your async publishing needs! Need to publish something but you are actually called by publish itself, which
     // would cause deadlocks or stack overflows? Don't worry! Just call publishAsync and be certain that another thread will handle this problem for you!
     // This will probably even increase performance in case there are many subscribers and you are really busy yourself, because this will free up processing
@@ -172,17 +173,17 @@ private:
         std::shared_ptr<Subscriber> subscriber;
         std::string topic;
         std::vector<std::string> topicSplit; // only used for wildcard subscriptions
-        std::optional<QoS> qos;
-        Subscription(std::shared_ptr<Subscriber> conn, std::string topic, std::vector<std::string>&& topicSplit, std::optional<QoS> qos)
+        QoS qos;
+        Subscription(std::shared_ptr<Subscriber> conn, std::string topic, std::vector<std::string>&& topicSplit, QoS qos)
         : subscriber(std::move(conn)), topic(std::move(topic)), topicSplit(std::move(topicSplit)), qos(qos) {
 
         }
     };
 
     // basically the same as publish but without acquiring a read-only lock
-    void publishInternal(std::string&& topic, std::vector<uint8_t>&& msg, std::optional<QoS> qos, Retain retain);
+    void publishInternal(std::string&& topic, std::vector<uint8_t>&& msg, QoS qos, Retain retain);
 
-    void publishNoLockNoRetain(const std::string& topic, const std::vector<uint8_t>& msg, std::optional<QoS> qos, Retain retain);
+    void publishNoLockNoRetain(const std::string& topic, const std::vector<uint8_t>& msg, QoS publishQoS, Retain retain);
     void executeChangeRequest(ChangeRequest&&);
     void workerThreadFunc();
 
@@ -257,6 +258,7 @@ private:
     struct RetainedMessage {
         std::vector<uint8_t> payload;
         std::time_t timestamp;
+        QoS qos{QoS::QoS0};
     };
     std::unordered_map<std::string, RetainedMessage> mRetainedMessages;
     std::unordered_map<std::string, PersistentClientState> mPersistentClientStates;
