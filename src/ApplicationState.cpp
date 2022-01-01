@@ -85,6 +85,7 @@ void ApplicationState::workerThreadFunc() {
                     // maybe we should make these points configurable or adjust them dynamically?
                     spdlog::debug("Switching to 10µs sleep interval");
                     sleepLevel = WorkerThreadSleepLevel::MICROSECONDS;
+                    sleepCounter = 0;
                 }
                 break;
             case WorkerThreadSleepLevel::MICROSECONDS:
@@ -92,6 +93,7 @@ void ApplicationState::workerThreadFunc() {
                 if(sleepCounter > 200) {
                     spdlog::debug("Switching to 1ms sleep interval");
                     sleepLevel = WorkerThreadSleepLevel::MILLISECONDS;
+                    sleepCounter = 0;
                 }
                 break;
             case WorkerThreadSleepLevel::MILLISECONDS:
@@ -99,6 +101,7 @@ void ApplicationState::workerThreadFunc() {
                 if(sleepCounter > 100) {
                     spdlog::debug("Switching to 10ms sleep interval");
                     sleepLevel = WorkerThreadSleepLevel::TENS_OF_MILLISECONDS;
+                    sleepCounter = 0;
                 }
                 break;
             case WorkerThreadSleepLevel::TENS_OF_MILLISECONDS:
