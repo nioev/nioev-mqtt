@@ -50,21 +50,20 @@ void ApplicationState::workerThreadFunc() {
 
     uint tasksPerformed = 0;
     auto processInternalQueue = [this, &tasksPerformed] {
-        UniqueLockWithAtomicTidUpdate<std::shared_mutex> lock{mMutex, mCurrentRWHolderOfMMutex};
         for(auto& client: mClients) {
             if(client->hasSendError()) {
                 requestChange(ChangeRequestLogoutClient{client->makeShared()});
             }
         }
         while(!mQueueInternal.empty()) {
-            // don't call executeChangeRequest because that function acquires a lock
-            std::visit(*this, std::move(mQueueInternal.front()));
+            executeChangeRequest(std::move(mQueueInternal.front()));
             mQueueInternal.pop();
             tasksPerformed += 1;
         }
     };
     uint yieldHelpCount = 0;
     while(mShouldRun) {
+        UniqueLockWithAtomicTidUpdate<std::shared_mutex> lock{mMutex, mCurrentRWHolderOfMMutex};
         tasksPerformed = 0;
         while(!mQueue.was_empty()) {
             executeChangeRequest(mQueue.pop());
@@ -74,6 +73,8 @@ void ApplicationState::workerThreadFunc() {
         if(tasksPerformed == 0) {
             processInternalQueue();
         }
+        lock.unlock();
+        mCurrentRWHolderOfMMutex = std::thread::id();
         if(tasksPerformed == 0) {
             sleepCounter += 1;
             switch(sleepLevel) {
@@ -137,7 +138,6 @@ void ApplicationState::requestChange(ChangeRequest&& changeRequest, ApplicationS
 }
 
 void ApplicationState::executeChangeRequest(ChangeRequest&& changeRequest) {
-    UniqueLockWithAtomicTidUpdate<std::shared_mutex> lock{mMutex, mCurrentRWHolderOfMMutex};
     std::visit(*this, std::move(changeRequest));
 }
 
