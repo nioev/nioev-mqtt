@@ -9,6 +9,7 @@
 #include <queue>
 #include <thread>
 #include <condition_variable>
+#include "GenServer.hpp"
 
 namespace nioev {
 
@@ -19,20 +20,12 @@ struct AsyncPublishData {
     Retain retain;
 };
 
-class AsyncPublisher {
+class AsyncPublisher : public GenServer<AsyncPublishData> {
 public:
     explicit AsyncPublisher(ApplicationState& app);
-    ~AsyncPublisher();
-    void publishAsync(AsyncPublishData&&);
 private:
-    void secondThreadFunc();
-
+    void handleTask(AsyncPublishData&&) override;
     ApplicationState& mApp;
-    std::mutex mQueueMutex;
-    std::queue<AsyncPublishData> mQueue;
-    std::condition_variable mQueueCV;
-    std::thread mThread;
-    bool mShouldRun{true};
 };
 
 }

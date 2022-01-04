@@ -151,7 +151,7 @@ public:
     // in publishAsync itself), though be aware that infinite loops are still possible if every logged message causes another message to be logged, which
     // causes another message to be logged etc. etc.
     void publishAsync(AsyncPublishData&& data) {
-        mAsyncPublisher.publishAsync(std::move(data));
+        mAsyncPublisher.enqueue(std::move(data));
     }
 
     void handleNewClientConnection(TcpClientConnection&&) override;
