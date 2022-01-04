@@ -14,6 +14,7 @@
 #include "Timers.hpp"
 #include "AsyncPublisher.hpp"
 #include "scripting/ScriptContainer.hpp"
+#include "scripting/NativeLibraryManager.hpp"
 #include "SQLiteCpp/Database.h"
 
 namespace nioev {
@@ -280,6 +281,7 @@ private:
     std::optional<SQLite::Statement> mQueryInsertRetainedMsg;
 
     AsyncPublisher mAsyncPublisher;
+    NativeLibraryManager mNativeLibManager;
 
     // needs to initialized last because it starts a thread which calls us
     ClientThreadManager mClientManager;

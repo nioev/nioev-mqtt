@@ -53,6 +53,10 @@ add_executable(nioev
         src/Util.cpp
         src/MQTTPublishPacketBuilder.hpp
         src/MQTTPublishPacketBuilder.cpp
+        src/scripting/NativeLibrary.cpp
+        src/scripting/NativeLibrary.hpp
+        src/scripting/NativeLibraryManager.cpp
+        src/scripting/NativeLibraryManager.hpp
         src/GenServer.hpp)
 
 target_link_libraries(nioev

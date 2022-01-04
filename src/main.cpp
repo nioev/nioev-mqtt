@@ -12,6 +12,7 @@
 
 #include "App.h"
 #include "HttpResponse.h"
+#include "scripting/NativeLibrary.hpp"
 #include <rapidjson/document.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
@@ -202,12 +203,12 @@ int main() {
             [&app](uWS::HttpResponse<false>* res, uWS::HttpRequest* req) {
                 try {
                     std::string fullCode;
-                    res->onData([res, req, fullCode, &app](std::string_view data, bool last) mutable {
+                    auto scriptName = req->getParameter(0);
+                    res->onData([res, scriptName, fullCode, &app](std::string_view data, bool last) mutable {
                         fullCode += data;
                         if(!last) {
                             return;
                         }
-                        auto scriptName = req->getParameter(0);
                         spdlog::info("Adding script from Web-API: {}", scriptName);
                         app.addScript(
                             std::string{ scriptName }, [res](auto&) { res->end("ok"); },

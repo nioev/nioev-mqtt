@@ -199,10 +199,10 @@ enum class IterationDecision {
 };
 
 template<typename T>
-static void splitString(const std::string& str, T callback) {
+static void splitString(const std::string& str, char delimiter, T callback) {
     std::string::size_type offset = 0, nextOffset = 0;
     do {
-        nextOffset = str.find('/', offset);
+        nextOffset = str.find(delimiter, offset);
         if(callback(std::string_view{str}.substr(offset, nextOffset - offset)) == IterationDecision::Stop) {
             break;
         }
@@ -216,7 +216,7 @@ static bool doesTopicMatchSubscription(const std::string& topic, const std::vect
     if((topic.at(0) == '$' && topicSplit.at(0).at(0) != '$') || (topic.at(0) != '$' && topicSplit.at(0).at(0) == '$')) {
         return false;
     }
-    splitString(topic, [&] (const auto& actualPart) {
+    splitString(topic, '/', [&] (const auto& actualPart) {
         if(topicSplit.size() <= partIndex) {
             doesMatch = false;
             return IterationDecision::Stop;
@@ -238,7 +238,7 @@ static bool doesTopicMatchSubscription(const std::string& topic, const std::vect
 
 inline std::vector<std::string> splitTopics(const std::string& topic) {
     std::vector<std::string> parts;
-    splitString(topic, [&parts](const std::string_view& part) {
+    splitString(topic, '/', [&parts](const std::string_view& part) {
         parts.emplace_back(part);
         return util::IterationDecision::Continue;
     });
@@ -253,7 +253,11 @@ inline bool hasWildcard(const std::string& topic) {
 
 // return e.g. ".js" or ".mp3"
 inline std::string_view getFileExtension(const std::string& filename) {
-    return std::string_view{filename}.substr(filename.find_last_of("."));
+    auto index = filename.find_last_of('.');
+    if(index == std::string::npos) {
+        return {};
+    }
+    return std::string_view{filename}.substr(index);
 }
 
 }

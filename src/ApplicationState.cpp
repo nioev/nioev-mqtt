@@ -383,12 +383,13 @@ void ApplicationState::operator()(ChangeRequestAddScript&& req) {
     auto extension = util::getFileExtension(req.name);
     if(extension == ".js") {
         script = std::make_shared<ScriptContainerJS>(*this, req.name, std::move(req.code));
+        mScripts.emplace(req.name, script);
+        script->init(std::move(req.statusOutput));
+    } else if(extension == ".cpp") {
+        mNativeLibManager.enqueue(CompileNativeLibraryData{std::move(req.statusOutput), req.name, std::move(req.code)});
     } else {
         req.statusOutput.error(req.name, "Invalid script filename: " + req.name);
-        return;
     }
-    mScripts.emplace(req.name, script);
-    script->init(std::move(req.statusOutput));
 }
 void ApplicationState::deleteScript(std::unordered_map<std::string, std::shared_ptr<ScriptContainer>>::iterator it) {
     if(it == mScripts.end())
