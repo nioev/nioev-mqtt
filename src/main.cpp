@@ -208,12 +208,6 @@ int main() {
                             return;
                         }
                         auto scriptName = req->getParameter(0);
-                        auto language = req->getQuery("lang");
-                        if(language != "js") {
-                            res->writeStatus("400 Bad Request");
-                            res->end("Invalid language - please specify lang=js");
-                            return;
-                        }
                         spdlog::info("Adding script from Web-API: {}", scriptName);
                         app.addScript(
                             std::string{ scriptName }, [res](auto&) { res->end("ok"); },
