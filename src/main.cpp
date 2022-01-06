@@ -17,6 +17,8 @@
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 
+#include "quickjs-carr.h"
+
 using namespace nioev;
 
 std::atomic<TcpServer*> gTcpServer = nullptr;
@@ -252,6 +254,22 @@ int main() {
                     res->writeStatus("500 Internal Server Error");
                     res->end(e.what());
                 }
+            })
+        .get(
+            "/script_dev_files",
+            [&app](uWS::HttpResponse<false>* res, uWS::HttpRequest* req) {
+                static std::string body;
+                if(body.empty()) {
+                    static rapidjson::Document doc;
+                    doc.SetObject();
+                    doc.AddMember(rapidjson::StringRef("quickjs.h"), rapidjson::StringRef((const char*)quickjs_h, quickjs_h_len), doc.GetAllocator());
+                    rapidjson::StringBuffer docStringified;
+                    rapidjson::Writer<rapidjson::StringBuffer> docWriter{ docStringified };
+                    doc.Accept(docWriter);
+                    body.append(docStringified.GetString(), docStringified.GetLength());
+                    spdlog::info("Generated script dev files json doc");
+                }
+                res->end(body);
             })
         .listen(1884, [](auto* listenSocket) {
             gListenSocket = listenSocket;

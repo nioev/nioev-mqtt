@@ -4,6 +4,8 @@ project(nioev)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g")
 
+set(CMAKE_EXE_LINKER_FLAGS "-Wl,--export-dynamic")
+
 set(SPDLOG_NO_PTHREAD_ID OFF)
 add_subdirectory(thirdparty/spdlog)
 add_subdirectory(thirdparty/quickjs-2021-03-27)
@@ -18,6 +20,8 @@ add_subdirectory(thirdparty/uWebSockets-CMake)
 add_subdirectory(thirdparty/zstd/build/cmake)
 add_subdirectory(thirdparty/SQLiteCpp)
 
+include_directories (${CMAKE_BINARY_DIR})
+add_custom_command(OUTPUT quickjs-carr.h COMMAND bash ${PROJECT_SOURCE_DIR}/package_quick.sh ${CMAKE_BINARY_DIR} SOURCES ${PROJECT_SOURCE_DIR}/thirdparty/quickjs-2021-03-27/quickjs.h)
 
 add_executable(nioev
         src/main.cpp
@@ -57,7 +61,8 @@ add_executable(nioev
         src/scripting/NativeLibrary.hpp
         src/scripting/NativeLibraryManager.cpp
         src/scripting/NativeLibraryManager.hpp
-        src/GenServer.hpp)
+        src/GenServer.hpp
+        quickjs-carr.h)
 
 target_link_libraries(nioev
         libzstd_static
