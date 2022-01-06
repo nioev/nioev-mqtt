@@ -48,31 +48,24 @@ protected:
 struct PerWebsocketClientData {
     std::string topic;
 };
-inline static std::string ptrToString(void* ptr) {
-    char buffer[sizeof(ptr) + 1] = { 0 };
-    memcpy(buffer, &ptr, 8);
-    return buffer;
-}
 class WSSubscriber : public nioev::Subscriber {
 public:
     WSSubscriber(
         ApplicationState& app,
-        uWS::App& webApp, uWS::Loop& loop, uWS::WebSocket<false, true, PerWebsocketClientData>* ws)
-    : mApp(app), mWebApp(webApp), mLoop(loop), mWS(ws) {
-        mWSId = ptrToString(ws);
+        uWS::Loop& loop, uWS::WebSocket<false, true, PerWebsocketClientData>* ws)
+    : mApp(app), mLoop(loop), mWS(ws) {
     }
     void publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained, MQTTPublishPacketBuilder&) override {
         mLoop.defer([this, topic, payload] {
-            mWebApp.publish(mWSId, std::string_view{ (const char*)payload.data(), payload.size() }, uWS::BINARY, false);
+            mWS->send(std::string_view{ (const char*)payload.data(), payload.size() }, uWS::BINARY, false);
+            //mWebApp.publish(mWSId, std::string_view{ (const char*)payload.data(), payload.size() }, uWS::BINARY, false);
         });
     }
 
 private:
     ApplicationState& mApp;
-    uWS::App& mWebApp;
     uWS::Loop& mLoop;
     uWS::WebSocket<false, true, PerWebsocketClientData>* mWS;
-    std::string mWSId;
 };
 
 int main() {
@@ -182,11 +175,10 @@ int main() {
                             req->getHeader("sec-websocket-protocol"), req->getHeader("sec-websocket-extensions"), context);
                     },
                 .open =
-                    [&openWSFds, &app, &webApp, &loop](uWS::WebSocket<false, true, PerWebsocketClientData>* ws) {
+                    [&openWSFds, &app, &loop](uWS::WebSocket<false, true, PerWebsocketClientData>* ws) {
                         auto userData = ws->getUserData();
                         spdlog::info("New WS subscription on: {}", userData->topic);
-                        ws->subscribe(ptrToString(ws));
-                        auto sub = std::make_shared<WSSubscriber>(app, webApp, *loop, ws);
+                        auto sub = std::make_shared<WSSubscriber>(app, *loop, ws);
                         app.requestChange(makeChangeRequestSubscribe(sub, std::move(userData->topic), QoS::QoS0));
                         openWSFds.emplace(ws, std::move(sub));
                     },
