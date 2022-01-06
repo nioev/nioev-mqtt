@@ -2,6 +2,10 @@
 #include "NativeLibraryManager.hpp"
 #include "../Util.hpp"
 
+// defined main.cpp
+extern unsigned char quickjs_h[];
+extern unsigned int quickjs_h_len;
+
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <filesystem>
@@ -13,18 +17,18 @@ NativeLibraryManager::NativeLibraryManager()
 
 }
 void NativeLibraryManager::handleTask(CompileNativeLibraryData&& nativeLibData) {
-    std::string path = "/tmp/nioev-temporary-native-code.XXXXXX.cpp";
-    if(mkstemps((char*)path.c_str(), 4) < 0) {
+    std::string path = "/tmp/nioev-temporary-native-code.XXXXXX";
+    if(mkdtemp((char*)path.c_str()) == nullptr) {
         nativeLibData.statusOutput.error(nativeLibData.codeFilename, "mkstemp(): " + util::errnoToString());
         return;
     }
-    if(chmod(path.c_str(), S_IRWXU) < 0) {
-        nativeLibData.statusOutput.error(nativeLibData.codeFilename, "chmod(path.c_str(), 700): " + util::errnoToString());
-        return;
-    }
-    std::ofstream out{path};
-    out << nativeLibData.code;
-    out.close();
+    auto codePath = path + "/" + nativeLibData.codeFilename;
+    std::ofstream outCode{codePath};
+    outCode << nativeLibData.code;
+    outCode.close();
+    std::ofstream outQuickJS{path + "/quickjs.h"};
+    outQuickJS.write(reinterpret_cast<const char*>(quickjs_h), quickjs_h_len);
+    outQuickJS.close();
     if(mkdir("libs", S_IRWXU) < 0 && errno != EEXIST) {
         nativeLibData.statusOutput.error(nativeLibData.codeFilename, "mkdir(\"libs\"): " + util::errnoToString());
         return;
@@ -38,7 +42,7 @@ void NativeLibraryManager::handleTask(CompileNativeLibraryData&& nativeLibData) 
     }
     if(clangPid == 0) {
         // we are clang!
-        std::vector<const char*> flags = {"-fPIC", "-shared", "-g", "-o", libName.c_str(), path.c_str()};
+        std::vector<const char*> flags = {"-fPIC", "-shared", "-g", "-o", libName.c_str(), codePath.c_str()};
         auto firstLine = nativeLibData.code.substr(0, nativeLibData.code.find('\n'));
         if(nativeLibData.code.starts_with("// ")) {
             firstLine = firstLine.substr(3);
