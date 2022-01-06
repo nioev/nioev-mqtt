@@ -110,8 +110,7 @@ int main() {
         // close all open ws connections
         loop->defer([&openWSFds] {
             // use a copy because close modifies openWSFds
-            auto cpy = std::move(openWSFds);
-            openWSFds = {};
+            auto cpy = openWSFds;
             for(auto fd : cpy) {
                 fd.first->close();
             }
