@@ -17,7 +17,7 @@
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 
-#include "quickjs-carr.h"
+#include "quickjs_h_embedded.hpp"
 
 using namespace nioev;
 

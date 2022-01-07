@@ -62,7 +62,9 @@ add_executable(nioev
         src/scripting/NativeLibraryManager.cpp
         src/scripting/NativeLibraryManager.hpp
         src/GenServer.hpp
-        quickjs-carr.h)
+        quickjs-carr.h
+        src/quickjs_h_embedded.hpp
+        src/quickjs_h_embedded.cpp)
 
 target_link_libraries(nioev
         libzstd_static

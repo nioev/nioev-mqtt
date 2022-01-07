@@ -2,9 +2,7 @@
 #include "NativeLibraryManager.hpp"
 #include "../Util.hpp"
 
-// defined main.cpp
-extern unsigned char quickjs_h[];
-extern unsigned int quickjs_h_len;
+#include "../quickjs_h_embedded.hpp"
 
 #include <sys/stat.h>
 #include <sys/wait.h>
@@ -13,7 +11,7 @@ extern unsigned int quickjs_h_len;
 namespace nioev {
 
 NativeLibraryManager::NativeLibraryManager()
-: GenServer<CompileNativeLibraryData>("native-lib-comp") {
+: GenServer<CompileNativeLibraryData>("native- lib-comp") {
 
 }
 void NativeLibraryManager::handleTask(CompileNativeLibraryData&& nativeLibData) {
