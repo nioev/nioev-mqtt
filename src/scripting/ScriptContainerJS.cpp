@@ -64,8 +64,8 @@ void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
     };
 
     auto logFunc = JS_NewCFunction(mJSContext, [](JSContext* ctx, JSValue this_obj, int argc, JSValue* args) {
+            ScriptContainerJS* self = reinterpret_cast<ScriptContainerJS*>(JS_GetContextOpaque(ctx));
             try {
-                ScriptContainerJS* self = reinterpret_cast<ScriptContainerJS*>(JS_GetContextOpaque(ctx));
                 std::string toLog;
                 for(int i = 0; i < argc; ++i) {
                     auto json = JS_JSONStringify(ctx, args[i], JS_UNDEFINED, JS_UNDEFINED);
@@ -79,13 +79,13 @@ void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
                 spdlog::info("[SCRIPT] [{}] {}", self->mName, toLog);
                 return JS_UNDEFINED;
             } catch (std::exception& e) {
-                return JS_NewString(ctx, e.what());
+                return JS_Throw(ctx, JS_NewString(ctx, e.what()));
             }
     }, "log", 0);
 
     auto logErrFunc = JS_NewCFunction(mJSContext, [](JSContext* ctx, JSValue this_obj, int argc, JSValue* args) {
+            ScriptContainerJS* self = reinterpret_cast<ScriptContainerJS*>(JS_GetContextOpaque(ctx));
             try {
-                ScriptContainerJS* self = reinterpret_cast<ScriptContainerJS*>(JS_GetContextOpaque(ctx));
                 std::string toLog;
                 for(int i = 0; i < argc; ++i) {
                     auto json = JS_JSONStringify(ctx, args[i], JS_UNDEFINED, JS_UNDEFINED);
@@ -99,7 +99,7 @@ void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
                 spdlog::error("[SCRIPT] [{}] {}", self->mName, toLog);
                 return JS_UNDEFINED;
             } catch (std::exception& e) {
-                return JS_NewString(ctx, e.what());
+                return JS_Throw(ctx, JS_NewString(ctx, e.what()));
             }
         }, "error", 0);
     //util::DestructWrapper destructLogFunc{[&]{ JS_FreeValue(mJSContext, logFunc); }};
@@ -111,6 +111,50 @@ void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
     JS_SetPropertyStr(mJSContext, globalObj, "console", console);
     JS_SetPropertyStr(mJSContext, console, "log", logFunc);
     JS_SetPropertyStr(mJSContext, console, "error", logErrFunc);
+
+    auto loadNativeLibFunc = JS_NewCFunction(mJSContext, [](JSContext* ctx, JSValue this_obj, int argc, JSValue* args) {
+            ScriptContainerJS* self = reinterpret_cast<ScriptContainerJS*>(JS_GetContextOpaque(ctx));
+            try {
+                if(argc < 1) {
+                    throw std::runtime_error{"You need to pass the library that you want to load"};
+                }
+                if(!JS_IsString(args[0])) {
+                    throw std::runtime_error{"First argument needs to be a string"};
+                }
+                auto libName = JS_ToCString(ctx, args[0]);
+                util::DestructWrapper destructLibName{[&] {
+                    JS_FreeCString(ctx, libName);
+                }};
+                std::string libNameStr = libName;
+                while(true) {
+                    auto[loadingLibs, lock] = self->mApp.getListOfCurrentlyLoadingNativeLibs();
+                    if(loadingLibs.get().contains(libNameStr)) {
+                        lock.unlock();
+                        spdlog::warn("[{}] Stalling execution while waiting for native library {} to compile", self->mName, libNameStr);
+                        std::this_thread::sleep_for(std::chrono::seconds(1));
+                    } else {
+                        break;
+                    }
+                }
+                auto existingLib = self->mNativeLibs.find(libNameStr);
+                if(existingLib != self->mNativeLibs.end()) {
+                    self->mNativeLibs.erase(existingLib);
+                }
+                auto lib = self->mNativeLibs.emplace_hint(existingLib, libNameStr, "libs/lib" + libNameStr + ".so");
+                auto features = lib->second.getFeatures();
+                if(std::find(features.cbegin(), features.cend(), "js") == features.cend()) {
+                    throw std::runtime_error{"Library doesn't support js"};
+                }
+                auto nativeFunction = (JSCFunction*) lib->second.getFP("_nioev_library_function_load_js");
+                // if while debugging you see a crash in the line below, that probably means that your native code is at fault!
+                return nativeFunction(ctx, this_obj, argc - 1, args + 1);
+            } catch (std::exception& e) {
+                return JS_Throw(ctx, JS_NewString(ctx, e.what()));
+            }
+        }, "loadNativeLibrary", 1);
+    auto nv = JS_NewObject(mJSContext);
+    JS_SetPropertyStr(mJSContext, globalObj, "nv", nv);
+    JS_SetPropertyStr(mJSContext, nv, "loadNativeLibrary", loadNativeLibFunc);
 
     auto ret = JS_Eval(mJSContext, mCode.c_str(), mCode.size(), mName.c_str(), 0);
     util::DestructWrapper destructRet{[&]{ JS_FreeValue(mJSContext, ret); }};
@@ -368,47 +412,6 @@ void ScriptContainerJS::handleScriptActions(const JSValue& actions, ScriptStatus
             }
             mIntervalData.emplace(IntervalData{});
             mIntervalData->mIntervalTimeout = std::chrono::milliseconds(*timeout);
-
-        } else if(actionType == "tcp_listen") {
-            auto identifier = getJSStringProperty(action, "identifier");
-            if(!identifier) {
-                status.error(mName, "identifier field is missing");
-                return;
-            }
-            auto sendCompressionStr = getJSStringProperty(action, "send_compression");
-            Compression sendCompression = Compression::NONE;
-            if(sendCompressionStr) {
-              if(sendCompressionStr == "zstd") {
-                  sendCompression = Compression::ZSTD;
-              } else if(sendCompressionStr == "none") {
-                  sendCompression = Compression::NONE;
-              } else {
-                  status.error(mName, "send_compression must be zstd or none");
-              }
-            }
-            auto recvCompressionStr = getJSStringProperty(action, "recv_compression");
-            Compression recvCompression = Compression::NONE;
-            if(recvCompressionStr) {
-                if(recvCompressionStr == "none") {
-                    recvCompression = Compression::NONE;
-                } else {
-                    status.error(mName, "recv_compression must be none");
-                }
-            }
-            spdlog::warn("tcp_listen currently not implemented");
-
-        } else if(actionType == "tcp_send") {
-            auto fd = getJSIntProperty(action, "fd");
-            if(!fd) {
-                status.error(mName, "fd field is missing");
-                return;
-            }
-            auto payload = extractPayload(action);
-            if(!payload) {
-                status.error(mName, "Missing either payloadStr or payloadBytes");
-                return;
-            }
-            spdlog::warn("tcp_send currently not implemented");
 
         }
         i += 1;

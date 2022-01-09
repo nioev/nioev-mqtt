@@ -169,6 +169,10 @@ public:
     void addScript(std::string name, std::function<void(const std::string& scriptName)>&& onSuccess, std::function<void(const std::string& scriptName, const std::string&)>&& onError, std::string code);
 
     void syncRetainedMessagesToDb();
+
+    auto getListOfCurrentlyLoadingNativeLibs() const {
+        return mNativeLibManager.getListOfCurrentlyLoadingNativeLibs();
+    }
 private:
     struct Subscription {
         std::shared_ptr<Subscriber> subscriber;

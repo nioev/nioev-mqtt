@@ -6,6 +6,7 @@
 #include <optional>
 #include <queue>
 #include <condition_variable>
+#include "NativeLibrary.hpp"
 
 namespace nioev {
 
@@ -43,6 +44,7 @@ private:
         std::chrono::milliseconds mIntervalTimeout{0};
     };
     std::optional<IntervalData> mIntervalData;
+    std::unordered_map<std::string, NativeLibrary> mNativeLibs;
 };
 
 }

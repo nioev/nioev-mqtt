@@ -15,6 +15,12 @@ NativeLibraryManager::NativeLibraryManager()
 
 }
 void NativeLibraryManager::handleTask(CompileNativeLibraryData&& nativeLibData) {
+    util::DestructWrapper finishLoading{[&] {
+        std::unique_lock<std::shared_mutex> lock{mCurrentlyLoadingMutex};
+        mCurrentlyLoading.erase(std::string{util::getFileStem(nativeLibData.codeFilename)});
+        lock.unlock();
+    }};
+
     std::string path = "/tmp/nioev-temporary-native-code.XXXXXX";
     if(mkdtemp((char*)path.c_str()) == nullptr) {
         nativeLibData.statusOutput.error(nativeLibData.codeFilename, "mkstemp(): " + util::errnoToString());
@@ -31,7 +37,7 @@ void NativeLibraryManager::handleTask(CompileNativeLibraryData&& nativeLibData) 
         nativeLibData.statusOutput.error(nativeLibData.codeFilename, "mkdir(\"libs\"): " + util::errnoToString());
         return;
     }
-    auto baseName = std::filesystem::path{nativeLibData.codeFilename}.stem().string();
+    std::string baseName{util::getFileStem(nativeLibData.codeFilename)};
     std::string libName = "libs/lib" + baseName + ".so";
     pid_t clangPid = fork();
     if(clangPid < 0) {
@@ -65,6 +71,12 @@ void NativeLibraryManager::handleTask(CompileNativeLibraryData&& nativeLibData) 
         return;
     }
     nativeLibData.statusOutput.success(nativeLibData.codeFilename);
+}
+void NativeLibraryManager::enqueue(CompileNativeLibraryData&& task) {
+    std::unique_lock<std::shared_mutex> lock{mCurrentlyLoadingMutex};
+    mCurrentlyLoading.emplace(util::getFileStem(task.codeFilename));
+    lock.unlock();
+    GenServer<CompileNativeLibraryData>::enqueue(std::move(task));
 }
 
 }

@@ -22,7 +22,7 @@ public:
         lock.unlock();
         mWorkerThread.join();
     }
-    void enqueue(TaskType&& task) {
+    virtual void enqueue(TaskType&& task) {
         std::unique_lock<std::mutex> lock{mTasksMutex};
         mTasks.emplace(std::move(task));
         mTasksCV.notify_all();

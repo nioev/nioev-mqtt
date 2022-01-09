@@ -260,5 +260,18 @@ inline std::string_view getFileExtension(const std::string& filename) {
     return std::string_view{filename}.substr(index);
 }
 
+// return e.g. test for test.mp3
+inline std::string_view getFileStem(const std::string& filename) {
+    auto start = filename.find_last_of('/');
+    if(start == std::string::npos) {
+        start = 0;
+    }
+    auto end = filename.find_last_of('.');
+    if(end == std::string::npos) {
+        end = filename.size();
+    }
+    return std::string_view{filename}.substr(start, end - start);
+}
+
 }
 }
