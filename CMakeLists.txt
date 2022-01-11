@@ -45,8 +45,6 @@ add_executable(nioev
         ${UWEBSOCKETS_FILES}
         src/Timers.cpp
         src/Timers.hpp
-        src/scripting/ScriptCustomTCPServer.cpp
-        src/scripting/ScriptCustomTCPServer.hpp
         src/scripting/ScriptContainerManager.cpp
         src/ApplicationState.cpp
         src/ApplicationState.hpp

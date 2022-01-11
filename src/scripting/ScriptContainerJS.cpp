@@ -26,6 +26,10 @@ ScriptContainerJS::~ScriptContainerJS() {
         lock.unlock();
         mScriptThread->join();
     }
+    while(!mTimeouts.empty()) {
+        mTimeouts.top().freeJSValues(mJSContext);
+        mTimeouts.pop();
+    }
     JS_FreeContext(mJSContext);
     mJSContext = nullptr;
     JS_FreeRuntime(mJSRuntime);
@@ -156,6 +160,68 @@ void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
     JS_SetPropertyStr(mJSContext, globalObj, "nv", nv);
     JS_SetPropertyStr(mJSContext, nv, "loadNativeLibrary", loadNativeLibFunc);
 
+    auto setTimeoutFunc = JS_NewCFunction(mJSContext, [](JSContext* ctx, JSValue this_obj, int argc, JSValue* args) {
+            ScriptContainerJS* self = reinterpret_cast<ScriptContainerJS*>(JS_GetContextOpaque(ctx));
+            try {
+                if(argc < 1) {
+                    throw std::runtime_error{"You need to pass the function to call"};
+                }
+                JSValue function = args[0];
+                if(!JS_IsFunction(ctx, function)) {
+                    throw std::runtime_error{"Argument 0 to setTimeout must be a function"};
+                }
+                int32_t timeout = 0;
+                if(argc >= 2) {
+                    if(JS_ToInt32(ctx, &timeout, args[1]) < 0) {
+                        throw std::runtime_error{"Timeout must be an int32!"};
+                    }
+                }
+                auto id = self->mTimeoutIdCounter++;
+                if(self->mTimeoutIdCounter < 0) {
+                    self->mTimeoutIdCounter = 1; // wrap around
+                }
+                std::vector<JSValue> passedArgs;
+                passedArgs.reserve(argc - 2);
+                for(int i = 2; i < argc; ++i) {
+                    passedArgs.push_back(JS_DupValue(ctx, args[i]));
+                }
+                self->mTimeouts.emplace(TimeoutData{std::chrono::milliseconds(timeout), id, JS_DupValue(ctx, function), std::move(passedArgs)});
+                return JS_NewInt32(ctx, id);
+            } catch (std::exception& e) {
+                return JS_Throw(ctx, JS_NewString(ctx, e.what()));
+            }
+        }, "setTimeout", 1);
+    JS_SetPropertyStr(mJSContext, globalObj, "setTimeout", setTimeoutFunc);
+
+    auto clearTimeoutFunc = JS_NewCFunction(mJSContext, [](JSContext* ctx, JSValue this_obj, int argc, JSValue* args) {
+            ScriptContainerJS* self = reinterpret_cast<ScriptContainerJS*>(JS_GetContextOpaque(ctx));
+            try {
+                if(argc < 1) {
+                    throw std::runtime_error{"You need to pass an id"};
+                }
+                int32_t id;
+                if(JS_ToInt32(ctx, &id, args[0]) < 0) {
+                    throw std::runtime_error{"Id must be an int32!"};
+                }
+                auto timeoutsCpy = std::move(self->mTimeouts);
+                self->mTimeouts = {};
+                while(!timeoutsCpy.empty()) {
+                    if(timeoutsCpy.top().mId != id) {
+                        self->mTimeouts.push(timeoutsCpy.top());
+                    } else {
+                        timeoutsCpy.top().freeJSValues(ctx);
+                    }
+                    timeoutsCpy.pop();
+                }
+                return JS_UNDEFINED;
+            } catch (std::exception& e) {
+                return JS_Throw(ctx, JS_NewString(ctx, e.what()));
+            }
+        }, "clearTimeout", 1);
+    JS_SetPropertyStr(mJSContext, globalObj, "clearTimeout", clearTimeoutFunc);
+    JS_SetPropertyStr(mJSContext, globalObj, "setInterval", JS_UNDEFINED);
+    JS_SetPropertyStr(mJSContext, globalObj, "clearInterval", JS_UNDEFINED);
+
     auto ret = JS_Eval(mJSContext, mCode.c_str(), mCode.size(), mName.c_str(), 0);
     util::DestructWrapper destructRet{[&]{ JS_FreeValue(mJSContext, ret); }};
 
@@ -165,8 +231,7 @@ void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
     }
     auto runType = getJSStringProperty(ret, "runType");
     if(!runType) {
-        initStatus.error(mName, "Init return runType is not a string");
-        return;
+        runType = "async";
     }
     {
         std::lock_guard<std::mutex> lock{mScriptInitReturnMutex};
@@ -192,18 +257,16 @@ void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
     while(!mShouldAbort) {
         std::unique_lock<std::mutex> lock{mTasksMutex};
         while(mTasks.empty()) {
-            if(mIntervalData) {
-                auto sleepFor = mIntervalData->mIntervalTimeout - (std::chrono::steady_clock::now() - mIntervalData->mLastIntervalCall);
-                if(sleepFor.count() > 0) {
-                    if(mTasksCV.wait_for(lock, sleepFor) == std::cv_status::timeout) {
-                        continue;
-                    }
+            if(!mTimeouts.empty()) {
+                auto waitFor = mTimeouts.top().timeLeftUntilShouldBeRun();
+                if(waitFor > std::chrono::milliseconds(0)) {
+                    mTasksCV.wait_for(lock, waitFor);
                 } else {
-                    // if timeout is zero, only enqueue a run task if there are no tasks; otherwise we'd never get through all tasks
-                    if((mTasks.empty() && mIntervalData->mIntervalTimeout == std::chrono::milliseconds(0)) || mIntervalData->mIntervalTimeout > std::chrono::milliseconds(0)) {
-                        mTasks.push(std::make_pair(ScriptRunArgsInterval{}, ScriptStatusOutput{}));
-                        mIntervalData->mLastIntervalCall = std::chrono::steady_clock::now();
-                    }
+                    auto timeout = mTimeouts.top();
+                    mTimeouts.pop();
+                    auto timeoutCallRet = JS_Call(mJSContext, timeout.mFunction, globalObj, timeout.mFunctionArgs.size(), timeout.mFunctionArgs.data());
+                    JS_FreeValue(mJSContext, timeoutCallRet);
+                    timeout.freeJSValues(mJSContext);
                 }
             } else {
                 mTasksCV.wait(lock);
@@ -230,18 +293,22 @@ void ScriptContainerJS::performRun(const ScriptInputArgs& input, ScriptStatusOut
     auto globalObj = JS_GetGlobalObject(mJSContext);
     util::DestructWrapper destructGlobalObj{[&]{ JS_FreeValue(mJSContext, globalObj); }};
 
-    auto runFunction = JS_GetPropertyStr(mJSContext, globalObj, "run");
+    JSValue runFunction = JS_UNDEFINED;
     util::DestructWrapper destructRunFunction{[&]{ JS_FreeValue(mJSContext, runFunction); }};
-    if(!JS_IsFunction(mJSContext, runFunction)) {
-        status.error(mName, "no run function defined!");
-        return;
-    }
+    auto loadRunFunction = [&](const char* name) {
+        auto func = JS_GetPropertyStr(mJSContext, globalObj, name);
+        if(!JS_IsFunction(mJSContext, runFunction)) {
+            status.error(mName, "function " + std::string{name} + " not defined!");
+            return;
+        }
+    };
     auto paramObj = JS_NewObject(mJSContext);
     util::DestructWrapper destructParamObj{[&]{ JS_FreeValue(mJSContext, paramObj); }};
 
     switch(input.index()) {
     case 0: {
         // publish
+        loadRunFunction("onPublish");
         auto& cppParams = std::get<0>(input);
         JS_SetPropertyStr(mJSContext, paramObj, "type", JS_NewString(mJSContext, "publish"));
         JS_SetPropertyStr(mJSContext, paramObj, "topic", JS_NewString(mJSContext, cppParams.topic.c_str()));
@@ -259,33 +326,6 @@ void ScriptContainerJS::performRun(const ScriptInputArgs& input, ScriptStatusOut
         } else {
             JS_SetPropertyStr(mJSContext, paramObj, "payloadStr", JS_NewStringLen(mJSContext, (char*)cppParams.payload.data(), cppParams.payload.size()));
         }
-        break;
-    }
-    case 1: {
-        // new tcp
-        auto& cppParams = std::get<1>(input);
-        JS_SetPropertyStr(mJSContext, paramObj, "type", JS_NewString(mJSContext, "tcp_new_client"));
-        JS_SetPropertyStr(mJSContext, paramObj, "fd", JS_NewInt32(mJSContext, cppParams.fd));
-        break;
-    }
-    case 2: {
-        // new tcp msg
-        auto& cppParams = std::get<2>(input);
-        JS_SetPropertyStr(mJSContext, paramObj, "type", JS_NewString(mJSContext, "tcp_new_msg"));
-        // TODO
-        break;
-    }
-    case 3: {
-        // delete tcp
-        auto& cppParams = std::get<3>(input);
-        JS_SetPropertyStr(mJSContext, paramObj, "type", JS_NewString(mJSContext, "tcp_delete_client"));
-        JS_SetPropertyStr(mJSContext, paramObj, "fd", JS_NewInt32(mJSContext, cppParams.fd));
-        break;
-    }
-    case 4: {
-        // interval
-        auto& cppParams = std::get<4>(input);
-        JS_SetPropertyStr(mJSContext, paramObj, "type", JS_NewString(mJSContext, "interval"));
         break;
     }
     default:
@@ -404,21 +444,6 @@ void ScriptContainerJS::handleScriptActions(const JSValue& actions, ScriptStatus
             }
             mApp.requestChange(ChangeRequestUnsubscribe{makeShared(), *topic});
 
-        } else if(actionType == "start_interval") {
-            auto timeout = getJSIntProperty(action, "timeout_ms");
-            if(!timeout) {
-                status.error(mName, "timeout_ms field is missing");
-                return;
-            }
-            if(*timeout < 0) {
-                status.error(mName, "timeout_ms must be >= 0");
-                return;
-            }
-            mIntervalData.emplace(IntervalData{});
-            mIntervalData->mIntervalTimeout = std::chrono::milliseconds(*timeout);
-
-        } else if(actionType == "stop_interval") {
-            mIntervalData.reset();
         }
         i += 1;
     }

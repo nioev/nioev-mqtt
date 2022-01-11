@@ -39,12 +39,36 @@ private:
     std::queue<std::pair<ScriptInputArgs, ScriptStatusOutput>> mTasks;
     std::string mInitFailureMessage; // protected by tasks mutex
 
-    struct IntervalData {
+    struct TimeoutData {
         std::chrono::steady_clock::time_point mLastIntervalCall{std::chrono::steady_clock::now()};
         std::chrono::milliseconds mIntervalTimeout{0};
+        int32_t mId{0};
+        mutable JSValue mFunction{JS_UNDEFINED};
+        mutable std::vector<JSValue> mFunctionArgs;
+        TimeoutData(std::chrono::milliseconds timeout, int32_t id, JSValue function, std::vector<JSValue> functionArgs) {
+            mIntervalTimeout = timeout;
+            mId = id;
+            mFunction = function;
+            mFunctionArgs = std::move(functionArgs);
+        }
+        [[nodiscard]] auto timeLeftUntilShouldBeRun() const {
+            return mIntervalTimeout - (std::chrono::steady_clock::now() - mLastIntervalCall);
+        }
+        bool operator<(const TimeoutData& other) const {
+            return timeLeftUntilShouldBeRun() > other.timeLeftUntilShouldBeRun();
+        }
+        void freeJSValues(JSContext* ctx) const {
+            JS_FreeValue(ctx, mFunction);
+            for(auto& arg: mFunctionArgs) {
+                JS_FreeValue(ctx, arg);
+            }
+            mFunction = JS_UNDEFINED;
+            mFunctionArgs.clear();
+        }
     };
-    std::optional<IntervalData> mIntervalData;
     std::unordered_map<std::string, NativeLibrary> mNativeLibs;
+    std::priority_queue<TimeoutData> mTimeouts;
+    int32_t mTimeoutIdCounter = 1;
 };
 
 }

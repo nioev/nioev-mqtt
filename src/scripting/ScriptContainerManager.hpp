@@ -1,11 +1,11 @@
 #pragma once
 
 #include "ScriptContainer.hpp"
-#include "ScriptCustomTCPServer.hpp"
 
 #include <memory>
 #include <spdlog/spdlog.h>
 #include <unordered_map>
+#include <shared_mutex>
 
 
 namespace nioev {
@@ -13,7 +13,7 @@ namespace nioev {
 class ScriptContainerManager {
 public:
     ScriptContainerManager(ApplicationState& app)
-    : mScriptServer(*this), mApp(app) {
+    : mApp(app) {
 
     }
 
@@ -48,7 +48,6 @@ public:
         auto script = mScripts.find(name);
         if(script == mScripts.end())
             return;
-        mScriptServer.notifyScriptDied(name);
         script->second->forceQuit();
         mScripts.erase(script);
     }
@@ -72,22 +71,11 @@ public:
         };
         script->run(in, std::move(out));
     }
-
-    void passTcpClient(TcpClientConnection&& tcpClient, std::vector<uint8_t>&& receivedData) {
-        mScriptServer.passTcpClient(std::move(tcpClient), std::move(receivedData));
-    }
-    void scriptTcpListen(std::string&& scriptName, std::string&& listenIdentifier, Compression sendCompression, Compression recvCompression) {
-        mScriptServer.scriptListen(std::move(scriptName), std::move(listenIdentifier), sendCompression, recvCompression);
-    }
-    void scriptTcpSendToClient(std::string&& scriptName, int fd, std::vector<uint8_t>&& payload) {
-        mScriptServer.sendMsgFromScript(std::move(scriptName), fd, std::move(payload));
-    }
 private:
     void deleteScriptFromApp(const std::string& name);
     mutable std::shared_mutex mScriptsLock;
     std::unordered_map<std::string, std::unique_ptr<ScriptContainer>> mScripts;
 
-    ScriptCustomTCPServer mScriptServer;
     ApplicationState& mApp;
 };
 
