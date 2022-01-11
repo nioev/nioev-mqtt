@@ -417,6 +417,8 @@ void ScriptContainerJS::handleScriptActions(const JSValue& actions, ScriptStatus
             mIntervalData.emplace(IntervalData{});
             mIntervalData->mIntervalTimeout = std::chrono::milliseconds(*timeout);
 
+        } else if(actionType == "stop_interval") {
+            mIntervalData.reset();
         }
         i += 1;
     }
