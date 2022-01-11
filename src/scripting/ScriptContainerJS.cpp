@@ -199,8 +199,11 @@ void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
                         continue;
                     }
                 } else {
-                    mTasks.push(std::make_pair(ScriptRunArgsInterval{}, ScriptStatusOutput{}));
-                    mIntervalData->mLastIntervalCall = std::chrono::steady_clock::now();
+                    // if timeout is zero, only enqueue a run task if there are no tasks; otherwise we'd never get through all tasks
+                    if((mTasks.empty() && mIntervalData->mIntervalTimeout == std::chrono::milliseconds(0)) || mIntervalData->mIntervalTimeout > std::chrono::milliseconds(0)) {
+                        mTasks.push(std::make_pair(ScriptRunArgsInterval{}, ScriptStatusOutput{}));
+                        mIntervalData->mLastIntervalCall = std::chrono::steady_clock::now();
+                    }
                 }
             } else {
                 mTasksCV.wait(lock);
@@ -407,8 +410,9 @@ void ScriptContainerJS::handleScriptActions(const JSValue& actions, ScriptStatus
                 status.error(mName, "timeout_ms field is missing");
                 return;
             }
-            if(*timeout <= 0) {
+            if(*timeout < 0) {
                 status.error(mName, "timeout_ms must be >= 0");
+                return;
             }
             mIntervalData.emplace(IntervalData{});
             mIntervalData->mIntervalTimeout = std::chrono::milliseconds(*timeout);
