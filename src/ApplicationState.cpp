@@ -23,8 +23,20 @@ ApplicationState::ApplicationState()
     mQueryInsertRetainedMsg.emplace(mDb, "INSERT INTO retained_msg (topic, payload, timestamp, qos) VALUES (?, ?, ?, ?)");
     // fetch scripts
     SQLite::Statement scriptQuery(mDb, "SELECT name,code FROM script");
+    std::vector<std::pair<std::string, std::string>> scripts;
     while(scriptQuery.executeStep()) {
-        mQueueInternal.emplace(ChangeRequestAddScript{scriptQuery.getColumn(0), scriptQuery.getColumn(1)});
+        scripts.emplace_back(scriptQuery.getColumn(0), scriptQuery.getColumn(1));
+    }
+    std::sort(scripts.begin(), scripts.end(), [](auto& a, auto& b) -> bool {
+        if(util::getFileExtension(a.first) == ".cpp") {
+            return true;
+        } else if(util::getFileExtension(b.first) == ".cpp") {
+            return false;
+        }
+        return true;
+    });
+    for(auto& script: scripts) {
+        executeChangeRequest(ChangeRequestAddScript{std::move(script.first), std::move(script.second)});
     }
     // fetch retained messages
     SQLite::Statement retainedMsgQuery(mDb, "SELECT topic,payload,timestamp,qos FROM retained_msg");
