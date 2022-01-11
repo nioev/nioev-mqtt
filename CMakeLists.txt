@@ -59,7 +59,7 @@ add_executable(nioev
         src/MQTTPublishPacketBuilder.cpp
         src/scripting/NativeLibrary.cpp
         src/scripting/NativeLibrary.hpp
-        src/scripting/NativeLibraryManager.cpp
+        src/scripting/NativeLibraryCompiler.cpp
         src/scripting/NativeLibraryManager.hpp
         src/GenServer.hpp
         quickjs-carr.h

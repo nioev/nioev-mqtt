@@ -10,11 +10,11 @@
 
 namespace nioev {
 
-NativeLibraryManager::NativeLibraryManager()
+NativeLibraryCompiler::NativeLibraryCompiler()
 : GenServer<CompileNativeLibraryData>("native- lib-comp") {
 
 }
-void NativeLibraryManager::handleTask(CompileNativeLibraryData&& nativeLibData) {
+void NativeLibraryCompiler::handleTask(CompileNativeLibraryData&& nativeLibData) {
     util::DestructWrapper finishLoading{[&] {
         std::unique_lock<std::shared_mutex> lock{mCurrentlyLoadingMutex};
         mCurrentlyLoading.erase(std::string{util::getFileStem(nativeLibData.codeFilename)});
@@ -72,7 +72,7 @@ void NativeLibraryManager::handleTask(CompileNativeLibraryData&& nativeLibData) 
     }
     nativeLibData.statusOutput.success(nativeLibData.codeFilename);
 }
-void NativeLibraryManager::enqueue(CompileNativeLibraryData&& task) {
+void NativeLibraryCompiler::enqueue(CompileNativeLibraryData&& task) {
     std::unique_lock<std::shared_mutex> lock{mCurrentlyLoadingMutex};
     mCurrentlyLoading.emplace(util::getFileStem(task.codeFilename));
     lock.unlock();

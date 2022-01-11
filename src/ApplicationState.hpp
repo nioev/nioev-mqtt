@@ -285,7 +285,7 @@ private:
     std::optional<SQLite::Statement> mQueryInsertRetainedMsg;
 
     AsyncPublisher mAsyncPublisher;
-    NativeLibraryManager mNativeLibManager;
+    NativeLibraryCompiler mNativeLibManager;
 
     // needs to initialized last because it starts a thread which calls us
     ClientThreadManager mClientManager;
