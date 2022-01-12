@@ -157,9 +157,11 @@ int main() {
                     }
                     app.publish(std::move(topic), std::move(payload), qos, retain);
                     res->end("ok");
+                    res->close();
                 } catch(std::exception& e) {
                     res->writeStatus("500 Internal Server Error");
                     res->end(e.what());
+                    res->close();
                     return;
                 }
             })
@@ -210,11 +212,13 @@ int main() {
                                 res->end(error);
                             },
                             std::move(fullCode));
+                        res->close();
                     });
                     res->onAborted([] {});
                 } catch(std::exception& e) {
                     res->writeStatus("500 Internal Server Error");
                     res->end(e.what());
+                    res->close();
                 }
             })
         .get(
@@ -241,9 +245,11 @@ int main() {
                     rapidjson::Writer<rapidjson::StringBuffer> docWriter{ docStringified };
                     doc.Accept(docWriter);
                     res->end({ docStringified.GetString(), docStringified.GetLength() });
+                    res->close();
                 } catch(std::exception& e) {
                     res->writeStatus("500 Internal Server Error");
                     res->end(e.what());
+                    res->close();
                 }
             })
         .get(
@@ -261,6 +267,7 @@ int main() {
                     spdlog::info("Generated script dev files json doc");
                 }
                 res->end(body);
+                res->close();
             })
         .listen(1884, [](auto* listenSocket) {
             gListenSocket = listenSocket;
