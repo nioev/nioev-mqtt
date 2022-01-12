@@ -156,9 +156,72 @@ void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
                 return JS_Throw(ctx, JS_NewString(ctx, e.what()));
             }
         }, "loadNativeLibrary", 1);
+    auto publishFunc = JS_NewCFunction(mJSContext, [](JSContext* ctx, JSValue this_obj, int argc, JSValue* args) {
+            ScriptContainerJS* self = reinterpret_cast<ScriptContainerJS*>(JS_GetContextOpaque(ctx));
+            try {
+                if(argc < 2) {
+                    throw std::runtime_error{"Publish needs at least 2 args"};
+                }
+                if(!JS_IsString(args[0])) {
+                    throw std::runtime_error{"First argument to publish needs to be a string"};
+                }
+                auto topic = JS_ToCString(ctx, args[0]);
+                util::DestructWrapper destructTopic{[&] {
+                    JS_FreeCString(ctx, topic);
+                }};
+                std::vector<uint8_t> payload;
+                if(JS_IsString(args[1])) {
+                    auto payloadStr = JS_ToCString(ctx, args[1]);
+                    util::DestructWrapper destructPayloadStr{[&] {
+                        JS_FreeCString(ctx, payloadStr);
+                    }};
+                    payload = {payloadStr, payloadStr + strlen(payloadStr)};
+                } else {
+                    size_t bytesSize = 0;
+                    size_t bytesPerElement = 0;
+                    size_t bytesOffset = 0;
+                    auto payloadBytesValue = JS_GetTypedArrayBuffer(ctx, args[1], &bytesOffset, &bytesSize, &bytesPerElement);
+                    util::DestructWrapper destructPayloadBytesValue{[&]{ JS_FreeValue(ctx, payloadBytesValue); }};
+                    if(JS_IsException(payloadBytesValue)) {
+                        throw std::runtime_error{"Second argument to publish needs to be a string or an Uint8Array"};
+                    }
+                    auto payloadBytes = JS_GetArrayBuffer(ctx, &bytesSize, payloadBytesValue);
+                    if(bytesPerElement != 1 || (payloadBytes == nullptr && bytesSize != 0)) {
+                        throw std::runtime_error{"Second argument to publish needs to be a string or an Uint8Array"};
+                    }
+                    payload = std::vector<uint8_t>{payloadBytes, payloadBytes + bytesSize};
+                }
+
+                QoS qos = QoS::QoS0;
+                if(argc >= 3) {
+                    int32_t qosInt = 0;
+                    if(JS_ToInt32(ctx, &qosInt, args[2]) < 0) {
+                        throw std::runtime_error{"QoS must be an int32"};
+                    }
+                    if(qosInt < 0 || qosInt > 2) {
+                        throw std::runtime_error{"QoS must be between 0 and 2"};
+                    }
+                    qos = static_cast<QoS>(qosInt);
+                }
+                Retain retain = Retain::No;
+                if(argc >= 4) {
+                    auto retainBool = JS_ToBool(ctx, args[3]);
+                    if(retainBool < 0) {
+                        throw std::runtime_error{"Retain must be a bool"};
+                    }
+                    retain = retainBool ? Retain::Yes : Retain::No;
+                }
+
+                self->mApp.publishAsync(AsyncPublishData{topic, std::move(payload), qos, retain});
+                return JS_UNDEFINED;
+            } catch (std::exception& e) {
+                return JS_Throw(ctx, JS_NewString(ctx, e.what()));
+            }
+        }, "publish", 1);
     auto nv = JS_NewObject(mJSContext);
     JS_SetPropertyStr(mJSContext, globalObj, "nv", nv);
     JS_SetPropertyStr(mJSContext, nv, "loadNativeLibrary", loadNativeLibFunc);
+    JS_SetPropertyStr(mJSContext, nv, "publish", publishFunc);
 
     auto setTimeoutFunc = JS_NewCFunction(mJSContext, [](JSContext* ctx, JSValue this_obj, int argc, JSValue* args) {
             ScriptContainerJS* self = reinterpret_cast<ScriptContainerJS*>(JS_GetContextOpaque(ctx));
@@ -295,20 +358,18 @@ void ScriptContainerJS::performRun(const ScriptInputArgs& input, ScriptStatusOut
 
     JSValue runFunction = JS_UNDEFINED;
     util::DestructWrapper destructRunFunction{[&]{ JS_FreeValue(mJSContext, runFunction); }};
-    auto loadRunFunction = [&](const char* name) {
-        auto func = JS_GetPropertyStr(mJSContext, globalObj, name);
-        if(!JS_IsFunction(mJSContext, runFunction)) {
-            status.error(mName, "function " + std::string{name} + " not defined!");
-            return;
-        }
-    };
     auto paramObj = JS_NewObject(mJSContext);
     util::DestructWrapper destructParamObj{[&]{ JS_FreeValue(mJSContext, paramObj); }};
 
     switch(input.index()) {
     case 0: {
         // publish
-        loadRunFunction("onPublish");
+        runFunction = JS_GetPropertyStr(mJSContext, globalObj, "onPublish");
+        if(!JS_IsFunction(mJSContext, runFunction)) {
+            status.error(mName, "function onPublish not defined!");
+            return;
+        }
+
         auto& cppParams = std::get<0>(input);
         JS_SetPropertyStr(mJSContext, paramObj, "type", JS_NewString(mJSContext, "publish"));
         JS_SetPropertyStr(mJSContext, paramObj, "topic", JS_NewString(mJSContext, cppParams.topic.c_str()));
