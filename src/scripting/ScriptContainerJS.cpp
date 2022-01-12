@@ -201,25 +201,25 @@ void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
                     }
                     payload = std::vector<uint8_t>{payloadBytes, payloadBytes + bytesSize};
                 }
+                Retain retain = Retain::No;
+                if(argc >= 3) {
+                    auto retainBool = JS_ToBool(ctx, args[2]);
+                    if(retainBool < 0) {
+                        throw std::runtime_error{"Retain must be a bool"};
+                    }
+                    retain = retainBool ? Retain::Yes : Retain::No;
+                }
 
                 QoS qos = QoS::QoS0;
-                if(argc >= 3) {
+                if(argc >= 4) {
                     int32_t qosInt = 0;
-                    if(JS_ToInt32(ctx, &qosInt, args[2]) < 0) {
+                    if(JS_ToInt32(ctx, &qosInt, args[3]) < 0) {
                         throw std::runtime_error{"QoS must be an int32"};
                     }
                     if(qosInt < 0 || qosInt > 2) {
                         throw std::runtime_error{"QoS must be between 0 and 2"};
                     }
                     qos = static_cast<QoS>(qosInt);
-                }
-                Retain retain = Retain::No;
-                if(argc >= 4) {
-                    auto retainBool = JS_ToBool(ctx, args[3]);
-                    if(retainBool < 0) {
-                        throw std::runtime_error{"Retain must be a bool"};
-                    }
-                    retain = retainBool ? Retain::Yes : Retain::No;
                 }
 
                 self->mApp.publishAsync(AsyncPublishData{topic, std::move(payload), qos, retain});
