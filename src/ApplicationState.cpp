@@ -426,17 +426,16 @@ void ApplicationState::logoutClient(MQTTClientConnection& client) {
     {
         // detach persistent state
         auto[state, stateLock] = client.getPersistentState();
-        if(!state) {
-            return;
+        if(state) {
+            if(state->cleanSession == CleanSession::Yes) {
+                mPersistentClientStates.erase(state->clientId);
+            } else {
+                state->currentClient = nullptr;
+                state->lastDisconnectTime = std::chrono::steady_clock::now().time_since_epoch().count();
+            }
+            static_assert(std::is_reference<decltype(state)>::value);
+            state = nullptr;
         }
-        if(state->cleanSession == CleanSession::Yes) {
-            mPersistentClientStates.erase(state->clientId);
-        } else {
-            state->currentClient = nullptr;
-            state->lastDisconnectTime = std::chrono::steady_clock::now().time_since_epoch().count();
-        }
-        static_assert(std::is_reference<decltype(state)>::value);
-        state = nullptr;
     }
     spdlog::info("[{}] Logged out", client.getClientId());
     client.getTcpClient().close();
