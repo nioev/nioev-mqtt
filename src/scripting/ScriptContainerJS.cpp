@@ -53,6 +53,54 @@ void ScriptContainerJS::run(const ScriptInputArgs& in, ScriptStatusOutput&& stat
     mTasksCV.notify_all();
 }
 
+template<bool error>
+JSValue jsLog(JSContext* ctx, JSValue this_obj, int argc, JSValue* args) {
+    ScriptContainerJS* self = reinterpret_cast<ScriptContainerJS*>(JS_GetContextOpaque(ctx));
+    try {
+        std::string toLog;
+        for(int i = 0; i < argc; ++i) {
+            auto json = JS_JSONStringify(ctx, args[i], JS_UNDEFINED, JS_UNDEFINED);
+            util::DestructWrapper destructJson{[&]{ JS_FreeValue(ctx, json); }};
+            auto cStr = JS_ToCString(ctx, json);
+            util::DestructWrapper destructCStr{[&]{ JS_FreeCString(ctx, cStr); }};
+            toLog += cStr;
+            if(i != argc - 1)
+                toLog += " ";
+        }
+        if constexpr(error) {
+            spdlog::error("[SCRIPT] [{}] {}", self->getName(), toLog);
+        } else {
+            spdlog::info("[SCRIPT] [{}] {}", self->getName(), toLog);
+        }
+        return JS_UNDEFINED;
+    } catch (std::exception& e) {
+        return JS_Throw(ctx, JS_NewString(ctx, e.what()));
+    }
+}
+
+template<bool sub>
+JSValue jsSubOrUnsub(JSContext* ctx, JSValue this_obj, int argc, JSValue* args) {
+    ScriptContainerJS* self = reinterpret_cast<ScriptContainerJS*>(JS_GetContextOpaque(ctx));
+    try {
+        for(int i = 0; i < argc; ++i) {
+            if(!JS_IsString(args[i])) {
+                throw std::runtime_error{"All args to subscribe must be strings!"};
+            }
+            auto topic = JS_ToCString(ctx, args[i]);
+            util::DestructWrapper destructTopic{[&] {
+                JS_FreeCString(ctx, topic);
+            }};
+            if constexpr(sub) {
+                self->mApp.requestChange(makeChangeRequestSubscribe(self->makeShared(), std::string{topic}));
+            } else {
+                self->mApp.requestChange(ChangeRequestUnsubscribe{self->makeShared(), topic});
+            }
+        }
+        return JS_UNDEFINED;
+    } catch (std::exception& e) {
+        return JS_Throw(ctx, JS_NewString(ctx, e.what()));
+    }
+}
 void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
     {
         std::string threadName = "S-" + mName;
@@ -67,46 +115,8 @@ void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
         error(mName, errorMsg);
     };
 
-    auto logFunc = JS_NewCFunction(mJSContext, [](JSContext* ctx, JSValue this_obj, int argc, JSValue* args) {
-            ScriptContainerJS* self = reinterpret_cast<ScriptContainerJS*>(JS_GetContextOpaque(ctx));
-            try {
-                std::string toLog;
-                for(int i = 0; i < argc; ++i) {
-                    auto json = JS_JSONStringify(ctx, args[i], JS_UNDEFINED, JS_UNDEFINED);
-                    util::DestructWrapper destructJson{[&]{ JS_FreeValue(ctx, json); }};
-                    auto cStr = JS_ToCString(ctx, json);
-                    util::DestructWrapper destructCStr{[&]{ JS_FreeCString(ctx, cStr); }};
-                    toLog += cStr;
-                    if(i != argc - 1)
-                        toLog += " ";
-                }
-                spdlog::info("[SCRIPT] [{}] {}", self->mName, toLog);
-                return JS_UNDEFINED;
-            } catch (std::exception& e) {
-                return JS_Throw(ctx, JS_NewString(ctx, e.what()));
-            }
-    }, "log", 0);
-
-    auto logErrFunc = JS_NewCFunction(mJSContext, [](JSContext* ctx, JSValue this_obj, int argc, JSValue* args) {
-            ScriptContainerJS* self = reinterpret_cast<ScriptContainerJS*>(JS_GetContextOpaque(ctx));
-            try {
-                std::string toLog;
-                for(int i = 0; i < argc; ++i) {
-                    auto json = JS_JSONStringify(ctx, args[i], JS_UNDEFINED, JS_UNDEFINED);
-                    util::DestructWrapper destructJson{[&]{ JS_FreeValue(ctx, json); }};
-                    auto cStr = JS_ToCString(ctx, json);
-                    util::DestructWrapper destructCStr{[&]{ JS_FreeCString(ctx, cStr); }};
-                    toLog += cStr;
-                    if(i != argc - 1)
-                        toLog += " ";
-                }
-                spdlog::error("[SCRIPT] [{}] {}", self->mName, toLog);
-                return JS_UNDEFINED;
-            } catch (std::exception& e) {
-                return JS_Throw(ctx, JS_NewString(ctx, e.what()));
-            }
-        }, "error", 0);
-    //util::DestructWrapper destructLogFunc{[&]{ JS_FreeValue(mJSContext, logFunc); }};
+    auto logFunc = JS_NewCFunction(mJSContext, jsLog<false>, "log", 0);
+    auto logErrFunc = JS_NewCFunction(mJSContext, jsLog<true>, "error", 0);
     JS_SetContextOpaque(mJSContext, this);
 
     auto globalObj = JS_GetGlobalObject(mJSContext);
@@ -218,42 +228,8 @@ void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
                 return JS_Throw(ctx, JS_NewString(ctx, e.what()));
             }
         }, "publish", 2);
-    auto subscribeFunc = JS_NewCFunction(mJSContext, [](JSContext* ctx, JSValue this_obj, int argc, JSValue* args) {
-            ScriptContainerJS* self = reinterpret_cast<ScriptContainerJS*>(JS_GetContextOpaque(ctx));
-            try {
-                for(int i = 0; i < argc; ++i) {
-                    if(!JS_IsString(args[i])) {
-                        throw std::runtime_error{"All args to subscribe must be strings!"};
-                    }
-                    auto topic = JS_ToCString(ctx, args[i]);
-                    util::DestructWrapper destructTopic{[&] {
-                        JS_FreeCString(ctx, topic);
-                    }};
-                    self->mApp.requestChange(makeChangeRequestSubscribe(self->makeShared(), std::string{topic}));
-                }
-                return JS_UNDEFINED;
-            } catch (std::exception& e) {
-                return JS_Throw(ctx, JS_NewString(ctx, e.what()));
-            }
-        }, "subscribe", 0);
-    auto unsubscribeFunc = JS_NewCFunction(mJSContext, [](JSContext* ctx, JSValue this_obj, int argc, JSValue* args) {
-            ScriptContainerJS* self = reinterpret_cast<ScriptContainerJS*>(JS_GetContextOpaque(ctx));
-            try {
-                for(int i = 0; i < argc; ++i) {
-                    if(!JS_IsString(args[i])) {
-                        throw std::runtime_error{"All args to subscribe must be strings!"};
-                    }
-                    auto topic = JS_ToCString(ctx, args[i]);
-                    util::DestructWrapper destructTopic{[&] {
-                        JS_FreeCString(ctx, topic);
-                    }};
-                    self->mApp.requestChange(ChangeRequestUnsubscribe{self->makeShared(), topic});
-                }
-                return JS_UNDEFINED;
-            } catch (std::exception& e) {
-                return JS_Throw(ctx, JS_NewString(ctx, e.what()));
-            }
-        }, "unsubscribe", 0);
+    auto subscribeFunc = JS_NewCFunction(mJSContext, jsSubOrUnsub<true>, "subscribe", 0);
+    auto unsubscribeFunc = JS_NewCFunction(mJSContext, jsSubOrUnsub<false>, "unsubscribe", 0);
     auto nv = JS_NewObject(mJSContext);
     JS_SetPropertyStr(mJSContext, globalObj, "nv", nv);
     JS_SetPropertyStr(mJSContext, nv, "loadNativeLibrary", loadNativeLibFunc);

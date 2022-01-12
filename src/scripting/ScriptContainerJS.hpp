@@ -17,6 +17,9 @@ public:
     void init(ScriptStatusOutput&&) override;
     void run(const ScriptInputArgs&, ScriptStatusOutput&&) override;
     void forceQuit() override;
+    const std::string& getName() const {
+        return mName;
+    }
 private:
     void scriptThreadFunc(ScriptStatusOutput&&);
     void performRun(const ScriptInputArgs&, ScriptStatusOutput&&);
@@ -68,6 +71,11 @@ private:
     std::unordered_map<std::string, NativeLibrary> mNativeLibs;
     std::priority_queue<TimeoutData> mTimeouts;
     int32_t mTimeoutIdCounter = 1;
+
+    template<bool error>
+    friend JSValue jsLog(JSContext* ctx, JSValue this_obj, int argc, JSValue* args);
+    template<bool sub>
+    friend JSValue jsSubOrUnsub(JSContext* ctx, JSValue this_obj, int argc, JSValue* args);
 };
 
 }
