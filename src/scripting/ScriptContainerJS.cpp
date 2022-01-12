@@ -217,11 +217,49 @@ void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
             } catch (std::exception& e) {
                 return JS_Throw(ctx, JS_NewString(ctx, e.what()));
             }
-        }, "publish", 1);
+        }, "publish", 2);
+    auto subscribeFunc = JS_NewCFunction(mJSContext, [](JSContext* ctx, JSValue this_obj, int argc, JSValue* args) {
+            ScriptContainerJS* self = reinterpret_cast<ScriptContainerJS*>(JS_GetContextOpaque(ctx));
+            try {
+                for(int i = 0; i < argc; ++i) {
+                    if(!JS_IsString(args[i])) {
+                        throw std::runtime_error{"All args to subscribe must be strings!"};
+                    }
+                    auto topic = JS_ToCString(ctx, args[i]);
+                    util::DestructWrapper destructTopic{[&] {
+                        JS_FreeCString(ctx, topic);
+                    }};
+                    self->mApp.requestChange(makeChangeRequestSubscribe(self->makeShared(), std::string{topic}));
+                }
+                return JS_UNDEFINED;
+            } catch (std::exception& e) {
+                return JS_Throw(ctx, JS_NewString(ctx, e.what()));
+            }
+        }, "subscribe", 0);
+    auto unsubscribeFunc = JS_NewCFunction(mJSContext, [](JSContext* ctx, JSValue this_obj, int argc, JSValue* args) {
+            ScriptContainerJS* self = reinterpret_cast<ScriptContainerJS*>(JS_GetContextOpaque(ctx));
+            try {
+                for(int i = 0; i < argc; ++i) {
+                    if(!JS_IsString(args[i])) {
+                        throw std::runtime_error{"All args to subscribe must be strings!"};
+                    }
+                    auto topic = JS_ToCString(ctx, args[i]);
+                    util::DestructWrapper destructTopic{[&] {
+                        JS_FreeCString(ctx, topic);
+                    }};
+                    self->mApp.requestChange(ChangeRequestUnsubscribe{self->makeShared(), topic});
+                }
+                return JS_UNDEFINED;
+            } catch (std::exception& e) {
+                return JS_Throw(ctx, JS_NewString(ctx, e.what()));
+            }
+        }, "unsubscribe", 0);
     auto nv = JS_NewObject(mJSContext);
     JS_SetPropertyStr(mJSContext, globalObj, "nv", nv);
     JS_SetPropertyStr(mJSContext, nv, "loadNativeLibrary", loadNativeLibFunc);
     JS_SetPropertyStr(mJSContext, nv, "publish", publishFunc);
+    JS_SetPropertyStr(mJSContext, nv, "subscribe", subscribeFunc);
+    JS_SetPropertyStr(mJSContext, nv, "unsubscribe", unsubscribeFunc);
 
     auto setTimeoutFunc = JS_NewCFunction(mJSContext, [](JSContext* ctx, JSValue this_obj, int argc, JSValue* args) {
             ScriptContainerJS* self = reinterpret_cast<ScriptContainerJS*>(JS_GetContextOpaque(ctx));
