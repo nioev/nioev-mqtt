@@ -19,7 +19,7 @@ SpaceBeforeCpp11BracedList: false
 AlignAfterOpenBracket: AlwaysBreak
 BinPackArguments: true
 BinPackParameters: true
-ColumnLimit: 150
+ColumnLimit: 200
 AllowShortBlocksOnASingleLine: Never
 AllowShortEnumsOnASingleLine: false
 BreakBeforeBraces: Attach
