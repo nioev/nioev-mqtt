@@ -21,7 +21,6 @@ private:
     void scriptThreadFunc(ScriptStatusOutput&&);
     void performRun(const ScriptInputArgs&, ScriptStatusOutput&&);
     std::string getJSException();
-    void handleScriptActions(const JSValue& actions, ScriptStatusOutput&& status);
     std::optional<std::string> getJSStringProperty(const JSValue& obj, std::string_view name);
     std::optional<int> getJSIntProperty(const JSValue& obj, std::string_view name);
     std::optional<bool> getJSBoolProperty(const JSValue& obj, std::string_view name);
