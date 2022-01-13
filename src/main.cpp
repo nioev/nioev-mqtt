@@ -125,7 +125,7 @@ int main() {
                     std::string topic{ req->getUrl().substr(6) };
                     if(topic.empty()) {
                         res->writeStatus("400 Bad Request");
-                        res->end("Invalid topic");
+                        res->end("Invalid topic", true);
                         return;
                     }
                     std::string retainStr{ req->getQuery("retain") };
@@ -136,7 +136,7 @@ int main() {
                         retain = Retain::Yes;
                     } else {
                         res->writeStatus("400 Bad Request");
-                        res->end("Invalid retain (true or false allowed)");
+                        res->end("Invalid retain (true or false allowed)", true);
                         return;
                     }
                     auto payloadStringView = req->getQuery("payload");
@@ -152,16 +152,14 @@ int main() {
                         qos = QoS::QoS2;
                     } else {
                         res->writeStatus("400 Bad Request");
-                        res->end("Invalid QoS (0, 1 or 2 allowed)");
+                        res->end("Invalid QoS (0, 1 or 2 allowed)", true);
                         return;
                     }
                     app.publish(std::move(topic), std::move(payload), qos, retain);
-                    res->end("ok");
-                    res->close();
+                    res->end("ok", true);
                 } catch(std::exception& e) {
                     res->writeStatus("500 Internal Server Error");
-                    res->end(e.what());
-                    res->close();
+                    res->end(e.what(), true);
                     return;
                 }
             })
@@ -206,19 +204,17 @@ int main() {
                         }
                         spdlog::info("Adding script from Web-API: {}", scriptName);
                         app.addScript(
-                            std::string{ scriptName }, [res](auto&) { res->end("ok"); },
+                            std::string{ scriptName }, [res](auto&) { res->end("ok", true); },
                             [res](auto&, const auto& error) {
                                 res->writeStatus("500 Internal Server Error");
-                                res->end(error);
+                                res->end(error, true);
                             },
                             std::move(fullCode));
-                        res->close();
                     });
                     res->onAborted([] {});
                 } catch(std::exception& e) {
                     res->writeStatus("500 Internal Server Error");
-                    res->end(e.what());
-                    res->close();
+                    res->end(e.what(), true);
                 }
             })
         .get(
@@ -244,12 +240,10 @@ int main() {
                     rapidjson::StringBuffer docStringified;
                     rapidjson::Writer<rapidjson::StringBuffer> docWriter{ docStringified };
                     doc.Accept(docWriter);
-                    res->end({ docStringified.GetString(), docStringified.GetLength() });
-                    res->close();
+                    res->end({ docStringified.GetString(), docStringified.GetLength() }, true);
                 } catch(std::exception& e) {
                     res->writeStatus("500 Internal Server Error");
-                    res->end(e.what());
-                    res->close();
+                    res->end(e.what(), true);
                 }
             })
         .get(
@@ -266,8 +260,7 @@ int main() {
                     body.append(docStringified.GetString(), docStringified.GetLength());
                     spdlog::info("Generated script dev files json doc");
                 }
-                res->end(body);
-                res->close();
+                res->end(body, true);
             })
         .listen(1884, [](auto* listenSocket) {
             gListenSocket = listenSocket;
