@@ -23,6 +23,14 @@ add_subdirectory(thirdparty/SQLiteCpp)
 include_directories (${CMAKE_BINARY_DIR})
 add_custom_command(OUTPUT quickjs-carr.h COMMAND bash ${PROJECT_SOURCE_DIR}/package_quick.sh ${CMAKE_BINARY_DIR} SOURCES ${PROJECT_SOURCE_DIR}/thirdparty/quickjs-2021-03-27/quickjs.h)
 
+file(GLOB_RECURSE WEBUI_FILES ${PROJECT_SOURCE_DIR}/webui/src/**)
+
+add_custom_target(webui
+        COMMAND npm run build
+        COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/webui/public ${CMAKE_CURRENT_BINARY_DIR}/webui
+        WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/webui
+        DEPENDS ${WEBUI_FILES})
+
 add_executable(nioev
         src/main.cpp
         src/TcpServer.cpp
@@ -64,13 +72,7 @@ add_executable(nioev
         src/quickjs_h_embedded.hpp
         src/quickjs_h_embedded.cpp)
 
-
-add_custom_command(TARGET nioev POST_BUILD COMMAND npm run build WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/webui)
-add_custom_command(
-        TARGET nioev POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-        ${CMAKE_SOURCE_DIR}/webui/public
-        ${CMAKE_CURRENT_BINARY_DIR}/webui)
+add_dependencies(nioev webui)
 
 target_link_libraries(nioev
         libzstd_static
