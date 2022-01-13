@@ -223,7 +223,7 @@ int main() {
                 try {
                     auto scriptsInfo = app.getScriptsInfo();
                     rapidjson::Document doc;
-                    doc.SetArray();
+                    doc.SetObject();
                     for(auto& script : scriptsInfo.scripts) {
                         rapidjson::Value scriptObj;
                         scriptObj.SetObject();
@@ -235,7 +235,7 @@ int main() {
                             "code",
                             rapidjson::Value{ script.code.c_str(), static_cast<rapidjson::SizeType>(script.code.size()), doc.GetAllocator() }.Move(),
                             doc.GetAllocator());
-                        doc.PushBack(std::move(scriptObj.Move()), doc.GetAllocator());
+                        doc.AddMember(rapidjson::Value{ script.name.c_str(), static_cast<rapidjson::SizeType>(script.name.size()), doc.GetAllocator() }.Move(), std::move(scriptObj.Move()), doc.GetAllocator());
                     }
                     rapidjson::StringBuffer docStringified;
                     rapidjson::Writer<rapidjson::StringBuffer> docWriter{ docStringified };
