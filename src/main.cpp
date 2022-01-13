@@ -16,6 +16,7 @@
 #include <rapidjson/document.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
+#include <fstream>
 
 #include "quickjs_h_embedded.hpp"
 
@@ -274,6 +275,30 @@ int main() {
                 }
                 res->end(body, true);
             })
+        .get("/*", [](uWS::HttpResponse<false>* res, uWS::HttpRequest* req) {
+            try {
+                auto path = req->getUrl().substr(1);
+                spdlog::info("Web request for {}", path);
+                std::string fullFilePath = "webui/" + std::string{path};
+                std::ifstream file{fullFilePath};
+                if(!file) {
+                    res->writeStatus("404 Not Found");
+                    res->end("Not found", true);
+                    return;
+                }
+                auto extension = util::getFileExtension(fullFilePath);
+                if(extension == ".js") {
+                    res->writeHeader("Content-Type", "application/javascript");
+                } else if(extension == ".html") {
+                    res->writeHeader("Content-Type", "text/html");
+                }
+                std::string contents(std::istreambuf_iterator<char>(file), {});
+                res->end(contents, true);
+            } catch(std::exception& e) {
+                res->writeStatus("500 Internal Server Error");
+                res->end(e.what(), true);
+            }
+        })
         .listen(1884, [](auto* listenSocket) {
             gListenSocket = listenSocket;
             if(listenSocket) {

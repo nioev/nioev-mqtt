@@ -64,6 +64,14 @@ add_executable(nioev
         src/quickjs_h_embedded.hpp
         src/quickjs_h_embedded.cpp)
 
+
+add_custom_command(TARGET nioev POST_BUILD COMMAND npm run build WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/webui)
+add_custom_command(
+        TARGET nioev POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_SOURCE_DIR}/webui/public
+        ${CMAKE_CURRENT_BINARY_DIR}/webui)
+
 target_link_libraries(nioev
         libzstd_static
         uWebSockets
