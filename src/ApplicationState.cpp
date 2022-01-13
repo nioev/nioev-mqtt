@@ -403,6 +403,12 @@ void ApplicationState::operator()(ChangeRequestAddScript&& req) {
         req.statusOutput.error(req.name, "Invalid script filename: " + req.name);
     }
 }
+void ApplicationState::operator()(ChangeRequestDeleteScript&& req) {
+    SQLite::Statement deleteQuery{mDb, "DELETE FROM script WHERE name=?"};
+    deleteQuery.bind(1, req.name);
+    deleteQuery.exec();
+    mScripts.erase(req.name);
+}
 void ApplicationState::deleteScript(std::unordered_map<std::string, std::shared_ptr<ScriptContainer>>::iterator it) {
     if(it == mScripts.end())
         return;

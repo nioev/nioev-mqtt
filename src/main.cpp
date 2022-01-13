@@ -217,6 +217,18 @@ int main() {
                     res->end(e.what(), true);
                 }
             })
+        .del("/scripts/:script_name",
+             [&app](uWS::HttpResponse<false>* res, uWS::HttpRequest* req) {
+                 try {
+                     std::string scriptName{req->getParameter(0)};
+                     spdlog::info("Deleting script from Web-API: {}", scriptName);
+                     app.requestChange(ChangeRequestDeleteScript{std::move(scriptName)});
+                     res->end("ok", true);
+                 } catch(std::exception& e) {
+                     res->writeStatus("500 Internal Server Error");
+                     res->end(e.what(), true);
+                 }
+             })
         .get(
             "/scripts",
             [&app](uWS::HttpResponse<false>* res, uWS::HttpRequest* req) {

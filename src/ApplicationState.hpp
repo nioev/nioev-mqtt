@@ -70,7 +70,11 @@ struct ChangeRequestAddScript {
     ScriptStatusOutput statusOutput;
 };
 
-using ChangeRequest = std::variant<ChangeRequestSubscribe, ChangeRequestUnsubscribe, ChangeRequestRetain, ChangeRequestLoginClient, ChangeRequestAddScript, ChangeRequestLogoutClient, ChangeRequestUnsubscribeFromAll>;
+struct ChangeRequestDeleteScript {
+    std::string name;
+};
+
+using ChangeRequest = std::variant<ChangeRequestSubscribe, ChangeRequestUnsubscribe, ChangeRequestRetain, ChangeRequestLoginClient, ChangeRequestAddScript, ChangeRequestLogoutClient, ChangeRequestUnsubscribeFromAll, ChangeRequestDeleteScript>;
 
 static inline ChangeRequest makeChangeRequestSubscribe(std::shared_ptr<Subscriber> sub, std::string&& topic, QoS qos = QoS::QoS0, bool isOmni = false) {
     assert(isOmni == false); // they are currently not used, so if you need an omni subscription, test thorougly!
@@ -139,6 +143,7 @@ public:
     void operator()(ChangeRequestLoginClient&& req);
     void operator()(ChangeRequestLogoutClient&& req);
     void operator()(ChangeRequestAddScript&& req);
+    void operator()(ChangeRequestDeleteScript&& req);
 
     void publish(std::string&& topic, std::vector<uint8_t>&& msg, QoS qos, Retain retain);
     // The one-stop solution for all your async publishing needs! Need to publish something but you are actually called by publish itself, which
