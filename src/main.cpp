@@ -310,7 +310,9 @@ int main() {
     gTcpServer = &server;
     spdlog::info("MQTT Broker started");
 
+    pthread_setname_np(pthread_self(), "uwebsockets");
     webApp.run();
+    spdlog::info("uWebSockets shutdown");
 
     server.join();
     signalHandler.join();
