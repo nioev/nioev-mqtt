@@ -275,6 +275,34 @@ int main() {
                 }
                 res->end(body, true);
             })
+        .get(
+            "/statistics",
+            [&app](uWS::HttpResponse<false>* res, uWS::HttpRequest* req) {
+                static rapidjson::Document doc;
+                doc.SetObject();
+                auto stats = app.getAnalysisResults();
+
+                doc.AddMember(rapidjson::StringRef("total_msg_count"), rapidjson::Value{stats.totalPacketCount}, doc.GetAllocator());
+                doc.AddMember(rapidjson::StringRef("current_sleep_level"), rapidjson::StringRef(workerThreadSleepLevelToString(stats.currentSleepLevel)), doc.GetAllocator());
+                doc.AddMember(rapidjson::StringRef("app_state_queue_depth"), rapidjson::Value{stats.appStateQueueDepth}, doc.GetAllocator());
+                doc.AddMember(rapidjson::StringRef("retained_msg_count"), rapidjson::Value{stats.retainedMsgCount}, doc.GetAllocator());
+                doc.AddMember(rapidjson::StringRef("retained_msg_size_sum"), rapidjson::Value{stats.retainedMsgCummulativeSize}, doc.GetAllocator());
+                {
+                    rapidjson::Value sleepLevelCounts;
+                    sleepLevelCounts.SetObject();
+                    for(int i = 0; i < static_cast<int>(WorkerThreadSleepLevel::$COUNT); ++i) {
+                        sleepLevelCounts.AddMember(rapidjson::StringRef(workerThreadSleepLevelToString(static_cast<WorkerThreadSleepLevel>(i))), rapidjson::Value{stats.sleepLevelSampleCounts.at(i)}, doc.GetAllocator());
+                    }
+                    doc.AddMember(rapidjson::StringRef("sleep_level_sample_counts"), std::move(sleepLevelCounts.Move()), doc.GetAllocator());
+                }
+
+                rapidjson::StringBuffer docStringified;
+                rapidjson::Writer<rapidjson::StringBuffer> docWriter{ docStringified };
+                doc.Accept(docWriter);
+                std::string body{docStringified.GetString(), docStringified.GetLength()};
+
+                res->end(body, true);
+            })
         .get("/*", [](uWS::HttpResponse<false>* res, uWS::HttpRequest* req) {
             try {
                 auto path = req->getUrl().substr(1);

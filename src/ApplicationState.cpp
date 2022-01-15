@@ -4,11 +4,13 @@
 #include "scripting/ScriptContainerJS.hpp"
 #include "SQLiteCpp/Transaction.h"
 #include "MQTTPublishPacketBuilder.hpp"
+#include "Statistics.hpp"
 
 namespace nioev {
 
 ApplicationState::ApplicationState()
-: mClientManager(*this), mWorkerThread([this]{workerThreadFunc();}), mAsyncPublisher(*this) {
+: mClientManager(*this), mWorkerThread([this]{workerThreadFunc();}), mAsyncPublisher(*this), mStatistics(std::make_shared<Statistics>(*this)) {
+    mStatistics->init();
     mTimers.addPeriodicTask(std::chrono::seconds(2), [this] () mutable {
         cleanup();
     });
@@ -57,7 +59,6 @@ ApplicationState::~ApplicationState() {
 }
 void ApplicationState::workerThreadFunc() {
     pthread_setname_np(pthread_self(), "app-state");
-    WorkerThreadSleepLevel sleepLevel = WorkerThreadSleepLevel::MILLISECONDS;
     uint sleepCounter = 0;
 
     uint tasksPerformed = 0;
@@ -89,14 +90,14 @@ void ApplicationState::workerThreadFunc() {
         mCurrentRWHolderOfMMutex = std::thread::id();
         if(tasksPerformed == 0) {
             sleepCounter += 1;
-            switch(sleepLevel) {
+            switch(mWorkerThreadSleepLevel) {
             case WorkerThreadSleepLevel::YIELD:
                 std::this_thread::yield();
                 if(sleepCounter >= 5) {
                     // tests show that after 5 yields, we only very rarely find something in the queue again (at least on my system)
                     // maybe we should make these points configurable or adjust them dynamically?
                     spdlog::debug("Switching to 10µs sleep interval");
-                    sleepLevel = WorkerThreadSleepLevel::MICROSECONDS;
+                    mWorkerThreadSleepLevel = WorkerThreadSleepLevel::MICROSECONDS;
                     sleepCounter = 0;
                 }
                 break;
@@ -104,7 +105,7 @@ void ApplicationState::workerThreadFunc() {
                 std::this_thread::sleep_for(std::chrono::microseconds(10));
                 if(sleepCounter > 200) {
                     spdlog::debug("Switching to 1ms sleep interval");
-                    sleepLevel = WorkerThreadSleepLevel::MILLISECONDS;
+                    mWorkerThreadSleepLevel = WorkerThreadSleepLevel::MILLISECONDS;
                     sleepCounter = 0;
                 }
                 break;
@@ -112,7 +113,7 @@ void ApplicationState::workerThreadFunc() {
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
                 if(sleepCounter > 100) {
                     spdlog::debug("Switching to 10ms sleep interval");
-                    sleepLevel = WorkerThreadSleepLevel::TENS_OF_MILLISECONDS;
+                    mWorkerThreadSleepLevel = WorkerThreadSleepLevel::TENS_OF_MILLISECONDS;
                     sleepCounter = 0;
                 }
                 break;
@@ -121,11 +122,11 @@ void ApplicationState::workerThreadFunc() {
                 break;
             }
         } else {
-            if(sleepLevel == WorkerThreadSleepLevel::YIELD)
+            if(mWorkerThreadSleepLevel == WorkerThreadSleepLevel::YIELD)
                 spdlog::debug("Yield helped {} sleep level: {}", yieldHelpCount++, sleepCounter);
             sleepCounter = 0;
-            if(static_cast<uint>(sleepLevel) > static_cast<uint>(WorkerThreadSleepLevel::YIELD)) {
-                sleepLevel = static_cast<WorkerThreadSleepLevel>(static_cast<uint>(sleepLevel) - 1);
+            if(static_cast<uint>(mWorkerThreadSleepLevel.load()) > static_cast<uint>(WorkerThreadSleepLevel::YIELD)) {
+                mWorkerThreadSleepLevel = static_cast<WorkerThreadSleepLevel>(static_cast<uint>(mWorkerThreadSleepLevel.load()) - 1);
                 spdlog::debug("Decreasing sleep interval");
                 // TODO add a configuration option for always jumping immediately to YIELD instead of slowly scaling down
             }
@@ -197,8 +198,10 @@ void ApplicationState::subscribeClientInternal(ChangeRequestSubscribe&& req, Sho
             sendPublish(*req.subscriber, retainedMessage->first, retainedMessage->second.payload, retainedMessage->second.qos, Retained::Yes);
         }
     } else if(req.subType == SubscriptionType::OMNI) {
-        assert(false);
-        // TODO check for existing subscription
+        auto existingSub = std::find_if(mOmniSubscriptions.begin(), mOmniSubscriptions.end(), [&](const Subscription& sub) {return sub.subscriber == req.subscriber;});
+        if(existingSub == mOmniSubscriptions.end()) {
+            persist = ShouldPersistSubscription::No;
+        }
         auto& sub = mOmniSubscriptions.emplace_back(req.subscriber, req.topic, std::move(req.topicSplit), req.qos);
         for(auto& retainedMessage: mRetainedMessages) {
             sendPublish(*sub.subscriber, retainedMessage.first, retainedMessage.second.payload, retainedMessage.second.qos, Retained::Yes);

@@ -1,0 +1,87 @@
+#include "Statistics.hpp"
+#include "MQTTPublishPacketBuilder.hpp"
+#include "Timers.hpp"
+#include "ApplicationState.hpp"
+
+namespace nioev {
+
+Statistics::Statistics(ApplicationState& app)
+: mApp(app) {
+    mBatchAnalysisTimer.addPeriodicTask(std::chrono::minutes(1), [this] {
+        std::unique_lock<std::shared_mutex> lock{mMutex};
+        refresh();
+    });
+    mSampleWorkerThreadTimer.addPeriodicTask(std::chrono::milliseconds(20), [this] {
+        auto currentSleepLevel = mApp.getCurrentWorkerThreadSleepLevel();
+        {
+            std::unique_lock<std::shared_mutex> lock{mMutex};
+            mSleepLevelSampleCounts.at(static_cast<int>(currentSleepLevel)) += 1;
+            uint64_t sum = 0;
+            for(auto c: mSleepLevelSampleCounts) {
+                sum += c;
+            }
+            // after two hours, clear all TODO delete lower percent
+            if(sum >= 100 * 60 * 60) {
+                mSleepLevelSampleCounts.fill(0);
+            }
+        }
+    });
+    mAnalysisData.reserve(mCollectedData.capacity() * 10 / 11);
+}
+void Statistics::init() {
+    mApp.requestChange(ChangeRequestSubscribe{makeShared(), "", {}, SubscriptionType::OMNI});
+}
+void Statistics::publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained, MQTTPublishPacketBuilder& packetBuilder) {
+    PacketData packet{topic, payload.size(), std::chrono::steady_clock::now(), qos};
+    push(mCollectedData, std::move(packet));
+    mTotalPacketCountCounter++;
+}
+void Statistics::push(atomic_queue::AtomicQueueB2<PacketData>& queue, PacketData&& packet) {
+    while(!queue.try_push(std::move(packet))) {
+        PacketData poppedPacket;
+        // pop 10 packets at once to increase the success rate of pushing
+        for(int i = 0; i < 10; ++i) {
+            if(!queue.try_pop(poppedPacket))
+                break;
+        }
+    }
+}
+void Statistics::refresh() {
+    {
+        PacketData packet;
+        while(mCollectedData.try_pop(packet)) {
+            mAnalysisData.emplace_back(std::move(packet));
+        }
+    }
+
+    mAnalysisResult.sleepLevelSampleCounts = mSleepLevelSampleCounts;
+    mAnalysisResult.appStateQueueDepth = mApp.getCurrentWorkerThreadQueueDepth();
+    mAnalysisResult.currentSleepLevel = mApp.getCurrentWorkerThreadSleepLevel();
+    mAnalysisResult.totalPacketCount = mTotalPacketCountCounter;
+    mAnalysisResult.retainedMsgCount = mApp.getRetainedMsgCount();
+    mAnalysisResult.retainedMsgCummulativeSize = mApp.getRetainedMsgCummulativeSize();
+
+    for(auto& packet: mAnalysisData) {
+        auto it = mAnalysisResult.topics.find(packet.topic);
+        if(it == mAnalysisResult.topics.end()) {
+            auto inserted = mAnalysisResult.topics.emplace(std::piecewise_construct, std::make_tuple(std::move(packet.topic)), std::make_tuple());
+            assert(inserted.second);
+            it = inserted.first;
+        }
+        it->second.cummulativePacketSize += packet.payloadLength;
+        it->second.packetCount += 1;
+        it->second.qosPacketCounts[static_cast<uint8_t>(packet.qos)] += 1;
+    }
+
+    createHistogram<std::chrono::minutes, 60 * 24>(mAnalysisResult.packetsPerMinute);
+    createHistogram<std::chrono::seconds, 60 * 60>(mAnalysisResult.packetsPerSecond);
+
+    mAnalysisData.clear();
+}
+AnalysisResults Statistics::getResults() {
+    std::unique_lock<std::shared_mutex> lock{mMutex};
+    refresh();
+    return mAnalysisResult;
+}
+
+}

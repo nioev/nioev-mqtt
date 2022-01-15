@@ -16,6 +16,7 @@
 #include "scripting/ScriptContainer.hpp"
 #include "scripting/NativeLibraryManager.hpp"
 #include "SQLiteCpp/Database.h"
+#include "Statistics.hpp"
 
 namespace nioev {
 
@@ -178,6 +179,28 @@ public:
     auto getListOfCurrentlyLoadingNativeLibs() const {
         return mNativeLibManager.getListOfCurrentlyLoadingNativeLibs();
     }
+
+    WorkerThreadSleepLevel getCurrentWorkerThreadSleepLevel() const {
+        return mWorkerThreadSleepLevel;
+    }
+    unsigned getCurrentWorkerThreadQueueDepth() const {
+        return mQueue.was_size();
+    }
+    AnalysisResults getAnalysisResults() {
+        return mStatistics->getResults();
+    }
+    uint64_t getRetainedMsgCount() {
+        std::shared_lock<std::shared_mutex> lock{mMutex};
+        return mRetainedMessages.size();
+    }
+    uint64_t getRetainedMsgCummulativeSize() {
+        std::shared_lock<std::shared_mutex> lock{mMutex};
+        uint64_t sum = 0;
+        for(auto& msg: mRetainedMessages) {
+            sum += msg.second.payload.size() + msg.first.size() + 1;
+        }
+        return sum;
+    }
 private:
     struct Subscription {
         std::shared_ptr<Subscriber> subscriber;
@@ -209,11 +232,6 @@ private:
     // ensure you have at least a readonly lock when calling
     template<typename T = Subscriber>
     void forEachSubscriberThatIsOfT(const std::string& topic, std::function<void(Subscription&)>&& callback) {
-        for(auto& sub: mOmniSubscriptions) {
-            if(std::dynamic_pointer_cast<T>(sub.subscriber) == nullptr)
-                continue;
-            callback(sub);
-        }
         auto[start, end] = mSimpleSubscriptions.equal_range(topic);
         for(auto it = start; it != end; ++it) {
             if(std::dynamic_pointer_cast<T>(it->second.subscriber) == nullptr)
@@ -227,14 +245,14 @@ private:
                 callback(sub);
             }
         }
-    }
-    template<typename T = Subscriber>
-    void forEachSubscriberThatIsNotOfT(const std::string& topic, std::function<void(Subscription&)>&& callback) {
         for(auto& sub: mOmniSubscriptions) {
-            if(std::dynamic_pointer_cast<T>(sub.subscriber) != nullptr)
+            if(std::dynamic_pointer_cast<T>(sub.subscriber) == nullptr)
                 continue;
             callback(sub);
         }
+    }
+    template<typename T = Subscriber>
+    void forEachSubscriberThatIsNotOfT(const std::string& topic, std::function<void(Subscription&)>&& callback) {
         auto[start, end] = mSimpleSubscriptions.equal_range(topic);
         for(auto it = start; it != end; ++it) {
             if(std::dynamic_pointer_cast<T>(it->second.subscriber) != nullptr)
@@ -247,6 +265,11 @@ private:
             if(util::doesTopicMatchSubscription(topic, sub.topicSplit)) {
                 callback(sub);
             }
+        }
+        for(auto& sub: mOmniSubscriptions) {
+            if(std::dynamic_pointer_cast<T>(sub.subscriber) != nullptr)
+                continue;
+            callback(sub);
         }
     }
     void deleteScript(std::unordered_map<std::string, std::shared_ptr<ScriptContainer>>::iterator it);
@@ -271,13 +294,6 @@ private:
 
     std::list<std::shared_ptr<MQTTClientConnection>> mClients;
 
-    enum class WorkerThreadSleepLevel {
-        YIELD,
-        MICROSECONDS,
-        MILLISECONDS,
-        TENS_OF_MILLISECONDS
-    };
-
     struct RetainedMessage {
         std::vector<uint8_t> payload;
         std::time_t timestamp;
@@ -288,9 +304,11 @@ private:
 
     std::atomic<bool> mShouldRun = true;
     std::thread mWorkerThread;
+    std::atomic<WorkerThreadSleepLevel> mWorkerThreadSleepLevel;
 
     Timers mTimers;
     std::unordered_map<std::string, std::shared_ptr<ScriptContainer>> mScripts;
+    std::shared_ptr<Statistics> mStatistics;
 
     SQLite::Database mDb{"nioev.db3", SQLite::OPEN_READWRITE|SQLite::OPEN_CREATE};
     std::optional<SQLite::Statement> mQueryInsertScript;

@@ -16,7 +16,6 @@
         href: "settings.html",
         text: "Settings"
     }]
-
 </script>
 
 <main>

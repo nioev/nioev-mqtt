@@ -11,5 +11,7 @@ class PersistentClientState;
 class ScriptContainerManager;
 class ScriptContainer;
 class MQTTPublishPacketBuilder;
+class Timers;
+class Statistics;
 
 }

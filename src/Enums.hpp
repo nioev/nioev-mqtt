@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cassert>
 #include <cstdint>
 
 namespace nioev {
@@ -49,5 +50,29 @@ enum class Compression
     NONE,
     ZSTD
 };
+
+enum class WorkerThreadSleepLevel : int
+{
+    YIELD,
+    MICROSECONDS,
+    MILLISECONDS,
+    TENS_OF_MILLISECONDS,
+    $COUNT
+};
+
+static inline const char* workerThreadSleepLevelToString(WorkerThreadSleepLevel level) {
+    switch(level) {
+    case WorkerThreadSleepLevel::YIELD:
+        return "yield";
+    case WorkerThreadSleepLevel::MICROSECONDS:
+        return "microseconds";
+    case WorkerThreadSleepLevel::MILLISECONDS:
+        return "milliseconds";
+    case WorkerThreadSleepLevel::TENS_OF_MILLISECONDS:
+        return "tens_of_milliseconds";
+    }
+    assert(false);
+    return "";
+}
 
 }
