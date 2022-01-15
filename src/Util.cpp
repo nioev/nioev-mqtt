@@ -57,14 +57,15 @@ void SharedBuffer::resize(size_t newSize) {
         mSize = newSize;
         return;
     }
-    auto newReserved = mReserved == 0 ? 32 : mReserved;
+    size_t newReserved = mReserved == 0 ? 32 : mReserved;
     while(newReserved < newSize) {
         newReserved *= 2;
     }
     auto newBuffer = (std::byte*)malloc(newReserved + sizeof(std::atomic<int>));
+    assert(newBuffer);
     new(newBuffer) std::atomic<int>();
     if(mBuffer != nullptr) {
-        memcpy(newBuffer + sizeof(std::atomic<int>), data(), newSize);
+        memcpy(newBuffer + sizeof(std::atomic<int>), data(), mSize);
     }
     decRefCount();
     mBuffer = newBuffer;
