@@ -1,19 +1,22 @@
 <script>
+    import { fade } from 'svelte/transition';
+    import Overview from "./Overview.svelte";
+    import Scripts from "./Scripts.svelte";
+    import Settings from "./Settings.svelte";
+
     let currentPage = window.location.pathname.split("/").pop();
 
     let navElements = [{
-        href: "/index.html",
+        href: "index.html",
         text: "Overview"
     }, {
-        href: "/stats.html",
-        text: "Stats"
-    }, {
-        href: "/scripts.html",
+        href: "scripts.html",
         text: "Scripts"
     }, {
-        href: "/settings.html",
+        href: "settings.html",
         text: "Settings"
     }]
+
 </script>
 
 <main>
@@ -24,21 +27,37 @@
         </h1>
         <nav>
             {#each navElements as e}
-                {#if "/" + currentPage === e.href}
-                    <a href={e.href} class="element" style="font-weight: bold">
-                        {e.text}
-                    </a>
-                {:else}
-                    <a href={e.href} class="element">
-                        {e.text}
-                    </a>
-                {/if}
+                <p class="element" style:font-weight={currentPage === e.href ? "bold" : ""}
+                   on:click={event => {currentPage = e.href; history.pushState("", "", e.href)}}>
+                    {e.text}
+                </p>
             {/each}
         </nav>
+        {#if currentPage === "index.html"}
+            <div class="content" transition:fade="{{duration: 50}}">
+                <Overview/>
+            </div>
+        {:else if currentPage === "scripts.html"}
+            <div class="content" transition:fade="{{duration: 50}}">
+                <Scripts/>
+            </div>
+        {:else if currentPage === "settings.html"}
+            <div class="content" transition:fade="{{duration: 50}}">
+                <Settings/>
+            </div>
+        {:else}
+            Error!
+        {/if}
     </div>
 </main>
 
 <style>
+    .content {
+        grid-row-start: 3;
+        grid-row-end: 3;
+        grid-column-start: 1;
+        grid-column-end: 1;
+    }
     h1 {
         margin: 0;
         color: white;
@@ -65,14 +84,18 @@
         border-radius: 10px;
         box-shadow: #333333 0 0 5px;
         align-items: center;
+        grid-row-start: 2;
+        grid-row-end: 2;
+        grid-column-start: 1;
+        grid-column-end: 1;
     }
     #innerMain {
         display: grid;
         grid-template-columns: 100%;
-        grid-template-rows: 50px 50px;
-        width: 1000px;
+        grid-template-rows: 50px 50px auto;
+        width: 1400px;
     }
-    @media only screen and (max-width: 1111px) {
+    @media only screen and (max-width: 1556px) {
         #innerMain {
             width: 90%;
         }
@@ -83,5 +106,8 @@
         padding-right: 20px;
         font-size: 20px;
         color: black;
+    }
+    .element:hover {
+        cursor: pointer;
     }
 </style>
