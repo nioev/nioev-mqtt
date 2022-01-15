@@ -25,11 +25,17 @@ ScriptContainerJS::~ScriptContainerJS() {
         mTasksCV.notify_all();
         lock.unlock();
         mScriptThread->join();
+        mScriptThread.reset();
     }
     while(!mTimeouts.empty()) {
         mTimeouts.top().freeJSValues(mJSContext);
         mTimeouts.pop();
     }
+    for(auto& lib: mNativeLibs) {
+        auto func = (void(*)(const char* scriptName)) lib.second.getFP("_nioev_library_function_unload_js");
+        func(mName.c_str());
+    }
+    mNativeLibs.clear();
     JS_FreeContext(mJSContext);
     mJSContext = nullptr;
     JS_FreeRuntime(mJSRuntime);
@@ -157,11 +163,12 @@ void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
                 auto lib = self->mNativeLibs.emplace_hint(existingLib, libNameStr, "libs/lib" + libNameStr + ".so");
                 auto features = lib->second.getFeatures();
                 if(std::find(features.cbegin(), features.cend(), "js") == features.cend()) {
+                    self->mNativeLibs.erase(lib);
                     throw std::runtime_error{"Library doesn't support js"};
                 }
-                auto nativeFunction = (JSCFunction*) lib->second.getFP("_nioev_library_function_load_js");
+                auto nativeFunction = (JSValue (*)(const char* scriptName, JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv)) lib->second.getFP("_nioev_library_function_load_js");
                 // if while debugging you see a crash in the line below, that probably means that your native code is at fault!
-                return nativeFunction(ctx, this_obj, argc - 1, args + 1);
+                return nativeFunction(self->mName.c_str(), ctx, this_obj, argc - 1, args + 1);
             } catch (std::exception& e) {
                 return JS_Throw(ctx, JS_NewString(ctx, e.what()));
             }
