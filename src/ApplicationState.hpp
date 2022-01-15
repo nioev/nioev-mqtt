@@ -252,17 +252,24 @@ private:
     void deleteScript(std::unordered_map<std::string, std::shared_ptr<ScriptContainer>>::iterator it);
     void deleteAllSubscriptions(Subscriber& sub);
 
-    std::list<std::shared_ptr<MQTTClientConnection>> mClients;
-    bool mClientsWereLoggedOutSinceLastCleanup = false;
+    // the order of these fields has been carefully evaluated and tested to be race-free during deconstruction, so be careful to change anything!
 
     std::shared_mutex mMutex;
     std::atomic<std::thread::id> mCurrentRWHolderOfMMutex;
 
-    std::queue<ChangeRequest> mQueueInternal;
-    atomic_queue::AtomicQueue2<ChangeRequest, 4096> mQueue;
+    NativeLibraryCompiler mNativeLibManager;
+
     std::unordered_multimap<std::string, Subscription> mSimpleSubscriptions;
     std::vector<Subscription> mWildcardSubscriptions;
     std::vector<Subscription> mOmniSubscriptions;
+
+    std::queue<ChangeRequest> mQueueInternal;
+    atomic_queue::AtomicQueue2<ChangeRequest, 4096> mQueue;
+    bool mClientsWereLoggedOutSinceLastCleanup = false;
+
+    AsyncPublisher mAsyncPublisher;
+
+    std::list<std::shared_ptr<MQTTClientConnection>> mClients;
 
     enum class WorkerThreadSleepLevel {
         YIELD,
@@ -288,9 +295,6 @@ private:
     SQLite::Database mDb{"nioev.db3", SQLite::OPEN_READWRITE|SQLite::OPEN_CREATE};
     std::optional<SQLite::Statement> mQueryInsertScript;
     std::optional<SQLite::Statement> mQueryInsertRetainedMsg;
-
-    AsyncPublisher mAsyncPublisher;
-    NativeLibraryCompiler mNativeLibManager;
 
     // needs to initialized last because it starts a thread which calls us
     ClientThreadManager mClientManager;
