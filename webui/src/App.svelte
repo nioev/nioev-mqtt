@@ -32,6 +32,7 @@
                 </p>
             {/each}
         </nav>
+        <div id="spacer"></div>
         {#if currentPage === "index.html"}
             <div class="content" transition:fade="{{duration: 50}}">
                 <Overview/>
@@ -52,8 +53,8 @@
 
 <style>
     .content {
-        grid-row-start: 3;
-        grid-row-end: 3;
+        grid-row-start: 4;
+        grid-row-end: 4;
         grid-column-start: 1;
         grid-column-end: 1;
     }
@@ -91,7 +92,7 @@
     #innerMain {
         display: grid;
         grid-template-columns: 100%;
-        grid-template-rows: 50px 50px auto;
+        grid-template-rows: 50px 50px 50px auto;
         width: 1400px;
     }
     @media only screen and (max-width: 1556px) {
