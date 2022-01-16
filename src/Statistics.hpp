@@ -60,11 +60,8 @@ private:
 
     template<typename Interval, size_t MaxSize>
     void createHistogram(std::vector<AnalysisResults::TimeInfo>& list) {
-        if(list.size() > MaxSize) {
-            list.erase(list.begin() + MaxSize, list.end());
-        }
-        for(auto it = mAnalysisData.rbegin(); it != mAnalysisData.rend(); ++it) {
-            auto rounded = std::chrono::round<Interval>(it->timestamp);
+        for(auto it = mAnalysisData.begin(); it != mAnalysisData.end(); ++it) {
+            auto rounded = std::chrono::floor<Interval>(it->timestamp);
             ensureEnoughSpace<MaxSize>(list, rounded);
             list.back().packetCount += 1;
             list.back().cummulativePacketSize += it->payloadLength;

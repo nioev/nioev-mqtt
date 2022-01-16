@@ -15,7 +15,7 @@ Statistics::Statistics(ApplicationState& app)
         auto currentSleepLevel = mApp.getCurrentWorkerThreadSleepLevel();
         {
             std::unique_lock<std::shared_mutex> lock{mMutex};
-            auto nowRounded = std::chrono::round<std::chrono::minutes>(std::chrono::system_clock::now());
+            auto nowRounded = std::chrono::floor<std::chrono::minutes>(std::chrono::system_clock::now());
             ensureEnoughSpace<60>(mSleepLevelSampleCounts, nowRounded);
             mSleepLevelSampleCounts.back().samples.at(static_cast<int>(currentSleepLevel)) += 1;
         }
@@ -63,7 +63,7 @@ void Statistics::refresh() {
             assert(inserted.second);
             it = inserted.first;
         }
-        auto nowRounded = std::chrono::round<std::chrono::minutes>(std::chrono::system_clock::now());
+        auto nowRounded = std::chrono::floor<std::chrono::minutes>(std::chrono::system_clock::now());
         ensureEnoughSpace<60>(it->second, nowRounded);
         it->second.back().cummulativePacketSize += packet.payloadLength;
         it->second.back().packetCount += 1;
@@ -71,7 +71,7 @@ void Statistics::refresh() {
     }
 
     createHistogram<std::chrono::minutes, 60 * 24>(mAnalysisResult.packetsPerMinute);
-    createHistogram<std::chrono::seconds, 60 * 60>(mAnalysisResult.packetsPerSecond);
+    createHistogram<std::chrono::seconds, 60 * 2>(mAnalysisResult.packetsPerSecond);
 
     mAnalysisData.clear();
 }
