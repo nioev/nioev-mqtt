@@ -337,8 +337,8 @@ int main() {
                         }
                         doc.AddMember(rapidjson::StringRef(name), std::move(obj.Move()), doc.GetAllocator());
                     };
-                    addHistogram(stats.packetsPerSecond, "packets_per_second");
-                    addHistogram(stats.packetsPerMinute, "packets_per_minute");
+                    addHistogram(stats.packetsPerSecond, "msg_per_second");
+                    addHistogram(stats.packetsPerMinute, "msg_per_minute");
                 }
 
                 rapidjson::StringBuffer docStringified;
