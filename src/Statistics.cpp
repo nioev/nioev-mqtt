@@ -15,24 +15,18 @@ Statistics::Statistics(ApplicationState& app)
         auto currentSleepLevel = mApp.getCurrentWorkerThreadSleepLevel();
         {
             std::unique_lock<std::shared_mutex> lock{mMutex};
-            mSleepLevelSampleCounts.at(static_cast<int>(currentSleepLevel)) += 1;
-            uint64_t sum = 0;
-            for(auto c: mSleepLevelSampleCounts) {
-                sum += c;
-            }
-            // after two hours, clear all TODO delete lower percent
-            if(sum >= 100 * 60 * 60) {
-                mSleepLevelSampleCounts.fill(0);
-            }
+            auto nowRounded = std::chrono::round<std::chrono::minutes>(std::chrono::system_clock::now());
+            ensureEnoughSpace<60>(mSleepLevelSampleCounts, nowRounded);
+            mSleepLevelSampleCounts.back().samples.at(static_cast<int>(currentSleepLevel)) += 1;
         }
     });
     mAnalysisData.reserve(mCollectedData.capacity() * 10 / 11);
 }
 void Statistics::init() {
-    mApp.requestChange(ChangeRequestSubscribe{makeShared(), "", {}, SubscriptionType::OMNI});
+    mApp.requestChange(ChangeRequestSubscribe{makeShared(), "", {}, SubscriptionType::OMNI, QoS::QoS2});
 }
 void Statistics::publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained, MQTTPublishPacketBuilder& packetBuilder) {
-    PacketData packet{topic, payload.size(), std::chrono::steady_clock::now(), qos};
+    PacketData packet{topic, payload.size(), std::chrono::system_clock::now(), qos};
     push(mCollectedData, std::move(packet));
     mTotalPacketCountCounter++;
 }
@@ -47,6 +41,7 @@ void Statistics::push(atomic_queue::AtomicQueueB2<PacketData>& queue, PacketData
     }
 }
 void Statistics::refresh() {
+    util::Stopwatch stopwatch{"Statistical analysis"};
     {
         PacketData packet;
         while(mCollectedData.try_pop(packet)) {
@@ -68,9 +63,11 @@ void Statistics::refresh() {
             assert(inserted.second);
             it = inserted.first;
         }
-        it->second.cummulativePacketSize += packet.payloadLength;
-        it->second.packetCount += 1;
-        it->second.qosPacketCounts[static_cast<uint8_t>(packet.qos)] += 1;
+        auto nowRounded = std::chrono::round<std::chrono::minutes>(std::chrono::system_clock::now());
+        ensureEnoughSpace<60>(it->second, nowRounded);
+        it->second.back().cummulativePacketSize += packet.payloadLength;
+        it->second.back().packetCount += 1;
+        it->second.back().qosPacketCounts[static_cast<uint8_t>(packet.qos)] += 1;
     }
 
     createHistogram<std::chrono::minutes, 60 * 24>(mAnalysisResult.packetsPerMinute);

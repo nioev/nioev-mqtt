@@ -10,8 +10,16 @@ namespace nioev {
 struct PacketData {
     std::string topic;
     size_t payloadLength{0};
-    std::chrono::steady_clock::time_point timestamp;
+    std::chrono::system_clock::time_point timestamp;
     QoS qos{QoS::QoS0};
+};
+
+struct SleepLevelSampleCounts {
+    std::array<uint64_t, static_cast<size_t>(WorkerThreadSleepLevel::$COUNT)> samples;
+    std::chrono::system_clock::time_point timestamp;
+    SleepLevelSampleCounts() {
+        samples.fill(0);
+    }
 };
 
 struct AnalysisResults {
@@ -19,25 +27,24 @@ struct AnalysisResults {
         uint64_t cummulativePacketSize{0};
         uint64_t packetCount{0};
         std::array<uint64_t, 3> qosPacketCounts{0, 0, 0};
+        std::chrono::system_clock::time_point timestamp;
     };
-    std::unordered_map<std::string, TopicInfo> topics;
+    std::unordered_map<std::string, std::vector<TopicInfo>> topics;
     uint64_t totalPacketCount{0};
     uint64_t appStateQueueDepth{0};
     uint64_t retainedMsgCount{0};
     uint64_t retainedMsgCummulativeSize{0};
 
     struct TimeInfo {
-        std::chrono::steady_clock::time_point timestamp;
+        std::chrono::system_clock::time_point timestamp;
         uint64_t packetCount{0};
+        uint64_t cummulativePacketSize{0};
     };
     std::vector<TimeInfo> packetsPerMinute;
     std::vector<TimeInfo> packetsPerSecond;
 
     WorkerThreadSleepLevel currentSleepLevel{WorkerThreadSleepLevel::YIELD};
-    std::array<uint64_t, static_cast<size_t>(WorkerThreadSleepLevel::$COUNT)> sleepLevelSampleCounts{};
-    AnalysisResults() {
-        sleepLevelSampleCounts.fill(0);
-    }
+    std::vector<SleepLevelSampleCounts> sleepLevelSampleCounts{};
 };
 /* This class is kind of similiar to the kappa architecture.
  */
@@ -58,16 +65,22 @@ private:
         }
         for(auto it = mAnalysisData.rbegin(); it != mAnalysisData.rend(); ++it) {
             auto rounded = std::chrono::round<Interval>(it->timestamp);
-            if(list.empty() || list.back().timestamp != rounded) {
-                if(list.size() > MaxSize) {
-                    break;
-                }
-                list.emplace_back(AnalysisResults::TimeInfo{rounded, 1});
-            } else {
-                list.back().packetCount += 1;
-            }
+            ensureEnoughSpace<MaxSize>(list, rounded);
+            list.back().packetCount += 1;
+            list.back().cummulativePacketSize += it->payloadLength;
         }
     };
+
+    template<size_t MaxSize, typename T>
+    void ensureEnoughSpace(std::vector<T>& list, std::chrono::system_clock::time_point roundedTimestamp) {
+        if(list.empty() || list.back().timestamp != roundedTimestamp) {
+            list.emplace_back();
+            list.back().timestamp = roundedTimestamp;
+        }
+        if(list.size() > MaxSize) {
+            list.erase(list.begin());
+        }
+    }
 
     Timers mBatchAnalysisTimer, mSampleWorkerThreadTimer;
     atomic_queue::AtomicQueueB2<PacketData> mCollectedData{100'000};
@@ -76,7 +89,7 @@ private:
     ApplicationState& mApp;
 
     std::shared_mutex mMutex;
-    std::array<uint64_t, static_cast<size_t>(WorkerThreadSleepLevel::$COUNT)> mSleepLevelSampleCounts;
+    std::vector<SleepLevelSampleCounts> mSleepLevelSampleCounts;
     AnalysisResults mAnalysisResult;
 };
 

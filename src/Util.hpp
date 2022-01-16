@@ -273,5 +273,24 @@ inline std::string_view getFileStem(const std::string& filename) {
     return std::string_view{filename}.substr(start, end - start);
 }
 
+class Stopwatch {
+public:
+    Stopwatch(const char* name)
+    : mName(name) {
+        mStart = std::chrono::steady_clock::now();
+    }
+    ~Stopwatch() {
+        spdlog::info("{} took {}µs", mName, std::chrono::duration_cast<std::chrono::microseconds>((std::chrono::steady_clock::now() - mStart)).count());
+    }
+    Stopwatch(const Stopwatch&) = delete;
+    void operator=(const Stopwatch&) = delete;
+    Stopwatch(Stopwatch&&) = delete;
+    void operator=(Stopwatch&&) = delete;
+
+private:
+    const char* mName{ nullptr };
+    std::chrono::steady_clock::time_point mStart;
+};
+
 }
 }
