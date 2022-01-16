@@ -119,7 +119,7 @@
 <style>
     main {
         display: grid;
-        grid-template-columns: 50% 50%;
+        grid-template-columns: calc(50% - 10px) calc(50% - 10px);
         grid-auto-rows: auto;
         gap: 20px;
     }
