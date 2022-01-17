@@ -1,5 +1,5 @@
 #include <fstream>
-#include "NativeLibraryManager.hpp"
+#include "NativeLibraryCompiler.hpp"
 #include "../Util.hpp"
 
 #include "../quickjs_h_embedded.hpp"
@@ -11,7 +11,7 @@
 namespace nioev {
 
 NativeLibraryCompiler::NativeLibraryCompiler()
-: GenServer<CompileNativeLibraryData>("native- lib-comp") {
+: GenServer<CompileNativeLibraryData>("native-lib-comp") {
 
 }
 void NativeLibraryCompiler::handleTask(CompileNativeLibraryData&& nativeLibData) {
