@@ -66,6 +66,9 @@
                         min: min,
                         max: max
                     },
+                    y: {
+                        min: 0
+                    }
                 },
             }
         };
@@ -88,7 +91,6 @@
     onMount(async () => {
         let stats = await (await statsPromise).json()
 
-        let charts = [];
         let graphSeconds = drawHistogram('messagesPerSecond', 'rgb(255, 99, 132)', toScatterData(stats.msg_per_second, 1));
         let graphMinutes = drawHistogram('messagesPerMinute', 'rgb(211,99,255)', toScatterData(stats.msg_per_minute, 60));
         setInterval(async () => {
