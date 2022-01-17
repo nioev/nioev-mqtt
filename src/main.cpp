@@ -197,7 +197,7 @@ int main() {
             [&app](uWS::HttpResponse<false>* res, uWS::HttpRequest* req) {
                 try {
                     std::string fullCode;
-                    auto scriptName = req->getParameter(0);
+                    std::string scriptName{req->getParameter(0)};
                     res->onData([res, scriptName, fullCode, &app](std::string_view data, bool last) mutable {
                         fullCode += data;
                         if(!last) {
@@ -205,7 +205,7 @@ int main() {
                         }
                         spdlog::info("Adding script from Web-API: {}", scriptName);
                         app.addScript(
-                            std::string{ scriptName }, [res](auto&) { res->end("ok", true); },
+                            scriptName, [res](auto&) { res->end("ok", true); },
                             [res](auto&, const auto& error) {
                                 res->writeStatus("500 Internal Server Error");
                                 res->end(error, true);

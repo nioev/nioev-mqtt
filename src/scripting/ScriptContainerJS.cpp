@@ -343,6 +343,7 @@ void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
                 } else {
                     auto timeout = mTimeouts.top();
                     mTimeouts.pop();
+                    lock.unlock();
                     auto timeoutCallRet = JS_Call(mJSContext, timeout.mFunction, globalObj, timeout.mFunctionArgs.size(), timeout.mFunctionArgs.data());
                     if(JS_IsException(timeoutCallRet)) {
                         spdlog::warn("[{}] Error in timeout function: {}", mName, getJSException());
@@ -350,6 +351,7 @@ void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
                     }
                     JS_FreeValue(mJSContext, timeoutCallRet);
                     timeout.freeJSValues(mJSContext);
+                    lock.lock();
                 }
             } else {
                 mTasksCV.wait(lock);
