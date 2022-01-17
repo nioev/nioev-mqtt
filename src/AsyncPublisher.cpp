@@ -4,7 +4,7 @@
 namespace nioev {
 
 nioev::AsyncPublisher::AsyncPublisher(ApplicationState& app)
-: GenServer<AsyncPublishData>("app-state") , mApp(app) {
+: GenServer<AsyncPublishData>("async-pub") , mApp(app) {
 
 }
 void AsyncPublisher::handleTask(AsyncPublishData&& pub) {
