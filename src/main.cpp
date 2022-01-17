@@ -290,6 +290,7 @@ int main() {
                 {
                     rapidjson::Value sleepLevelCounts;
                     sleepLevelCounts.SetObject();
+                    stats.sleepLevelSampleCounts.erase(--stats.sleepLevelSampleCounts.end());
                     for(auto& t: stats.sleepLevelSampleCounts) {
                         rapidjson::Value tobj;
                         tobj.SetObject();
@@ -307,6 +308,7 @@ int main() {
                     for(auto& topic : stats.topics) {
                         rapidjson::Value topicJson;
                         topicJson.SetObject();
+                        topic.second.erase(--topic.second.end());
                         for(auto& ti : topic.second) {
                             rapidjson::Value tiJson;
                             tiJson.SetObject();
@@ -327,6 +329,7 @@ int main() {
                     auto addHistogram = [&] (std::vector<AnalysisResults::TimeInfo>& data, const char* name) {
                         rapidjson::Value obj;
                         obj.SetObject();
+                        data.erase(--data.end());
                         for(auto& interval: data) {
                             rapidjson::Value intervalObj;
                             intervalObj.SetObject();
