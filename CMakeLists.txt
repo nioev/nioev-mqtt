@@ -66,7 +66,7 @@ add_executable(nioev
         src/scripting/NativeLibrary.cpp
         src/scripting/NativeLibrary.hpp
         src/scripting/NativeLibraryCompiler.cpp
-        src/scripting/NativeLibraryManager.hpp
+        src/scripting/NativeLibraryCompiler.hpp
         src/GenServer.hpp
         quickjs-carr.h
         src/quickjs_h_embedded.hpp

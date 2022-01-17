@@ -14,7 +14,7 @@
 #include "Timers.hpp"
 #include "AsyncPublisher.hpp"
 #include "scripting/ScriptContainer.hpp"
-#include "scripting/NativeLibraryManager.hpp"
+#include "scripting/NativeLibraryCompiler.hpp"
 #include "SQLiteCpp/Database.h"
 #include "Statistics.hpp"
 
