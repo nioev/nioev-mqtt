@@ -342,7 +342,6 @@ void ApplicationState::operator()(ChangeRequestLoginClient&& req) {
 
 
         req.client->sendData(response.moveData());
-        req.client->setState(MQTTClientConnection::ConnectionState::CONNECTED);
     };
 
     if(existingSession != mPersistentClientStates.end()) {

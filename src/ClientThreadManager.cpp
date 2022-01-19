@@ -258,7 +258,8 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
                 // password
                 auto password = decoder.decodeString();
             }
-            // FIXME ensure that we don't receive packets while logging in
+            // according to the MQTT spec, a client can actually send PUBLISH before receiving CONNACK, so as logging a client in is handled async, we need to set the connected flag here already
+            client.setState(MQTTClientConnection::ConnectionState::CONNECTED);
             mApp.requestChange(ChangeRequestLoginClient{client.makeShared(), std::move(clientId), cleanSession ? CleanSession::Yes : CleanSession::No});
 
             break;
