@@ -69,6 +69,13 @@ void Statistics::refresh() {
         it->second.back().packetCount += 1;
         it->second.back().qosPacketCounts[static_cast<uint8_t>(packet.qos)] += 1;
     }
+    for(auto it = mAnalysisResult.topics.begin(); it != mAnalysisResult.topics.end();) {
+        if(!it->second.empty() && (it->second.begin()->timestamp + std::chrono::minutes(65)) < std::chrono::system_clock::now()) {
+            it = mAnalysisResult.topics.erase(it);
+        } else {
+            it++;
+        }
+    }
 
     createHistogram<std::chrono::minutes, 60 * 24>(mAnalysisResult.packetsPerMinute);
     createHistogram<std::chrono::seconds, 60 * 2>(mAnalysisResult.packetsPerSecond);

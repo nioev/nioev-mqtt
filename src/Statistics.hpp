@@ -74,7 +74,7 @@ private:
             list.emplace_back();
             list.back().timestamp = roundedTimestamp;
         }
-        if(list.size() > MaxSize) {
+        while(list.size() > MaxSize) {
             list.erase(list.begin());
         }
     }
