@@ -310,7 +310,7 @@ void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
     util::DestructWrapper destructRet{[&]{ JS_FreeValue(mJSContext, ret); }};
 
     if(JS_IsException(ret)) {
-        initStatus.error(mName, std::string{"Script error: "} + getJSException());
+        initStatus.error(mName, getJSException());
         return;
     }
     auto runType = getJSStringProperty(ret, "runType");
