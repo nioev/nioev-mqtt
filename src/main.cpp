@@ -278,7 +278,7 @@ int main() {
         .get(
             "/statistics",
             [&app](uWS::HttpResponse<false>* res, uWS::HttpRequest* req) {
-                static rapidjson::Document doc;
+                rapidjson::Document doc;
                 doc.SetObject();
                 auto stats = app.getAnalysisResults();
 
