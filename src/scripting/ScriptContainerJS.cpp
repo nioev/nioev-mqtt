@@ -35,7 +35,6 @@ ScriptContainerJS::~ScriptContainerJS() {
         auto func = (void(*)(const char* scriptName)) lib.second.getFP("_nioev_library_function_unload_js");
         func(mName.c_str());
     }
-    mNativeLibs.clear();
     JS_FreeContext(mJSContext);
     mJSContext = nullptr;
     JS_FreeRuntime(mJSRuntime);
