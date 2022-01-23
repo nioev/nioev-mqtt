@@ -7,7 +7,7 @@ NativeLibrary::NativeLibrary(std::string path)
 : mPath(std::move(path)) {
     mHandle = dlopen(mPath.c_str(), RTLD_LAZY);
     if(mHandle == nullptr) {
-        throw std::runtime_error{dlerror()};
+        throw std::runtime_error{std::string{"dlopen(): "} + dlerror()};
     }
 }
 NativeLibrary::~NativeLibrary() {
