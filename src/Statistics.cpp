@@ -20,7 +20,6 @@ Statistics::Statistics(ApplicationState& app)
             mSleepLevelSampleCounts.back().samples.at(static_cast<int>(currentSleepLevel)) += 1;
         }
     });
-    mAnalysisData.reserve(mCollectedData.capacity() * 10 / 11);
 }
 void Statistics::init() {
     mApp.requestChange(ChangeRequestSubscribe{makeShared(), "", {}, SubscriptionType::OMNI, QoS::QoS2});
