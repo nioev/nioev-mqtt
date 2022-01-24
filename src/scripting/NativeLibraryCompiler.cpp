@@ -26,6 +26,9 @@ void NativeLibraryCompiler::handleTask(CompileNativeLibraryData&& nativeLibData)
         nativeLibData.statusOutput.error(nativeLibData.codeFilename, "mkstemp(): " + util::errnoToString());
         return;
     }
+    util::DestructWrapper deleteTempDir{[&] {
+        std::filesystem::remove_all(path);
+    }};
     auto codePath = path + "/" + nativeLibData.codeFilename;
     std::ofstream outCode{codePath};
     outCode << nativeLibData.code;
