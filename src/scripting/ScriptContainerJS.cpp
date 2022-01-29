@@ -117,6 +117,7 @@ void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
         std::unique_lock<std::mutex> lock{mTasksMutex};
         mInitFailureMessage = errorMsg;
         lock.unlock();
+        mApp.requestChange(ChangeRequestUnsubscribeFromAll{makeShared()});
         error(mName, errorMsg);
     };
 
