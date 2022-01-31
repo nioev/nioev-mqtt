@@ -64,6 +64,9 @@ public:
             //mWebApp.publish(mWSId, std::string_view{ (const char*)payload.data(), payload.size() }, uWS::BINARY, false);
         });
     }
+    const char* getType() const override {
+        return "ws";
+    }
     void deactivate() {
         *mActive = false;
     }
@@ -293,6 +296,14 @@ int main() {
                 doc.AddMember(rapidjson::StringRef("app_state_queue_depth"), rapidjson::Value{stats.appStateQueueDepth}, doc.GetAllocator());
                 doc.AddMember(rapidjson::StringRef("retained_msg_count"), rapidjson::Value{stats.retainedMsgCount}, doc.GetAllocator());
                 doc.AddMember(rapidjson::StringRef("retained_msg_size_sum"), rapidjson::Value{stats.retainedMsgCummulativeSize}, doc.GetAllocator());
+                {
+                    rapidjson::Value subs;
+                    subs.SetObject();
+                    for(auto& sub: stats.activeSubscriptions) {
+                        subs.AddMember(rapidjson::Value{sub.first.c_str(), static_cast<rapidjson::SizeType>(sub.first.size()), doc.GetAllocator()}, rapidjson::Value{sub.second}, doc.GetAllocator());
+                    }
+                    doc.AddMember(rapidjson::StringRef("active_subscriptions"), std::move(subs.Move()), doc.GetAllocator());
+                }
                 {
                     rapidjson::Value sleepLevelCounts;
                     sleepLevelCounts.SetObject();

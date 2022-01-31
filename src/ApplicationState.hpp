@@ -201,6 +201,7 @@ public:
         }
         return sum;
     }
+    std::unordered_map<std::string, uint64_t> getSubscriptionsCount();
 private:
     struct Subscription {
         std::shared_ptr<Subscriber> subscriber;

@@ -35,6 +35,8 @@ struct AnalysisResults {
     uint64_t retainedMsgCount{0};
     uint64_t retainedMsgCummulativeSize{0};
 
+    std::unordered_map<std::string, uint64_t> activeSubscriptions;
+
     struct TimeInfo {
         std::chrono::system_clock::time_point timestamp;
         uint64_t packetCount{0};
@@ -54,6 +56,9 @@ public:
     void init();
     void publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained, MQTTPublishPacketBuilder& packetBuilder) override;
     AnalysisResults getResults();
+    virtual const char* getType() const override {
+        return "stats";
+    }
 private:
     void push(atomic_queue::AtomicQueueB2<PacketData>& queue, PacketData&& packet);
     void refresh();

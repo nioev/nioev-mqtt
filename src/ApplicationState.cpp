@@ -557,5 +557,28 @@ void ApplicationState::addScript(
     };
     requestChange(ChangeRequestAddScript{std::move(name), std::move(code), std::move(statusOutput)});
 }
+std::unordered_map<std::string, uint64_t> ApplicationState::getSubscriptionsCount() {
+    std::shared_lock<std::shared_mutex> lock{mMutex};
+    std::unordered_map<std::string, uint64_t> counts;
+    auto addSub = [&] (const Subscriber& sub) {
+        auto it = counts.find(sub.getType());
+        if(it == counts.end()) {
+            counts.emplace(sub.getType(), 1);
+        } else {
+            it->second += 1;
+        }
+    };
+    for(auto &s: mSimpleSubscriptions) {
+        addSub(*s.second.subscriber);
+    }
+    for(auto &s: mWildcardSubscriptions) {
+        addSub(*s.subscriber);
+    }
+    for(auto &s: mOmniSubscriptions) {
+        addSub(*s.subscriber);
+    }
+    return counts;
+
+}
 }
 

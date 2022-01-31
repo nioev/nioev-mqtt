@@ -54,6 +54,7 @@ void Statistics::refresh() {
     mAnalysisResult.totalPacketCount = mTotalPacketCountCounter;
     mAnalysisResult.retainedMsgCount = mApp.getRetainedMsgCount();
     mAnalysisResult.retainedMsgCummulativeSize = mApp.getRetainedMsgCummulativeSize();
+    mAnalysisResult.activeSubscriptions = mApp.getSubscriptionsCount();
 
     for(auto& packet: mAnalysisData) {
         auto it = mAnalysisResult.topics.find(packet.topic);

@@ -132,6 +132,10 @@ public:
 
     void sendData(util::SharedBuffer&& bytes);
     void publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained, MQTTPublishPacketBuilder& packetBuilder) override;
+
+    virtual const char* getType() const override {
+        return "mqtt client";
+    }
 private:
     ApplicationState& mApp;
     TcpClientConnection mConn;

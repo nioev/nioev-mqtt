@@ -16,6 +16,8 @@ public:
     auto makeShared() {
         return shared_from_this();
     }
+
+    virtual const char* getType() const = 0;
 };
 
 }

@@ -66,6 +66,9 @@ public:
     const auto& getCode() const {
         return mCode;
     }
+    virtual const char* getType() const override {
+        return "script";
+    }
 
 protected:
     mutable std::mutex mScriptInitReturnMutex;
