@@ -57,16 +57,21 @@ public:
     : mApp(app), mLoop(loop), mWS(ws) {
     }
     void publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained, MQTTPublishPacketBuilder&) override {
-        mLoop.defer([this, topic, payload] {
+        mLoop.defer([this, topic, payload, active = mActive] {
+            if(!*active)
+                return;
             mWS->send(std::string_view{ (const char*)payload.data(), payload.size() }, uWS::BINARY, false);
             //mWebApp.publish(mWSId, std::string_view{ (const char*)payload.data(), payload.size() }, uWS::BINARY, false);
         });
     }
-
+    void deactivate() {
+        *mActive = false;
+    }
 private:
     ApplicationState& mApp;
     uWS::Loop& mLoop;
     uWS::WebSocket<false, true, PerWebsocketClientData>* mWS;
+    std::shared_ptr<bool> mActive{std::make_shared<bool>(true)};
 };
 
 int main() {
@@ -186,9 +191,10 @@ int main() {
                              uWS::WebSocket<false, true, PerWebsocketClientData>* ws, int code, std::string_view message) {
                     auto it = openWSFds.find(ws);
                     if(it == openWSFds.end()) {
-                        spdlog::error("Close called on already closed fd!");
+                        spdlog::warn("Close called on already closed fd!");
                         return;
                     }
+                    it->second->deactivate();
                     app.requestChange(ChangeRequestUnsubscribeFromAll{it->second});
                     openWSFds.erase(it);
                 } })
