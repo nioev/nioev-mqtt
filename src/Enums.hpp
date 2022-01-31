@@ -32,6 +32,10 @@ enum class QoS : uint8_t
     QoS2 = 2,
 };
 
+static inline QoS minQoS(QoS a, QoS b) {
+    return static_cast<uint8_t>(a) < static_cast<uint8_t>(b) ? a : b;
+}
+
 enum class Retained
 {
     No,

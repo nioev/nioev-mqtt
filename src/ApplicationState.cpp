@@ -175,7 +175,7 @@ void ApplicationState::subscribeClientInternal(ChangeRequestSubscribe&& req, Sho
         auto& sub = mWildcardSubscriptions.emplace_back(req.subscriber, req.topic, std::move(req.topicSplit), req.qos);
         for(auto& retainedMessage: mRetainedMessages) {
             if(util::doesTopicMatchSubscription(retainedMessage.first, sub.topicSplit)) {
-                sendPublish(*sub.subscriber, retainedMessage.first, retainedMessage.second.payload, retainedMessage.second.qos, Retained::Yes);
+                sendPublish(*sub.subscriber, retainedMessage.first, retainedMessage.second.payload, minQoS(retainedMessage.second.qos, req.qos), Retained::Yes);
             }
         }
 
@@ -195,7 +195,7 @@ void ApplicationState::subscribeClientInternal(ChangeRequestSubscribe&& req, Sho
                                      std::make_tuple(req.subscriber, req.topic, std::vector<std::string>{}, req.qos));
         auto retainedMessage = mRetainedMessages.find(req.topic);
         if(retainedMessage != mRetainedMessages.end()) {
-            sendPublish(*req.subscriber, retainedMessage->first, retainedMessage->second.payload, retainedMessage->second.qos, Retained::Yes);
+            sendPublish(*req.subscriber, retainedMessage->first, retainedMessage->second.payload, minQoS(retainedMessage->second.qos, req.qos), Retained::Yes);
         }
     } else if(req.subType == SubscriptionType::OMNI) {
         auto existingSub = std::find_if(mOmniSubscriptions.begin(), mOmniSubscriptions.end(), [&](const Subscription& sub) {return sub.subscriber == req.subscriber;});
@@ -204,7 +204,7 @@ void ApplicationState::subscribeClientInternal(ChangeRequestSubscribe&& req, Sho
         }
         auto& sub = mOmniSubscriptions.emplace_back(req.subscriber, req.topic, std::move(req.topicSplit), req.qos);
         for(auto& retainedMessage: mRetainedMessages) {
-            sendPublish(*sub.subscriber, retainedMessage.first, retainedMessage.second.payload, retainedMessage.second.qos, Retained::Yes);
+            sendPublish(*sub.subscriber, retainedMessage.first, retainedMessage.second.payload, minQoS(retainedMessage.second.qos, req.qos), Retained::Yes);
         }
     } else {
         assert(false);
@@ -479,10 +479,7 @@ void ApplicationState::publishNoLockNoRetain(const std::string& topic, const std
     }
     forEachSubscriberThatIsOfT(topic, [&topic, &msg, publishQoS](Subscription& sub) {
         // according to the spec, we have to downgrade the publishQoS level here to match that of the publish; TODO allow overriding this behaviour in a config file
-        auto usedQos = sub.qos;
-        if(static_cast<int>(publishQoS) < static_cast<int>(usedQos)) {
-            usedQos = publishQoS;
-        }
+        auto usedQos = minQoS(sub.qos, publishQoS);
         sendPublish(*sub.subscriber, topic, msg, usedQos, Retained::No);
     });
     // TODO reimplement sync scripts
