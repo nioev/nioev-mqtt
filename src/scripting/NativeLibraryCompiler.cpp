@@ -49,7 +49,7 @@ void NativeLibraryCompiler::handleTask(CompileNativeLibraryData&& nativeLibData)
     }
     if(clangPid == 0) {
         // we are clang!
-        std::vector<const char*> flags = {"clang", "-std=c++17", "-lstdc++", "-fPIC", "-shared", "-g", "-o", libName.c_str(), codePath.c_str()};
+        std::vector<const char*> flags = {"g++", "-std=c++17", "-lstdc++", "-fPIC", "-shared", "-g", "-o", libName.c_str(), codePath.c_str()};
         auto firstLine = nativeLibData.code.substr(0, nativeLibData.code.find('\n'));
         if(nativeLibData.code.starts_with("// ")) {
             firstLine = firstLine.substr(3);
