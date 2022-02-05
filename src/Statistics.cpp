@@ -20,6 +20,7 @@ Statistics::Statistics(ApplicationState& app)
             mSleepLevelSampleCounts.back().samples.at(static_cast<int>(currentSleepLevel)) += 1;
         }
     });
+    mStartTime = std::chrono::steady_clock::now();
 }
 void Statistics::init() {
     mApp.requestChange(ChangeRequestSubscribe{makeShared(), "", {}, SubscriptionType::OMNI, QoS::QoS2});
@@ -55,6 +56,7 @@ void Statistics::refresh() {
     mAnalysisResult.retainedMsgCount = mApp.getRetainedMsgCount();
     mAnalysisResult.retainedMsgCummulativeSize = mApp.getRetainedMsgCummulativeSize();
     mAnalysisResult.activeSubscriptions = mApp.getSubscriptionsCount();
+    mAnalysisResult.uptimeSeconds = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - mStartTime).count();
 
     for(auto& packet: mAnalysisData) {
         auto it = mAnalysisResult.topics.find(packet.topic);

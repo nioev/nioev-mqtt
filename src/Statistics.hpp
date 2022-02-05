@@ -34,6 +34,7 @@ struct AnalysisResults {
     uint64_t appStateQueueDepth{0};
     uint64_t retainedMsgCount{0};
     uint64_t retainedMsgCummulativeSize{0};
+    uint64_t uptimeSeconds{0};
 
     std::unordered_map<std::string, uint64_t> activeSubscriptions;
 
@@ -93,6 +94,7 @@ private:
     std::shared_mutex mMutex;
     std::vector<SleepLevelSampleCounts> mSleepLevelSampleCounts;
     AnalysisResults mAnalysisResult;
+    std::chrono::steady_clock::time_point mStartTime;
 };
 
 }

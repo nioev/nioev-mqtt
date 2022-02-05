@@ -296,6 +296,7 @@ int main() {
                 doc.AddMember(rapidjson::StringRef("app_state_queue_depth"), rapidjson::Value{stats.appStateQueueDepth}, doc.GetAllocator());
                 doc.AddMember(rapidjson::StringRef("retained_msg_count"), rapidjson::Value{stats.retainedMsgCount}, doc.GetAllocator());
                 doc.AddMember(rapidjson::StringRef("retained_msg_size_sum"), rapidjson::Value{stats.retainedMsgCummulativeSize}, doc.GetAllocator());
+                doc.AddMember(rapidjson::StringRef("uptime_seconds"), rapidjson::Value{stats.uptimeSeconds}, doc.GetAllocator());
                 {
                     rapidjson::Value subs;
                     subs.SetObject();
