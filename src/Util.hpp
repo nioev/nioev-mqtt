@@ -280,7 +280,7 @@ public:
         mStart = std::chrono::steady_clock::now();
     }
     ~Stopwatch() {
-        spdlog::info("{} took {}µs", mName, std::chrono::duration_cast<std::chrono::microseconds>((std::chrono::steady_clock::now() - mStart)).count());
+        spdlog::debug("{} took {}µs", mName, std::chrono::duration_cast<std::chrono::microseconds>((std::chrono::steady_clock::now() - mStart)).count());
     }
     Stopwatch(const Stopwatch&) = delete;
     void operator=(const Stopwatch&) = delete;
