@@ -16,14 +16,24 @@
         href: "settings.html",
         text: "Settings"
     }]
+    let refreshRate = "15000";
 </script>
 
 <main>
     <div id="blueBar"></div>
     <div id="innerMain">
-        <h1>
-            nioev live dashboard
-        </h1>
+        <div id="headline">
+            <h1>nioev live dashboard</h1>
+            <span id="updateEvery">
+                <span id="updateEveryText">Update every</span>
+                <select bind:value={refreshRate}>
+                    <option value="1000">1s</option>
+                    <option value="5000">5s</option>
+                    <option value="15000" >15s</option>
+                    <option value="60000">60s</option>
+                </select>
+            </span>
+        </div>
         <nav>
             {#each navElements as e}
                 <p class="element" style:font-weight={currentPage === e.href ? "bold" : ""}
@@ -35,7 +45,7 @@
         <div id="spacer"></div>
         {#if currentPage === "index.html"}
             <div class="content" transition:fade="{{duration: 50}}">
-                <Overview/>
+                <Overview refreshRate={refreshRate}/>
             </div>
         {:else if currentPage === "scripts.html"}
             <div class="content" transition:fade="{{duration: 50}}">
@@ -60,7 +70,26 @@
     }
     h1 {
         margin: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    #headline {
+        display: flex;
+        justify-content: space-between;
         color: white;
+        font-size: 20px;
+        overflow: hidden;
+        text-align: center;
+    }
+    #updateEvery {
+        display: flex;
+        align-items: center;
+    }
+    #updateEveryText {
+        text-align: center;
+        padding-right: 10px;
+        padding-bottom: 10px;
     }
     #blueBar {
         background-color: #2980b9;

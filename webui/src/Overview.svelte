@@ -10,8 +10,8 @@
         for(let i = min; i <= max; i += interval) {
             let datapoint = src[i];
             if(datapoint === undefined) {
-                console.log("Missing datapoint for element " + (i - min).toString() + "(" + i + ")");
-                console.log(src, src[i]);
+                //console.log("Missing datapoint for element " + (i - min).toString() + "(" + i + ")");
+                //console.log(src, src[i]);
                 values.push({x: i, y: 0});
             } else {
                 values.push({x: i, y: datapoint.msg_count})
@@ -88,42 +88,138 @@
     }
 
     let statsPromise = fetch("/statistics");
+    let totalMessageCount = 0;
+    let retainedMsgCount = 0;
+    let retainedMsgBytes = 0;
+    let appQueueDepth = 0;
+    let appSleepState = "";
+    let activeSubscriptions = 0;
+    let uptime = 0;
+    function onDataReceived(stats) {
+        totalMessageCount = stats.total_msg_count
+        retainedMsgCount = stats.retained_msg_count
+        retainedMsgBytes = stats.retained_msg_size_sum;
+        appQueueDepth = stats.app_state_queue_depth;
+        if(stats.current_sleep_level === "tens_of_milliseconds") {
+            appSleepState = "10ms";
+        } else if(stats.current_sleep_level === "milliseconds") {
+            appSleepState = "1ms";
+        } else if(stats.current_sleep_level === "microseconds") {
+            appSleepState = "10µs";
+        } else if(stats.current_sleep_level === "yield") {
+            appSleepState = "yield";
+        } else {
+            appSleepState = stats.current_sleep_level;
+        }
+        activeSubscriptions = Object.entries(stats.active_subscriptions).map((kv) => kv[1]).reduce((sum, a) => sum + a, 0);
+        uptime = stats.uptime_seconds;
+    }
+
+    let refreshIntervalTimeoutId = 0;
+    let graphSeconds;
+    let graphMinutes;
+
+    async function updateStatistics() {
+
+        let stats = await (await fetch("/statistics")).json();
+        graphSeconds(toScatterData(stats.msg_per_second, 1));
+        graphMinutes(toScatterData(stats.msg_per_minute, 60));
+        onDataReceived(stats);
+    }
+
+    let initDone = false;
     onMount(async () => {
         let stats = await (await statsPromise).json()
-
-        let graphSeconds = drawHistogram('messagesPerSecond', 'rgb(255, 99, 132)', toScatterData(stats.msg_per_second, 1));
-        let graphMinutes = drawHistogram('messagesPerMinute', 'rgb(211,99,255)', toScatterData(stats.msg_per_minute, 60));
-        setInterval(async () => {
-            let stats = await (await fetch("/statistics")).json();
-            graphSeconds(toScatterData(stats.msg_per_second, 1));
-            graphMinutes(toScatterData(stats.msg_per_minute, 60));
-        }, 15 * 1000);
+        onDataReceived(stats);
+        graphSeconds = drawHistogram('messagesPerSecond', 'rgb(255, 99, 132)', toScatterData(stats.msg_per_second, 1));
+        graphMinutes = drawHistogram('messagesPerMinute', 'rgb(211,99,255)', toScatterData(stats.msg_per_minute, 60));
+        oldRefreshRate = refreshRate;
+        refreshIntervalTimeoutId = setInterval(updateStatistics, refreshRate);
+        initDone = true;
     });
+
+    export let refreshRate;
+    let oldRefreshRate;
+    $: if (oldRefreshRate !== refreshRate && initDone) {
+        oldRefreshRate = refreshRate;
+        (async () => {
+            clearInterval(refreshIntervalTimeoutId);
+            await updateStatistics();
+            refreshIntervalTimeoutId = setInterval(updateStatistics, refreshRate);
+        })();
+
+    }
+    function formatDuration(seconds) {
+        let s = Math.floor(seconds % 60).toString().padStart(2, "0");
+        let m = Math.floor((seconds / 60) % 60).toString().padStart(2, "0");
+        let h = Math.floor((seconds / 3600) % 24).toString().padStart(2, "0");
+        let d = Math.floor((seconds / (3600 * 24)));
+
+        return (d >= 0 ? d + " days " : "") + h + ":" + m + ":" + s;
+    }
 </script>
 
 <main>
-    <p class="control">Version: xyz</p>
-    <p class="control">Uptime: xyz</p>
-    <div class="control" >
-        <center>Messages per Second</center>
-        <canvas id="messagesPerSecond"></canvas>
+    <div id="numbers">
+        <div class="control">
+            <div>Version</div>
+            <div class="highlight">Alpha</div>
+        </div>
+        <div class="control">
+            <div>Uptime</div>
+            <div class="highlight">{formatDuration(uptime)}</div>
+        </div>
+        <div class="control">
+            <div>Total Messages</div>
+            <div class="highlight">{totalMessageCount}</div>
+        </div>
+        <div class="control">
+            <div>Active Subscriptions</div>
+            <div class="highlight">{activeSubscriptions}</div>
+        </div>
+        <div class="control">
+            <div>Retained Bytes</div>
+            <div class="highlight">{retainedMsgBytes}</div>
+        </div>
+        <div class="control">
+            <div>App Queue Depth</div>
+            <div class="highlight">{appQueueDepth}</div>
+        </div>
+        <div class="control">
+            <div>Sleep State</div>
+            <div class="highlight">{appSleepState}</div>
+        </div>
+        <div class="control">
+            <div>Retained Count</div>
+            <div class="highlight">{retainedMsgCount}</div>
+        </div>
     </div>
-    <div class="control" >
-        <center>Messages per Minute</center>
-        <canvas id="messagesPerMinute"></canvas>
+    <div id="graphs">
+        <div class="control" >
+            <center>Messages per Second</center>
+            <canvas id="messagesPerSecond"></canvas>
+        </div>
+        <div class="control" >
+            <center>Messages per Minute</center>
+            <canvas id="messagesPerMinute"></canvas>
+        </div>
     </div>
-    <p class="control">Test</p>
-    <p class="control">Test</p>
-    <p class="control">Test</p>
-    <p class="control">Test</p>
+
 </main>
 
 <style>
-    main {
+    #numbers {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 20px;
+        padding-bottom: 20px;
+    }
+    #graphs {
         display: grid;
         grid-template-columns: calc(50% - 10px) calc(50% - 10px);
         grid-auto-rows: auto;
         gap: 20px;
+        padding-bottom: 50px;
     }
     .control {
         background-color: white;
@@ -132,5 +228,23 @@
         padding: 10px;
         margin: 0;
         font-size: 20px;
+    }
+    .highlight {
+        font-size: 30px;
+        font-weight: bold;
+    }
+    @media only screen and (max-width: 700px) {
+        #graphs {
+            grid-template-columns: 100%;
+        }
+        main {
+            font-size: 15px;
+        }
+        .control {
+            font-size: 20px;
+        }
+        .highlight {
+            font-size: 25px;
+        }
     }
 </style>
