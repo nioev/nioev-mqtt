@@ -20,9 +20,9 @@ ScriptContainerJS::ScriptContainerJS(ApplicationState& p, const std::string& scr
 }
 ScriptContainerJS::~ScriptContainerJS() {
     if(mScriptThread) {
-        std::unique_lock<std::mutex> lock{mTasksMutex};
+        std::unique_lock<std::mutex> lock{ mMutex };
         mShouldAbort = true;
-        mTasksCV.notify_all();
+        mCV.notify_all();
         lock.unlock();
         mScriptThread->join();
         mScriptThread.reset();
@@ -48,14 +48,14 @@ void ScriptContainerJS::init(ScriptStatusOutput&& status) {
 }
 
 void ScriptContainerJS::run(const ScriptInputArgs& in, ScriptStatusOutput&& status) {
-    std::unique_lock<std::mutex> lock{mTasksMutex};
+    std::unique_lock<std::mutex> lock{ mMutex };
     if(!mInitFailureMessage.empty()) {
         status.error(mName, "Init failed: " + mInitFailureMessage);
         return;
     }
     mTasks.emplace(in, std::move(status));
+    mCV.notify_all();
     lock.unlock();
-    mTasksCV.notify_all();
 }
 
 template<bool error>
@@ -114,10 +114,11 @@ void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
     JS_UpdateStackTop(mJSRuntime);
 
     initStatus.error = [this, error = std::move(initStatus.error)](const std::string& scriptName, const std::string& errorMsg) {
-        std::unique_lock<std::mutex> lock{mTasksMutex};
+        std::unique_lock<std::mutex> lock{ mMutex };
         mInitFailureMessage = errorMsg;
         lock.unlock();
         mApp.requestChange(ChangeRequestUnsubscribeFromAll{makeShared()});
+        deactivate();
         error(mName, errorMsg);
     };
 
@@ -334,12 +335,16 @@ void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
 
     // start run loop
     while(!mShouldAbort) {
-        std::unique_lock<std::mutex> lock{mTasksMutex};
+        std::unique_lock<std::mutex> lock{ mMutex };
         while(mTasks.empty()) {
+            if(!mActive) {
+                mCV.wait(lock);
+                continue;
+            }
             if(!mTimeouts.empty()) {
                 auto waitFor = mTimeouts.top().timeLeftUntilShouldBeRun();
                 if(waitFor > std::chrono::milliseconds(0)) {
-                    mTasksCV.wait_for(lock, waitFor);
+                    mCV.wait_for(lock, waitFor);
                 } else {
                     auto timeout = mTimeouts.top();
                     mTimeouts.pop();
@@ -354,7 +359,7 @@ void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
                     lock.lock();
                 }
             } else {
-                mTasksCV.wait(lock);
+                mCV.wait(lock);
             }
             if(mShouldAbort) {
                return;
@@ -368,7 +373,7 @@ void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
 }
 void ScriptContainerJS::forceQuit() {
     mShouldAbort = true;
-    mTasksCV.notify_all();
+    mCV.notify_all();
     if(mScriptThread)
         mScriptThread->join();
     mScriptThread.reset();

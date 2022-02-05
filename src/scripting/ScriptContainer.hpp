@@ -11,6 +11,7 @@
 #include "../Forward.hpp"
 #include "spdlog/spdlog.h"
 #include "../Subscriber.hpp"
+#include <condition_variable>
 
 namespace nioev {
 
@@ -61,6 +62,8 @@ public:
     }
 
     void publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained, MQTTPublishPacketBuilder& packetBuilder) override {
+        if(!mActive)
+            return;
         run(ScriptRunArgsMqttMessage{topic, payload, retained}, ScriptStatusOutput{});
     }
     const auto& getCode() const {
@@ -70,11 +73,28 @@ public:
         return "script";
     }
 
+    /* Deactivated scripts will no longer receive any messages and should not run any further scheduled code.
+     */
+    void activate() {
+        std::unique_lock<std::mutex> lock{mMutex};
+        mActive = true;
+        mCV.notify_all();
+    }
+    void deactivate() {
+        mActive = false;
+    }
+    [[nodiscard]] bool isActive() const {
+        return mActive;
+    }
+
 protected:
+    mutable std::mutex mMutex;
     mutable std::mutex mScriptInitReturnMutex;
     std::optional<ScriptInitReturn> mScriptInitReturn;
     ApplicationState& mApp;
     std::string mCode;
+    std::atomic<bool> mActive{true};
+    std::condition_variable mCV;
 };
 
 }

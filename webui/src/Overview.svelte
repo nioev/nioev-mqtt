@@ -1,6 +1,6 @@
 <script>
     import Chart from "chart.js/auto";
-    import {onMount} from "svelte";
+    import {onMount, onDestroy} from "svelte";
 
     function toScatterData(src, interval) {
         let values = [];
@@ -157,6 +157,9 @@
 
         return (d >= 0 ? d + " days " : "") + h + ":" + m + ":" + s;
     }
+    onDestroy(() => {
+        clearInterval(refreshIntervalTimeoutId);
+    })
 </script>
 
 <main>
