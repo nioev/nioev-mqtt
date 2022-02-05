@@ -178,20 +178,20 @@
             <div class="highlight">{activeSubscriptions}</div>
         </div>
         <div class="control">
-            <div>Retained Bytes</div>
-            <div class="highlight">{retainedMsgBytes}</div>
+            <div>Sleep State</div>
+            <div class="highlight">{appSleepState}</div>
         </div>
         <div class="control">
             <div>App Queue Depth</div>
             <div class="highlight">{appQueueDepth}</div>
         </div>
         <div class="control">
-            <div>Sleep State</div>
-            <div class="highlight">{appSleepState}</div>
-        </div>
-        <div class="control">
             <div>Retained Count</div>
             <div class="highlight">{retainedMsgCount}</div>
+        </div>
+        <div class="control">
+            <div>Retained Bytes</div>
+            <div class="highlight">{retainedMsgBytes}</div>
         </div>
     </div>
     <div id="graphs">
