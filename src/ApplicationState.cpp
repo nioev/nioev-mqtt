@@ -470,7 +470,7 @@ void ApplicationState::publishNoLockNoRetain(const std::string& topic, const std
     #ifndef NDEBUG
         if(topic != LOG_TOPIC) {
             std::string dataAsStr{msg.begin(), msg.end()};
-            spdlog::info("Publishing on '{}' data '{}'", topic, dataAsStr);
+            spdlog::trace("Publishing on '{}' data '{}'", topic, dataAsStr);
         }
     #endif
     // first check for publish to $NIOEV
