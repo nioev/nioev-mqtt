@@ -36,13 +36,29 @@
 
 
 <main>
-    <button on:click={saveScript}>Save</button>
+    <span id="toolbar">
+        <button on:click={saveScript}>Save</button>
+        <span>{file}</span>
+    </span>
+
     <div id="editor"></div>
 </main>
 <style>
+    #toolbar {
+        display: flex;
+        align-items: center;
+    }
     #editor {
         font-size: var(--small-font-size);
         margin-bottom: 100px;
         word-break: break-word;
+    }
+    main {
+        background-color: white;
+        box-shadow: #333333 0 0 5px;
+        border-radius: 10px;
+    }
+    #toolbar > * {
+        margin: 5px;
     }
 </style>
