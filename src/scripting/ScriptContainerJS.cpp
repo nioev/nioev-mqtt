@@ -1,4 +1,6 @@
 #include "ScriptContainerJS.hpp"
+
+#include <utility>
 #include "quickjs.h"
 #include "../Util.hpp"
 #include "spdlog/spdlog.h"
@@ -6,8 +8,8 @@
 
 namespace nioev {
 
-ScriptContainerJS::ScriptContainerJS(ApplicationState& p, const std::string& scriptName, std::string&& scriptCode)
-: ScriptContainer(p, std::move(scriptCode)), mName(scriptName) {
+ScriptContainerJS::ScriptContainerJS(ApplicationState& p, std::string scriptName, std::string&& scriptCode)
+: ScriptContainer(p, std::move(scriptName), std::move(scriptCode)) {
     mJSRuntime = JS_NewRuntime();
     mJSContext = JS_NewContext(mJSRuntime);
     JS_SetInterruptHandler(

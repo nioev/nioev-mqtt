@@ -12,7 +12,7 @@ namespace nioev {
 
 class ScriptContainerJS final : public ScriptContainer {
 public:
-    ScriptContainerJS(ApplicationState& p, const std::string& scriptName, std::string&& scriptCode);
+    ScriptContainerJS(ApplicationState& p, std::string scriptName, std::string&& scriptCode);
     ~ScriptContainerJS();
     void init(ScriptStatusOutput&&) override;
     void run(const ScriptInputArgs&, ScriptStatusOutput&&) override;
@@ -33,8 +33,6 @@ private:
     JSRuntime* mJSRuntime;
     JSContext* mJSContext;
     std::optional<std::thread> mScriptThread;
-
-    std::string mName;
 
     std::queue<std::pair<ScriptInputArgs, ScriptStatusOutput>> mTasks;
     std::string mInitFailureMessage; // protected by tasks mutex

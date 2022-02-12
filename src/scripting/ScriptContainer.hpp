@@ -45,8 +45,8 @@ struct ScriptStatusOutput {
 
 class ScriptContainer : public Subscriber {
 public:
-    explicit ScriptContainer(ApplicationState& p, std::string code)
-    : mApp(p), mCode(std::move(code)) {
+    explicit ScriptContainer(ApplicationState& p, std::string name, std::string code)
+    : mApp(p), mName(std::move(name)), mCode(std::move(code)) {
 
     }
     virtual ~ScriptContainer() = default;
@@ -79,9 +79,12 @@ public:
         std::unique_lock<std::mutex> lock{mMutex};
         mActive = true;
         mCV.notify_all();
+        lock.unlock();
+        spdlog::info("[{}] Activated", mName);
     }
     void deactivate() {
         mActive = false;
+        spdlog::info("[{}] Deactivated", mName);
     }
     [[nodiscard]] bool isActive() const {
         return mActive;
@@ -92,7 +95,7 @@ protected:
     mutable std::mutex mScriptInitReturnMutex;
     std::optional<ScriptInitReturn> mScriptInitReturn;
     ApplicationState& mApp;
-    std::string mCode;
+    std::string mCode, mName;
     std::atomic<bool> mActive{true};
     std::condition_variable mCV;
 };
