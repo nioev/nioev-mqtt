@@ -358,6 +358,11 @@ void RESTAPI::run(ApplicationState& app) {
             [](uWS::HttpResponse<false>* res, uWS::HttpRequest* req) {
                 try {
                     auto path = req->getUrl().substr(1);
+                    if (path.empty()) {
+                        res->writeStatus("301 Moved Permanently");
+                        res->writeHeader("Location", "index.html");
+                        res->end("", true);
+                    }
                     spdlog::info("Web request for {}", path);
                     std::string fullFilePath = "webui/" + std::string{ path };
                     std::ifstream file{ fullFilePath };
