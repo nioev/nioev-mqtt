@@ -523,14 +523,14 @@ void ApplicationState::deleteAllSubscriptions(Subscriber& sub) {
     });
 }
 ApplicationState::ScriptsInfo ApplicationState::getScriptsInfo() {
-    std::shared_lock<std::shared_mutex> lock{mMutex};
+    UniqueLockWithAtomicTidUpdate lock{mMutex, mCurrentRWHolderOfMMutex};
     ScriptsInfo ret;
-    // TODO change to SQL query to also fetch native scripts (libraries)
-    for(auto& script: mScripts) {
+    SQLite::Statement scriptQuery(mDb, "SELECT name,code,active FROM script");
+    while(scriptQuery.executeStep()) {
         ScriptsInfo::ScriptInfo scriptInfo;
-        scriptInfo.name = script.first;
-        scriptInfo.code = script.second->getCode();
-        scriptInfo.active = script.second->isActive();
+        scriptInfo.name = scriptQuery.getColumn(0).getString();
+        scriptInfo.code = scriptQuery.getColumn(1).getString();
+        scriptInfo.active = scriptQuery.getColumn(2).getInt();
         ret.scripts.emplace_back(std::move(scriptInfo));
     }
     return ret;
