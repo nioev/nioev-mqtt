@@ -60,3 +60,16 @@ button:not(:disabled):active {
 button:focus {
 	border-color: #666;
 }
+
+:root {
+	--small-font-size: 15px;
+	--medium-font-size: 20px;
+	--big-font-size: 30px;
+}
+@media only screen and (max-width: 700px) {
+	:root {
+		--small-font-size: 15px;
+		--medium-font-size: 20px;
+		--big-font-size: 25px;
+	}
+}

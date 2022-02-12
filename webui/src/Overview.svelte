@@ -211,6 +211,11 @@
 </main>
 
 <style>
+    :root {
+        --small-font-size: 15px;
+        --medium-font-size: 20px;
+        --big-font-size: 30px;
+    }
     #numbers {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
@@ -230,24 +235,18 @@
         box-shadow: #9f9f9f 0 0 5px;
         padding: 10px;
         margin: 0;
-        font-size: 20px;
+        font-size: var(--medium-font-size);
+    }
+    main {
+        font-size: var(--small-font-size);
     }
     .highlight {
-        font-size: 30px;
+        font-size: var(--big-font-size);
         font-weight: bold;
     }
     @media only screen and (max-width: 700px) {
         #graphs {
             grid-template-columns: 100%;
-        }
-        main {
-            font-size: 15px;
-        }
-        .control {
-            font-size: 20px;
-        }
-        .highlight {
-            font-size: 25px;
         }
     }
 </style>

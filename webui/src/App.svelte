@@ -78,7 +78,7 @@
         display: flex;
         justify-content: space-between;
         color: white;
-        font-size: 20px;
+        font-size: var(--medium-font-size);
         overflow: hidden;
         text-align: center;
     }
@@ -133,7 +133,7 @@
         text-align: center;
         padding-left: 20px;
         padding-right: 20px;
-        font-size: 20px;
+        font-size: var(--medium-font-size);
         color: black;
     }
     .element:hover {
