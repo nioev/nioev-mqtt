@@ -525,6 +525,7 @@ void ApplicationState::deleteAllSubscriptions(Subscriber& sub) {
 ApplicationState::ScriptsInfo ApplicationState::getScriptsInfo() {
     std::shared_lock<std::shared_mutex> lock{mMutex};
     ScriptsInfo ret;
+    // TODO change to SQL query to also fetch native scripts (libraries)
     for(auto& script: mScripts) {
         ScriptsInfo::ScriptInfo scriptInfo;
         scriptInfo.name = script.first;
