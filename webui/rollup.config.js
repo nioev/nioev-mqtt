@@ -6,6 +6,7 @@ import { terser } from 'rollup-plugin-terser';
 import sveltePreprocess from 'svelte-preprocess';
 import typescript from '@rollup/plugin-typescript';
 import css from 'rollup-plugin-css-only';
+import {nodeResolve} from "@rollup/plugin-node-resolve"
 
 const production = !process.env.ROLLUP_WATCH;
 
@@ -59,6 +60,7 @@ export default {
 			browser: true,
 			dedupe: ['svelte']
 		}),
+		nodeResolve(),
 		commonjs(),
 		typescript({
 			sourceMap: !production,

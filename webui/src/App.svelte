@@ -3,17 +3,18 @@
     import Overview from "./Overview.svelte";
     import Scripts from "./Scripts.svelte";
     import Settings from "./Settings.svelte";
+    import Edit from "./Edit.svelte";
 
     let currentPage = window.location.pathname.split("/").pop();
 
     let navElements = [{
-        href: "index.html",
+        href: ["index.html"],
         text: "Overview"
     }, {
-        href: "scripts.html",
+        href: ["scripts.html", "edit.html"],
         text: "Scripts"
     }, {
-        href: "settings.html",
+        href: ["settings.html"],
         text: "Settings"
     }]
     let refreshRate = "15000";
@@ -36,8 +37,8 @@
         </div>
         <nav>
             {#each navElements as e}
-                <p class="element" style:font-weight={currentPage === e.href ? "bold" : ""}
-                   on:click={event => {currentPage = e.href; history.pushState("", "", e.href)}}>
+                <p class="element" style:font-weight={e.href.includes(currentPage) ? "bold" : ""}
+                   on:click={event => {currentPage = e.href[0]; history.pushState("", "", e.href[0])}}>
                     {e.text}
                 </p>
             {/each}
@@ -54,6 +55,10 @@
         {:else if currentPage === "settings.html"}
             <div class="content" transition:fade="{{duration: 50}}">
                 <Settings/>
+            </div>
+        {:else if currentPage === "edit.html"}
+            <div class="content" transition:fade="{{duration: 50}}">
+                <Edit/>
             </div>
         {:else}
             Error!

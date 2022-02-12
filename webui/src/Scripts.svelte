@@ -43,6 +43,9 @@
                         Activate
                     </button>
                 {/if}
+                <button onclick="window.location = 'edit.html?script={script}'">
+                    Edit
+                </button>
                 <button on:click={deleteScript(script)}>
                     Delete
                 </button>
@@ -65,10 +68,10 @@
     margin-bottom: 20px;
     font-size: var(--medium-font-size);
     display: grid;
-    grid-template-columns: auto min-content min-content;
+    grid-template-columns: auto min-content min-content min-content;
     align-items: center;
 }
-.script > button {
+.script > * {
     margin: 0 0 0 10px;
 }
 </style>

@@ -10,7 +10,7 @@
   },
   "devDependencies": {
     "@rollup/plugin-commonjs": "^17.0.0",
-    "@rollup/plugin-node-resolve": "^11.0.0",
+    "@rollup/plugin-node-resolve": "^11.2.1",
     "@rollup/plugin-typescript": "^8.0.0",
     "@tsconfig/svelte": "^2.0.0",
     "@types/chart.js": "^2.9.35",
@@ -26,6 +26,11 @@
     "typescript": "^4.0.0"
   },
   "dependencies": {
+    "@codemirror/basic-setup": "^0.19.1",
+    "@codemirror/lang-javascript": "^0.19.7",
+    "@codemirror/state": "^0.19.7",
+    "@codemirror/text": "^0.19.6",
+    "@codemirror/view": "^0.19.42",
     "chart.js": "^3.7.0",
     "sirv-cli": "^2.0.0"
   }
