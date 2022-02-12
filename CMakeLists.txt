@@ -70,7 +70,7 @@ add_executable(nioev
         src/GenServer.hpp
         quickjs-carr.h
         src/quickjs_h_embedded.hpp
-        src/quickjs_h_embedded.cpp src/Statistics.cpp src/Statistics.hpp)
+        src/quickjs_h_embedded.cpp src/Statistics.cpp src/Statistics.hpp src/REST.cpp src/REST.hpp)
 
 add_dependencies(nioev webui)
 
