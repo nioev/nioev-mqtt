@@ -18,7 +18,7 @@ ApplicationState::ApplicationState()
         syncRetainedMessagesToDb();
     });
     // initialize db
-    mDb.exec("CREATE TABLE IF NOT EXISTS script (name TEXT UNIQUE PRIMARY KEY NOT NULL, code TEXT NOT NULL, persistent_state TEXT);");
+    mDb.exec("CREATE TABLE IF NOT EXISTS script (name TEXT UNIQUE PRIMARY KEY NOT NULL, code TEXT NOT NULL, persistent_state TEXT, active BOOL NOT NULL DEFAULT TRUE);");
     mDb.exec("CREATE TABLE IF NOT EXISTS retained_msg (topic TEXT UNIQUE PRIMARY KEY NOT NULL, payload BLOB NOT NULL, timestamp TIMESTAMP NOT NULL, qos INTEGER NOT NULL);");
     mDb.exec("PRAGMA journal_mode=WAL;");
     mQueryInsertScript.emplace(mDb, "INSERT OR REPLACE INTO script (name, code) VALUES (?, ?)");
@@ -411,6 +411,25 @@ void ApplicationState::operator()(ChangeRequestDeleteScript&& req) {
     deleteQuery.exec();
     mScripts.erase(req.name);
 }
+void ApplicationState::operator()(ChangeRequestActivateScript&& req) {
+    auto script = mScripts.find(req.name);
+    if(script == mScripts.end())
+        return;
+    SQLite::Statement updateQuery{mDb, "UPDATE script SET active=true WHERE name=?"};
+    updateQuery.bind(1, req.name);
+    updateQuery.exec();
+    script->second->activate();
+}
+void ApplicationState::operator()(ChangeRequestDeactivateScript&& req) {
+    auto script = mScripts.find(req.name);
+    if(script == mScripts.end())
+        return;
+    SQLite::Statement updateQuery{mDb, "UPDATE script SET active=false WHERE name=?"};
+    updateQuery.bind(1, req.name);
+    updateQuery.exec();
+    script->second->deactivate();
+}
+
 void ApplicationState::deleteScript(std::unordered_map<std::string, std::shared_ptr<ScriptContainer>>::iterator it) {
     if(it == mScripts.end())
         return;
@@ -510,6 +529,7 @@ ApplicationState::ScriptsInfo ApplicationState::getScriptsInfo() {
         ScriptsInfo::ScriptInfo scriptInfo;
         scriptInfo.name = script.first;
         scriptInfo.code = script.second->getCode();
+        scriptInfo.active = script.second->isActive();
         ret.scripts.emplace_back(std::move(scriptInfo));
     }
     return ret;

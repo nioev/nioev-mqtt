@@ -75,7 +75,17 @@ struct ChangeRequestDeleteScript {
     std::string name;
 };
 
-using ChangeRequest = std::variant<ChangeRequestSubscribe, ChangeRequestUnsubscribe, ChangeRequestRetain, ChangeRequestLoginClient, ChangeRequestAddScript, ChangeRequestLogoutClient, ChangeRequestUnsubscribeFromAll, ChangeRequestDeleteScript>;
+struct ChangeRequestActivateScript {
+    std::string name;
+};
+
+struct ChangeRequestDeactivateScript {
+    std::string name;
+};
+
+using ChangeRequest = std::variant<ChangeRequestSubscribe, ChangeRequestUnsubscribe, ChangeRequestRetain, ChangeRequestLoginClient, ChangeRequestAddScript,
+                                   ChangeRequestLogoutClient, ChangeRequestUnsubscribeFromAll, ChangeRequestDeleteScript,
+                                   ChangeRequestActivateScript, ChangeRequestDeactivateScript>;
 
 static inline ChangeRequest makeChangeRequestSubscribe(std::shared_ptr<Subscriber> sub, std::string&& topic, QoS qos = QoS::QoS0, bool isOmni = false) {
     assert(isOmni == false); // they are currently not used, so if you need an omni subscription, test thorougly!
@@ -145,6 +155,8 @@ public:
     void operator()(ChangeRequestLogoutClient&& req);
     void operator()(ChangeRequestAddScript&& req);
     void operator()(ChangeRequestDeleteScript&& req);
+    void operator()(ChangeRequestActivateScript&& req);
+    void operator()(ChangeRequestDeactivateScript&& req);
 
     void publish(std::string&& topic, std::vector<uint8_t>&& msg, QoS qos, Retain retain);
     // The one-stop solution for all your async publishing needs! Need to publish something but you are actually called by publish itself, which
@@ -167,6 +179,7 @@ public:
         struct ScriptInfo {
             std::string name;
             std::string code;
+            bool active{false};
         };
         std::vector<ScriptInfo> scripts;
     };

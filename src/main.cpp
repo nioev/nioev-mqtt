@@ -227,6 +227,30 @@ int main() {
                     res->end(e.what(), true);
                 }
             })
+        .post(
+            "/scripts/:script_name/activate",
+            [&app](uWS::HttpResponse<false>* res, uWS::HttpRequest* req) {
+                try {
+                    std::string scriptName{req->getParameter(0)};
+                    app.requestChange(ChangeRequestActivateScript{std::move(scriptName)}, ApplicationState::RequestChangeMode::SYNC);
+                    res->end("ok", true);
+                } catch(std::exception& e) {
+                    res->writeStatus("500 Internal Server Error");
+                    res->end(e.what(), true);
+                }
+            })
+        .post(
+            "/scripts/:script_name/deactivate",
+            [&app](uWS::HttpResponse<false>* res, uWS::HttpRequest* req) {
+                try {
+                    std::string scriptName{req->getParameter(0)};
+                    app.requestChange(ChangeRequestDeactivateScript{std::move(scriptName)}, ApplicationState::RequestChangeMode::SYNC);
+                    res->end("ok", true);
+                } catch(std::exception& e) {
+                    res->writeStatus("500 Internal Server Error");
+                    res->end(e.what(), true);
+                }
+            })
         .del("/scripts/:script_name",
              [&app](uWS::HttpResponse<false>* res, uWS::HttpRequest* req) {
                  try {
@@ -256,6 +280,10 @@ int main() {
                         scriptObj.AddMember(
                             "code",
                             rapidjson::Value{ script.code.c_str(), static_cast<rapidjson::SizeType>(script.code.size()), doc.GetAllocator() }.Move(),
+                            doc.GetAllocator());
+                        scriptObj.AddMember(
+                            "active",
+                            rapidjson::Value{ script.active }.Move(),
                             doc.GetAllocator());
                         doc.AddMember(rapidjson::Value{ script.name.c_str(), static_cast<rapidjson::SizeType>(script.name.size()), doc.GetAllocator() }.Move(), std::move(scriptObj.Move()), doc.GetAllocator());
                     }
