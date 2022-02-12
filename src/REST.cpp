@@ -12,6 +12,7 @@ namespace nioev {
 
 struct PerWebsocketClientData {
     std::string topic;
+    bool topicHasWildcard{true};
 };
 
 class WSSubscriber : public nioev::Subscriber {
@@ -97,8 +98,10 @@ void RESTAPI::run(ApplicationState& app) {
             uWS::TemplatedApp<false>::WebSocketBehavior<PerWebsocketClientData>{ .sendPingsAutomatically = true,
                                                                                  .upgrade =
                                                                                      [](auto* res, uWS::HttpRequest* req, auto* context) {
+                                                                                         std::string topic{ req->getUrl().substr(6) };
+                                                                                         auto topicHasWildcard = util::hasWildcard(topic);
                                                                                          res->template upgrade<PerWebsocketClientData>(
-                                                                                             PerWebsocketClientData{ std::string{ req->getUrl().substr(6) } }, req->getHeader("sec-websocket-key"),
+                                                                                             PerWebsocketClientData{ std::move(topic), topicHasWildcard }, req->getHeader("sec-websocket-key"),
                                                                                              req->getHeader("sec-websocket-protocol"), req->getHeader("sec-websocket-extensions"), context);
                                                                                      },
                                                                                  .open =
@@ -106,8 +109,18 @@ void RESTAPI::run(ApplicationState& app) {
                                                                                          auto userData = ws->getUserData();
                                                                                          spdlog::info("New WS subscription on: {}", userData->topic);
                                                                                          auto sub = std::make_shared<WSSubscriber>(app, *mLoop, ws);
-                                                                                         app.requestChange(makeChangeRequestSubscribe(sub, std::move(userData->topic), QoS::QoS0));
+                                                                                         app.requestChange(makeChangeRequestSubscribe(sub, std::string{userData->topic}, QoS::QoS0));
                                                                                          openWSFds.emplace(ws, std::move(sub));
+                                                                                     },
+                                                                                 .message =
+                                                                                     [this, &app](uWS::WebSocket<false, true, PerWebsocketClientData>* ws, std::string_view msg, uWS::OpCode opCode) {
+                                                                                        if(opCode != uWS::OpCode::TEXT && opCode != uWS::OpCode::BINARY)
+                                                                                            return;
+                                                                                        auto userData = ws->getUserData();
+                                                                                        if(userData->topicHasWildcard)
+                                                                                            return;
+
+                                                                                        app.publishAsync(AsyncPublishData{userData->topic, std::vector<uint8_t>{msg.begin(), msg.end()}, QoS::QoS0, Retain::No});
                                                                                      },
                                                                                  .close =
                                                                                      [this, &app](uWS::WebSocket<false, true, PerWebsocketClientData>* ws, int code, std::string_view message) {
@@ -195,7 +208,7 @@ void RESTAPI::run(ApplicationState& app) {
                         rapidjson::Value scriptObj;
                         scriptObj.SetObject();
                         scriptObj.AddMember("name", rapidjson::Value{ script.name.c_str(), static_cast<rapidjson::SizeType>(script.name.size()), doc.GetAllocator() }.Move(), doc.GetAllocator());
-                        //scriptObj.AddMember("code", rapidjson::Value{ script.code.c_str(), static_cast<rapidjson::SizeType>(script.code.size()), doc.GetAllocator() }.Move(), doc.GetAllocator());
+                        // scriptObj.AddMember("code", rapidjson::Value{ script.code.c_str(), static_cast<rapidjson::SizeType>(script.code.size()), doc.GetAllocator() }.Move(), doc.GetAllocator());
                         scriptObj.AddMember("active", rapidjson::Value{ script.active }.Move(), doc.GetAllocator());
                         doc.AddMember(
                             rapidjson::Value{ script.name.c_str(), static_cast<rapidjson::SizeType>(script.name.size()), doc.GetAllocator() }.Move(), std::move(scriptObj.Move()), doc.GetAllocator());
@@ -358,7 +371,7 @@ void RESTAPI::run(ApplicationState& app) {
             [](uWS::HttpResponse<false>* res, uWS::HttpRequest* req) {
                 try {
                     auto path = req->getUrl().substr(1);
-                    if (path.empty()) {
+                    if(path.empty()) {
                         res->writeStatus("301 Moved Permanently");
                         res->writeHeader("Location", "index.html");
                         res->end("", true);
