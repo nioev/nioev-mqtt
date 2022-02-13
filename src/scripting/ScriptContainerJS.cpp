@@ -341,6 +341,9 @@ void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
         while(mTasks.empty()) {
             if(!mActive) {
                 mCV.wait(lock);
+                if(mShouldAbort) {
+                    return;
+                }
                 continue;
             }
             if(!mTimeouts.empty()) {
