@@ -67,7 +67,7 @@ void ApplicationState::workerThreadFunc() {
     uint tasksPerformed = 0;
     auto processInternalQueue = [this, &tasksPerformed] {
         for(auto& client: mClients) {
-            if(client->hasSendError()) {
+            if(client->hasSendError() && !client->isLoggedOut()) {
                 requestChange(ChangeRequestLogoutClient{client->makeShared()});
             }
         }
