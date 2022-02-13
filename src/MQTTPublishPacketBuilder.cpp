@@ -26,7 +26,12 @@ util::SharedBuffer& MQTTPublishPacketBuilder::getPacket(QoS qos) {
         // we use a global id here to increase performance - this could cause trouble when you have many clients, so it's not *that* spec compliant
         // we should have an option for using per-client id counters
         // TODO make this behaviour configurable in a config file
-        encoder.encodePacketId(gPacketIdCounter.fetch_add(1));
+        uint16_t id = 0;
+        while(!id) {
+            // packet identifier must be non-zero
+            id = gPacketIdCounter.fetch_add(1);
+        }
+        encoder.encodePacketId(id);
     }
     encoder.encodeBytes(mPayload);
     encoder.insertPacketLength();
