@@ -114,10 +114,10 @@ struct PersistentClientState {
     int64_t lastDisconnectTime = 0;
 
     // these two are protected by the lock in MQTTClientConnection::mRemainingMutex
-    std::unordered_set<uint16_t> qos2receivingPacketIds;
     std::unordered_map<uint16_t, util::SharedBuffer> qos1sendingPackets;
     std::unordered_map<uint16_t, util::SharedBuffer> qos2sendingPackets;
     std::bitset<256 * 256> qos2pubrecReceived;
+    std::bitset<256 * 256> qos2receivingPacketIds;
 
     std::string clientId;
     CleanSession cleanSession = CleanSession::Yes;

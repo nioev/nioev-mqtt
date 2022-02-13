@@ -301,10 +301,7 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
                     encoder.insertPacketLength();
                     client.sendData(encoder.moveData());
                     auto[state, stateLock] = client.getPersistentState();
-                    if(state->qos2receivingPacketIds.contains(id)) {
-                        break;
-                    }
-                    state->qos2receivingPacketIds.emplace(id);
+                    state->qos2receivingPacketIds[id] = true;
                 }
             }
             std::vector<uint8_t> data = decoder.getRemainingBytes();
@@ -325,10 +322,10 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
             }
             uint16_t id = decoder.decode2Bytes();
             auto[state, stateLock] = client.getPersistentState();
-            auto numErased = state->qos2receivingPacketIds.erase(id);
-            if(numErased != 1) {
+            if(!state->qos2receivingPacketIds[id]) {
                 protocolViolation("PUBREL no such message id");
             }
+            state->qos2receivingPacketIds[id] = false;
 
             // send PUBCOMP
             util::BinaryEncoder encoder;
