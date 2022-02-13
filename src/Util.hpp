@@ -63,6 +63,12 @@ public:
     void append(const void* data, size_t size);
     void insert(size_t index, const void* data, size_t size);
     SharedBuffer copy() const;
+    [[nodiscard]] uint16_t getPacketId() const {
+        return mPacketId;
+    }
+    void setPacketId(uint16_t id) {
+        mPacketId = id;
+    }
 private:
     std::atomic<int>& getRefCounter();
     const std::atomic<int>& getRefCounter() const;
@@ -71,6 +77,7 @@ private:
     std::byte* mBuffer { nullptr };
     size_t mReserved = 0;
     size_t mSize = 0;
+    uint16_t mPacketId{0};
 };
 
 class BinaryEncoder {
@@ -81,6 +88,10 @@ public:
     void encode2Bytes(uint16_t value) {
         value = htons(value);
         mData.append((uint8_t*)&value, 2);
+    }
+    void encodePacketId(uint16_t value) {
+        encode2Bytes(value);
+        mData.setPacketId(value);
     }
     void encodeString(const std::string& str) {
         encode2Bytes(str.size());

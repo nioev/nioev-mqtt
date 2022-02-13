@@ -14,6 +14,7 @@ SharedBuffer& SharedBuffer::operator=(const SharedBuffer& other) {
     mBuffer = other.mBuffer;
     mReserved = other.mReserved;
     mSize = other.mSize;
+    mPacketId = other.mPacketId;
     incRefCount();
     return *this;
 }
@@ -24,9 +25,11 @@ SharedBuffer& SharedBuffer::operator=(SharedBuffer&& other) noexcept {
     mBuffer = other.mBuffer;
     mReserved = other.mReserved;
     mSize = other.mSize;
+    mPacketId = other.mPacketId;
     other.mBuffer = nullptr;
     other.mReserved = 0;
     other.mSize = 0;
+    other.mPacketId = 0;
     return *this;
 }
 std::atomic<int>& SharedBuffer::getRefCounter() {
@@ -51,6 +54,7 @@ void SharedBuffer::decRefCount() {
     mBuffer = nullptr;
     mReserved = 0;
     mSize = 0;
+    mPacketId = 0;
 }
 void SharedBuffer::resize(size_t newSize) {
     if(mReserved >= newSize) {

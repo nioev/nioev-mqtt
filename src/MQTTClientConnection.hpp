@@ -158,8 +158,6 @@ private:
     std::atomic<uint16_t> mKeepAliveIntervalSeconds = 10;
     PersistentClientState* mPersistentState = nullptr;
 
-    uint16_t mPublishPacketId = 0;
-
     std::atomic<bool> mLoggedOut = false, mSendError = false;
     std::string mClientId;
     std::atomic<int64_t> mLastDataReceivedTimestamp = std::chrono::steady_clock::now().time_since_epoch().count();

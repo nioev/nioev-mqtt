@@ -24,21 +24,24 @@ ApplicationState::ApplicationState()
     mQueryInsertScript.emplace(mDb, "INSERT OR REPLACE INTO script (name, code) VALUES (?, ?)");
     mQueryInsertRetainedMsg.emplace(mDb, "INSERT INTO retained_msg (topic, payload, timestamp, qos) VALUES (?, ?, ?, ?)");
     // fetch scripts
-    SQLite::Statement scriptQuery(mDb, "SELECT name,code FROM script");
-    std::vector<std::pair<std::string, std::string>> scripts;
+    SQLite::Statement scriptQuery(mDb, "SELECT name,code,active FROM script");
+    std::vector<std::tuple<std::string, std::string, bool>> scripts;
     while(scriptQuery.executeStep()) {
-        scripts.emplace_back(scriptQuery.getColumn(0), scriptQuery.getColumn(1));
+        scripts.emplace_back(scriptQuery.getColumn(0), scriptQuery.getColumn(1), scriptQuery.getColumn(2).getInt());
     }
     std::sort(scripts.begin(), scripts.end(), [](auto& a, auto& b) -> bool {
-        if(util::getFileExtension(a.first) == ".cpp") {
+        if(util::getFileExtension(std::get<0>(a)) == ".cpp") {
             return true;
-        } else if(util::getFileExtension(b.first) == ".cpp") {
+        } else if(util::getFileExtension(std::get<0>(b)) == ".cpp") {
             return false;
         }
         return true;
     });
-    for(auto& script: scripts) {
-        executeChangeRequest(ChangeRequestAddScript{std::move(script.first), std::move(script.second)});
+    for(auto& [name, code, active]: scripts) {
+        executeChangeRequest(ChangeRequestAddScript{name, std::move(code)});
+        if(!active) {
+            executeChangeRequest(ChangeRequestDeactivateScript{std::move(name)});
+        }
     }
     // fetch retained messages
     SQLite::Statement retainedMsgQuery(mDb, "SELECT topic,payload,timestamp,qos FROM retained_msg");
@@ -373,6 +376,18 @@ void ApplicationState::operator()(ChangeRequestLoginClient&& req) {
                 // the whole buffer. It doesn't really matter though because this is far removed from the hot code path.
                 req.client->sendData(std::move(cpy));
             }
+            for(auto& qos2packet: existingSession->second.qos2sendingPackets) {
+                auto cpy = qos2packet.second.copy();
+                cpy.data()[0] |= 0x08; // set dup flag
+                req.client->sendData(std::move(cpy));
+            }
+            for(size_t i = 0; i < existingSession->second.qos2pubrecReceived.count(); ++i) {
+                util::BinaryEncoder encoder;
+                encoder.encodeByte((static_cast<uint8_t>(MQTTMessageType::PUBREL) << 4) | 0b10);
+                encoder.encodeByte(2); // remaining length
+                encoder.encode2Bytes(i);
+                req.client->sendData(encoder.moveData());
+            }
         }
     } else {
         // no session exists
@@ -475,7 +490,7 @@ void ApplicationState::publish(std::string&& topic, std::vector<uint8_t>&& msg, 
     mCurrentRWHolderOfMMutex = std::thread::id();
     if(retain == Retain::Yes) {
         // we aren't allowed to call requestChange from another thread while holding a lock, so we need to do it here
-        requestChange(ChangeRequestRetain{std::move(topic), std::move(msg)});
+        requestChange(ChangeRequestRetain{std::move(topic), std::move(msg), qos});
     }
 }
 void ApplicationState::publishInternal(std::string&& topic, std::vector<uint8_t>&& msg, QoS qos, Retain retain) {

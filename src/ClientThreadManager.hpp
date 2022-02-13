@@ -20,7 +20,7 @@ public:
 private:
     void receiverThreadFunction();
     void handlePacketReceived(MQTTClientConnection& client, const MQTTClientConnection::PacketReceiveData&, std::unique_lock<std::mutex>& clientReceiveLock);
-    void protocolViolation();
+    void protocolViolation(const std::string& reason);
 private:
     std::vector<std::thread> mReceiverThreads;
     std::atomic<bool> mShouldQuit = false;

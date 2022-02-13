@@ -122,7 +122,7 @@ void ClientThreadManager::receiverThreadFunction() {
                                 recvData = {};
                                 uint8_t packetTypeId = bytes.at(i) >> 4;
                                 if(packetTypeId >= static_cast<int>(MQTTMessageType::Count) || packetTypeId == 0) {
-                                    protocolViolation();
+                                    protocolViolation("Invalid message type");
                                 }
                                 recvData.firstByte = bytes.at(i);
                                 recvData.messageType = static_cast<MQTTMessageType>(packetTypeId);
@@ -135,7 +135,7 @@ void ClientThreadManager::receiverThreadFunction() {
                                 recvData.packetLength += (encodedByte & 127) * recvData.multiplier;
                                 recvData.multiplier *= 128;
                                 if(recvData.multiplier > 128 * 128 * 128) {
-                                    protocolViolation();
+                                    protocolViolation("Invalid message length");
                                 }
                                 if((encodedByte & 0x80) == 0) {
                                     if(recvData.packetLength == 0) {
@@ -208,7 +208,7 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
             // initial connect
             constexpr uint8_t protocolName[] = { 0, 4, 'M', 'Q', 'T', 'T' };
             if(memcmp(protocolName, decoder.getCurrentPtr(), 6) != 0) {
-                protocolViolation();
+                protocolViolation("Invalid protocol version");
             }
             decoder.advance(6);
 
@@ -229,24 +229,24 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
             uint16_t keepAlive = decoder.decode2Bytes();
             client.setKeepAliveIntervalSeconds(keepAlive);
             if(connectFlags & 0x1) {
-                protocolViolation();
+                protocolViolation("Invalid connect flags bit set");
             }
             bool cleanSession = connectFlags & 0x2;
             auto clientId = decoder.decodeString();
             if(clientId.empty() && !cleanSession) {
-                protocolViolation();
+                protocolViolation("Invalid client id");
             }
             if(connectFlags & 0x4) {
                 // will message exists
                 auto willTopic = decoder.decodeString();
                 if(willTopic.empty()) {
-                    protocolViolation();
+                    protocolViolation("Invalid will topic");
                 }
                 auto willMessage = decoder.decodeBytesWithPrefixLength();
                 auto willQos = (connectFlags & 0x18) >> 3;
                 auto willRetain = static_cast<Retain>(!!(connectFlags & 0x20));
                 if(willQos >= 3) {
-                    protocolViolation();
+                    protocolViolation("Invalid will qos");
                 }
                 client.setWill(std::move(willTopic), std::move(willMessage), static_cast<QoS>(willQos), willRetain);
             }
@@ -265,7 +265,7 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
             break;
         }
         default: {
-            protocolViolation();
+            protocolViolation("Packet not allowed here");
         }
         }
         break;
@@ -276,13 +276,13 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
             bool dup = recvData.firstByte & 0x8; // TODO handle
             uint8_t qosInt = (recvData.firstByte >> 1) & 0x3;
             if(qosInt >= 3) {
-                protocolViolation();
+                protocolViolation("Invalid QoS");
             }
             QoS qos = static_cast<QoS>(qosInt);
             auto retain = static_cast<Retain>(!!(recvData.firstByte & 0x1));
             auto topic = decoder.decodeString(); // TODO check for allowed chars
             if(topic.empty()) {
-                protocolViolation();
+                protocolViolation("Invalid topic");
             }
             if(qos == QoS::QoS1 || qos == QoS::QoS2) {
                 auto id = decoder.decode2Bytes();
@@ -301,10 +301,10 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
                     encoder.insertPacketLength();
                     client.sendData(encoder.moveData());
                     auto[state, stateLock] = client.getPersistentState();
-                    if(state->qos3receivingPacketIds.contains(id)) {
+                    if(state->qos2receivingPacketIds.contains(id)) {
                         break;
                     }
-                    state->qos3receivingPacketIds.emplace(id);
+                    state->qos2receivingPacketIds.emplace(id);
                 }
             }
             std::vector<uint8_t> data = decoder.getRemainingBytes();
@@ -321,24 +321,51 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
         case MQTTMessageType::PUBREL: {
             // QoS 2 part 2
             if(recvData.firstByte != 0x62) {
-                protocolViolation();
+                protocolViolation("Invalid first byte in PUBREL");
             }
             uint16_t id = decoder.decode2Bytes();
             auto[state, stateLock] = client.getPersistentState();
-            auto numErased = state->qos3receivingPacketIds.erase(id);
-            assert(numErased == 1);
+            auto numErased = state->qos2receivingPacketIds.erase(id);
+            if(numErased != 1) {
+                protocolViolation("PUBREL no such message id");
+            }
 
             // send PUBCOMP
             util::BinaryEncoder encoder;
             encoder.encodeByte(static_cast<uint8_t>(MQTTMessageType::PUBCOMP) << 4);
             encoder.encode2Bytes(id);
+            encoder.insertPacketLength(); // TODO prevent unnecessary calls like this by precomputing payload length
+            client.sendData(encoder.moveData());
+            break;
+        }
+        case MQTTMessageType::PUBREC: {
+            // QoS 2 part 1 (sending packets)
+            uint16_t id = decoder.decode2Bytes();
+            auto[state, stateLock] = client.getPersistentState();
+            auto erased = state->qos2sendingPackets.erase(id);
+            if(erased != 1) {
+                protocolViolation("PUBREC no such message id");
+            }
+            state->qos2pubrecReceived[id] = true;
+
+            // send PUBREL
+            util::BinaryEncoder encoder;
+            encoder.encodeByte((static_cast<uint8_t>(MQTTMessageType::PUBREL) << 4) | 0b10);
+            encoder.encode2Bytes(id);
             encoder.insertPacketLength();
             client.sendData(encoder.moveData());
             break;
         }
+        case MQTTMessageType::PUBCOMP: {
+            // QoS 2 part 3 (sending packets)
+            uint16_t id = decoder.decode2Bytes();
+            auto[state, stateLock] = client.getPersistentState();
+            state->qos2pubrecReceived[id] = false;
+            break;
+        }
         case MQTTMessageType::SUBSCRIBE: {
             if(recvData.firstByte != 0x82) {
-                protocolViolation();
+                protocolViolation("SUBSCRIBE invalid first byte");
             }
             auto packetIdentifier = decoder.decode2Bytes();
 
@@ -349,12 +376,12 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
             do {
                 auto topic = decoder.decodeString();
                 if(topic.empty()) {
-                    protocolViolation();
+                    protocolViolation("SUBSCRIBE topic is empty");
                 }
                 spdlog::info("[{}] Subscribing to {}", client.getClientId(), topic);
                 uint8_t qosInt = decoder.decodeByte();
                 if(qosInt >= 3) {
-                    protocolViolation();
+                    protocolViolation("SUBSCRIPE invalid qos");
                 }
                 auto qos = static_cast<QoS>(qosInt);
                 encoder.encodeByte(qosInt == 0 ? 0 : 1); // TODO change this when QoS2 is added
@@ -369,7 +396,7 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
         }
         case MQTTMessageType::UNSUBSCRIBE: {
             if(recvData.firstByte != 0xA2) {
-                protocolViolation();
+                protocolViolation("UNSUBSCRIBE invalid first byte");
             }
             auto packetIdentifier = decoder.decode2Bytes();
             do {
@@ -388,7 +415,7 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
         }
         case MQTTMessageType::PINGREQ: {
             if(recvData.firstByte != 0xC0) {
-                protocolViolation();
+                protocolViolation("PINGREQ Invalid first byte");
             }
             util::BinaryEncoder encoder;
             encoder.encodeByte(static_cast<uint8_t>(MQTTMessageType::PINGRESP) << 4);
@@ -399,7 +426,7 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
         }
         case MQTTMessageType::DISCONNECT: {
             if(recvData.firstByte != 0xE0) {
-                protocolViolation();
+                protocolViolation("Invalid disconnect first byte");
             }
             spdlog::info("[{}] Received disconnect request", client.getClientId());
             client.discardWill();
@@ -412,8 +439,8 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
     }
     }
 }
-void ClientThreadManager::protocolViolation() {
-    throw std::runtime_error{"Protocol violation"};
+void ClientThreadManager::protocolViolation(const std::string& reason) {
+    throw std::runtime_error{"Protocol violation: " + reason};
 }
 
 ClientThreadManager::~ClientThreadManager() {

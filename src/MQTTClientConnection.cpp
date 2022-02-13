@@ -7,9 +7,12 @@ namespace nioev {
 
 void MQTTClientConnection::publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained, MQTTPublishPacketBuilder& packetBuilder) {
     auto packet = packetBuilder.getPacket(qos);
-    if(qos == QoS::QoS1){
+    if(qos == QoS::QoS1) {
         auto[persistentState, lock] = getPersistentState();
-        persistentState->qos1sendingPackets.emplace(mPublishPacketId - 1, packet);
+        persistentState->qos1sendingPackets.emplace(packet.getPacketId(), packet);
+    } else if(qos == QoS::QoS2) {
+        auto[persistentState, lock] = getPersistentState();
+        persistentState->qos2sendingPackets.emplace(packet.getPacketId(), packet);
     }
     sendData(std::move(packet));
 }
