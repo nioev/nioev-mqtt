@@ -381,7 +381,7 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
                     protocolViolation("SUBSCRIPE invalid qos");
                 }
                 auto qos = static_cast<QoS>(qosInt);
-                encoder.encodeByte(qosInt == 0 ? 0 : 1); // TODO change this when QoS2 is added
+                encoder.encodeByte(qosInt);
                 mApp.requestChange(makeChangeRequestSubscribe(client.makeShared(), std::move(topic), qos));
             } while(!decoder.empty());
 
