@@ -31,6 +31,10 @@ public:
         CONNECTED,
         INVALID_PROTOCOL_VERSION
     };
+    enum class SendDataType {
+        DEFAULT,
+        PUBLISH
+    };
     [[nodiscard]] ConnectionState getState() {
         std::lock_guard<std::mutex> lock{mRemaingingMutex};
         return mState;
@@ -130,7 +134,7 @@ public:
         return mSendError;
     }
 
-    void sendData(util::SharedBuffer&& bytes);
+    void sendData(util::SharedBuffer&& bytes, SendDataType type = SendDataType::DEFAULT);
     void publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained, MQTTPublishPacketBuilder& packetBuilder) override;
 
     virtual const char* getType() const override {

@@ -305,7 +305,6 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
                 }
             }
             std::vector<uint8_t> data = decoder.getRemainingBytes();
-            // we need to go through the app to 1. save retained messages 2. interact with scripts
             mApp.publish(std::move(topic), std::move(data), qos, retain);
             break;
         }
@@ -321,11 +320,15 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
                 protocolViolation("Invalid first byte in PUBREL");
             }
             uint16_t id = decoder.decode2Bytes();
-            auto[state, stateLock] = client.getPersistentState();
-            if(!state->qos2receivingPacketIds[id]) {
-                protocolViolation("PUBREL no such message id");
+            {
+                auto[state, stateLock] = client.getPersistentState();
+                if(!state->qos2receivingPacketIds[id]) {
+                    stateLock.unlock();
+                    spdlog::warn("[{}] PUBREL no such message id", client.getClientId());
+                } else {
+                    state->qos2receivingPacketIds[id] = false;
+                }
             }
-            state->qos2receivingPacketIds[id] = false;
 
             // send PUBCOMP
             util::BinaryEncoder encoder;
@@ -338,12 +341,16 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
         case MQTTMessageType::PUBREC: {
             // QoS 2 part 1 (sending packets)
             uint16_t id = decoder.decode2Bytes();
-            auto[state, stateLock] = client.getPersistentState();
-            auto erased = state->qos2sendingPackets.erase(id);
-            if(erased != 1) {
-                protocolViolation("PUBREC no such message id");
+            {
+                auto[state, stateLock] = client.getPersistentState();
+                auto erased = state->qos2sendingPackets.erase(id);
+                if(erased != 1) {
+                    stateLock.unlock();
+                    spdlog::warn("[{}] PUBREC no such message id", client.getClientId());
+                } else {
+                    state->qos2pubrecReceived[id] = true;
+                }
             }
-            state->qos2pubrecReceived[id] = true;
 
             // send PUBREL
             util::BinaryEncoder encoder;

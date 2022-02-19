@@ -14,15 +14,19 @@ void MQTTClientConnection::publish(const std::string& topic, const std::vector<u
         auto[persistentState, lock] = getPersistentState();
         persistentState->qos2sendingPackets.emplace(packet.getPacketId(), packet);
     }
-    sendData(std::move(packet));
+    sendData(std::move(packet), SendDataType::PUBLISH);
 }
 
-void MQTTClientConnection::sendData(util::SharedBuffer&& bytes) {
+void MQTTClientConnection::sendData(util::SharedBuffer&& bytes, SendDataType type) {
     try {
         uint totalBytesSent = 0;
         uint bytesSent = 0;
         auto [sendTasksRef, sendLock] = getSendTasks();
         auto& sendTasks = sendTasksRef.get();
+        if(type == SendDataType::PUBLISH && sendTasks.size() > 1000) {
+            spdlog::warn("[{}] Dropping packet due to large queue depth", mClientId);
+            return;
+        }
         if(sendTasks.empty()) {
             do {
                 bytesSent = getTcpClient().send(bytes.data() + totalBytesSent, bytes.size() - totalBytesSent);
