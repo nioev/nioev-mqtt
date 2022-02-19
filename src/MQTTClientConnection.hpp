@@ -113,11 +113,13 @@ public:
     }
 
     void setClientId(std::string clientId) {
-        std::lock_guard lock{mRemaingingMutex};
-        mClientId = std::move(clientId);
+        assert(!mProperClientIdSet);
+        mProperClientId = std::move(clientId);
+        mProperClientIdSet = true;
     }
     const std::string& getClientId() {
-        std::lock_guard lock{mRemaingingMutex};
+        if(mProperClientIdSet)
+            return mProperClientId;
         return mClientId;
     }
     auto makeShared() {
@@ -165,6 +167,9 @@ private:
     std::atomic<bool> mLoggedOut = false, mSendError = false;
     std::string mClientId;
     std::atomic<int64_t> mLastDataReceivedTimestamp = std::chrono::steady_clock::now().time_since_epoch().count();
+
+    std::atomic<bool> mProperClientIdSet{false};
+    std::string mProperClientId;
 };
 
 }

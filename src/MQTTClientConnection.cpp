@@ -56,7 +56,7 @@ bool MQTTClientConnection::sendData(util::SharedBuffer&& bytes, SendDataType typ
             mSendTasks.emplace(MQTTClientConnection::SendTask{ std::move(bytes), totalBytesSent });
         }
     } catch(std::exception& e) {
-        spdlog::error("Error while sending data: {}", e.what());
+        spdlog::error("[{}] Error while sending data: {}", getClientId(), e.what());
         // we aren't allowed to enqueue a change request here, because we could be inside ApplicationState::publish, where a shared lock is held.
         // that's why we just set a flag which causes the logout to be enequeued later on
         mSendError = true;
