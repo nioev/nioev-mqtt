@@ -346,10 +346,9 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
                 auto erased = state->qos2sendingPackets.erase(id);
                 if(erased != 1) {
                     stateLock.unlock();
-                    spdlog::warn("[{}] PUBREC no such message id", client.getClientId());
-                } else {
-                    state->qos2pubrecReceived[id] = true;
+                    spdlog::warn("[{}] PUBREC no such message id (erased {})", client.getClientId(), erased);
                 }
+                state->qos2pubrecReceived[id] = true;
             }
 
             // send PUBREL

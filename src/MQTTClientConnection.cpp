@@ -7,27 +7,44 @@ namespace nioev {
 
 void MQTTClientConnection::publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained, MQTTPublishPacketBuilder& packetBuilder) {
     auto packet = packetBuilder.getPacket(qos);
-    if(qos == QoS::QoS1) {
-        auto[persistentState, lock] = getPersistentState();
-        persistentState->qos1sendingPackets.emplace(packet.getPacketId(), packet);
-    } else if(qos == QoS::QoS2) {
-        auto[persistentState, lock] = getPersistentState();
-        persistentState->qos2sendingPackets.emplace(packet.getPacketId(), packet);
+    uint16_t packetId = 0;
+    if(qos == QoS::QoS1 || qos == QoS::QoS2) {
+        packetId = packet.getPacketId();
     }
-    sendData(std::move(packet), SendDataType::PUBLISH);
+    if(sendData(std::move(packet), SendDataType::PUBLISH)) {
+        if(qos == QoS::QoS1) {
+            auto[persistentState, lock] = getPersistentState();
+            persistentState->qos1sendingPackets.emplace(packetId, packet);
+        } else if(qos == QoS::QoS2) {
+            auto[persistentState, lock] = getPersistentState();
+            persistentState->qos2sendingPackets.emplace(packetId, packet);
+        }
+    }
 }
 
-void MQTTClientConnection::sendData(util::SharedBuffer&& bytes, SendDataType type) {
+bool MQTTClientConnection::sendData(util::SharedBuffer&& bytes, SendDataType type) {
     try {
         uint totalBytesSent = 0;
         uint bytesSent = 0;
-        auto [sendTasksRef, sendLock] = getSendTasks();
-        auto& sendTasks = sendTasksRef.get();
-        if(type == SendDataType::PUBLISH && sendTasks.size() > 1000) {
-            spdlog::warn("[{}] Dropping packet due to large queue depth", mClientId);
-            return;
+
+        std::unique_lock<std::timed_mutex> lock{mSendMutex, std::defer_lock};
+        if(type == SendDataType::DEFAULT) {
+            lock.lock();
+        } else {
+            // TODO make configurable
+            if(!lock.try_lock_for(std::chrono::microseconds(100))) {
+                //spdlog::warn("[{}] Dropping message due to inability to acquire lock within 1ms", mClientId);
+                return false;
+            }
         }
-        if(sendTasks.empty()) {
+        //lock.lock();
+
+        // TODO make configurable
+        if(type == SendDataType::PUBLISH && mSendTasks.size() > 1000) {
+            //spdlog::warn("[{}] Dropping packet due to large queue depth", mClientId);
+            return false;
+        }
+        if(mSendTasks.empty()) {
             do {
                 bytesSent = getTcpClient().send(bytes.data() + totalBytesSent, bytes.size() - totalBytesSent);
                 totalBytesSent += bytesSent;
@@ -36,8 +53,7 @@ void MQTTClientConnection::sendData(util::SharedBuffer&& bytes, SendDataType typ
         //spdlog::warn("Bytes sent: {}, Total bytes sent: {}", bytesSent, totalBytesSent);
 
         if(totalBytesSent < bytes.size()) {
-            // TODO implement maximum queue depth
-            sendTasks.emplace(MQTTClientConnection::SendTask{ std::move(bytes), totalBytesSent });
+            mSendTasks.emplace(MQTTClientConnection::SendTask{ std::move(bytes), totalBytesSent });
         }
     } catch(std::exception& e) {
         spdlog::error("Error while sending data: {}", e.what());
@@ -45,6 +61,7 @@ void MQTTClientConnection::sendData(util::SharedBuffer&& bytes, SendDataType typ
         // that's why we just set a flag which causes the logout to be enequeued later on
         mSendError = true;
     }
+    return true;
 }
 
 }

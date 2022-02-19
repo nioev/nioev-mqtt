@@ -66,8 +66,8 @@ public:
         util::SharedBuffer bytes;
         uint offset = 0;
     };
-    std::pair<std::reference_wrapper<std::queue<SendTask>>, std::unique_lock<std::mutex>> getSendTasks() {
-        std::unique_lock<std::mutex> lock{mSendMutex};
+    std::pair<std::reference_wrapper<std::queue<SendTask>>, std::unique_lock<std::timed_mutex>> getSendTasks() {
+        std::unique_lock<std::timed_mutex> lock{mSendMutex};
         return {mSendTasks, std::move(lock)};
     }
 
@@ -134,7 +134,7 @@ public:
         return mSendError;
     }
 
-    void sendData(util::SharedBuffer&& bytes, SendDataType type = SendDataType::DEFAULT);
+    bool sendData(util::SharedBuffer&& bytes, SendDataType type = SendDataType::DEFAULT);
     void publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained, MQTTPublishPacketBuilder& packetBuilder) override;
 
     virtual const char* getType() const override {
@@ -147,7 +147,7 @@ private:
     std::mutex mRecvMutex;
     PacketReceiveData mRecvData;
 
-    std::mutex mSendMutex;
+    std::timed_mutex mSendMutex;
     std::queue<SendTask> mSendTasks;
 
     std::mutex mRemaingingMutex;
