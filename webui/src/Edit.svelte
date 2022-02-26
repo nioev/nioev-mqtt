@@ -1,16 +1,18 @@
 
 <script>
-    import {EditorView} from "@codemirror/view"
+    import {EditorView, keymap} from "@codemirror/view"
     import {basicSetup} from "@codemirror/basic-setup"
     import {EditorState} from "@codemirror/state"
+    import {indentUnit} from "@codemirror/language"
     import {javascript} from "@codemirror/lang-javascript"
+    import {indentWithTab} from "@codemirror/commands"
     import {onMount} from "svelte";
 
     let myView;
     let file = new URLSearchParams(window.location.search).get("script");
     onMount(async () => {
         myView = new EditorView({
-            state: EditorState.create({extensions: [basicSetup, javascript()]}),
+            state: EditorState.create({extensions: [basicSetup, javascript(), indentUnit.of("    "),  keymap.of([indentWithTab])]}),
         })
         let resp = await fetch("/scripts/" + file);
         if(resp.status !== 200) {
@@ -32,6 +34,12 @@
             alert("Failed to upload: " + e);
         }
     }
+    document.addEventListener('keydown', e => {
+        if (e.ctrlKey && e.key === 's') {
+            e.preventDefault();
+            saveScript();
+        }
+    });
 </script>
 
 
