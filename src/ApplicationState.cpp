@@ -540,7 +540,7 @@ void ApplicationState::deleteAllSubscriptions(Subscriber& sub) {
 ApplicationState::ScriptsInfo ApplicationState::getScriptsInfo() {
     UniqueLockWithAtomicTidUpdate lock{mMutex, mCurrentRWHolderOfMMutex};
     ScriptsInfo ret;
-    SQLite::Statement scriptQuery(mDb, "SELECT name,code,active FROM script");
+    SQLite::Statement scriptQuery(mDb, "SELECT name,code,active FROM script ORDER BY name ASC");
     while(scriptQuery.executeStep()) {
         ScriptsInfo::ScriptInfo scriptInfo;
         scriptInfo.name = scriptQuery.getColumn(0).getString();
@@ -575,6 +575,8 @@ void ApplicationState::syncRetainedMessagesToDb() {
 void ApplicationState::addScript(
     std::string name, std::function<void(const std::string&)>&& onSuccess, std::function<void(const std::string&, const std::string&)>&& onError,
     std::string code) {
+    if(!util::hasValidScriptExtension(name))
+        return;
     UniqueLockWithAtomicTidUpdate<std::shared_mutex> lock{mMutex, mCurrentRWHolderOfMMutex};
     mQueryInsertScript->bindNoCopy(1, name);
     mQueryInsertScript->bindNoCopy(2, code);

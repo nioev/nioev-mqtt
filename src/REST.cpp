@@ -139,6 +139,11 @@ void RESTAPI::run(ApplicationState& app) {
                 try {
                     std::string fullCode;
                     std::string scriptName{ req->getParameter(0) };
+                    if(!util::hasValidScriptExtension(scriptName)) {
+                        res->writeStatus("400 Bad Request");
+                        res->end("Invalid script name", true);
+                        return;
+                    }
                     res->onData([res, scriptName, fullCode, &app](std::string_view data, bool last) mutable {
                         fullCode += data;
                         if(!last) {
@@ -397,6 +402,11 @@ void RESTAPI::run(ApplicationState& app) {
                     res->end(e.what(), true);
                 }
             })
+        .any("",
+             [](uWS::HttpResponse<false>* res, uWS::HttpRequest* req) {
+                 res->writeStatus("404 Not Found");
+                 res->end("", true);
+             })
         .listen(1884, [this](auto* listenSocket) {
             mListenSocket.store(listenSocket);
             if(listenSocket) {

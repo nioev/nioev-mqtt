@@ -271,6 +271,11 @@ inline std::string_view getFileExtension(const std::string& filename) {
     return std::string_view{filename}.substr(index);
 }
 
+inline bool hasValidScriptExtension(const std::string& filename) {
+    auto ext = getFileExtension(filename);
+    return ext == ".js" || ext == ".cpp";
+}
+
 // return e.g. test for test.mp3
 inline std::string_view getFileStem(const std::string& filename) {
     auto start = filename.find_last_of('/');
