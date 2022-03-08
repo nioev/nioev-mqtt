@@ -60,7 +60,7 @@ void NativeLibraryCompiler::handleTask(CompileNativeLibraryData&& nativeLibData)
             });
         }
         flags.push_back(nullptr);
-        execvp("clang", const_cast<char**>(flags.data()));
+        execvp("g++", const_cast<char**>(flags.data()));
         perror("execlp()");
     }
     int wstatus = 0;
