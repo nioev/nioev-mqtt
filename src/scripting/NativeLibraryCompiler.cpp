@@ -4,6 +4,7 @@
 
 #include "../quickjs_h_embedded.hpp"
 
+#include <unistd.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <filesystem>
