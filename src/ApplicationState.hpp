@@ -320,7 +320,6 @@ private:
     std::unordered_map<std::string, PersistentClientState> mPersistentClientStates;
 
     std::atomic<bool> mShouldRun = true;
-    std::thread mWorkerThread;
     std::atomic<WorkerThreadSleepLevel> mWorkerThreadSleepLevel;
 
     Timers mTimers;
@@ -333,6 +332,7 @@ private:
 
     // needs to initialized last because it starts a thread which calls us
     ClientThreadManager mClientManager;
+    std::thread mWorkerThread;
 
 };
 

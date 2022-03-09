@@ -9,7 +9,7 @@
 namespace nioev {
 
 ApplicationState::ApplicationState()
-: mClientManager(*this), mWorkerThread([this]{workerThreadFunc();}), mAsyncPublisher(*this), mStatistics(std::make_shared<Statistics>(*this)) {
+: mAsyncPublisher(*this), mStatistics(std::make_shared<Statistics>(*this)), mClientManager(*this), mWorkerThread([this]{workerThreadFunc();}) {
     mStatistics->init();
     mTimers.addPeriodicTask(std::chrono::seconds(2), [this] () mutable {
         cleanup();
