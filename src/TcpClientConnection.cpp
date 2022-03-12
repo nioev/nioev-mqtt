@@ -23,7 +23,10 @@ TcpClientConnection::TcpClientConnection(TcpClientConnection&& other) noexcept
 }
 uint TcpClientConnection::recv(std::vector<uint8_t>& buffer) {
     assert(buffer.size() > 0);
-    auto result = ::recv(mSockFd, buffer.data(), buffer.size(), MSG_NOSIGNAL | MSG_DONTWAIT);
+    auto fd = mSockFd.load();
+    if(fd == -1)
+        util::throwErrno("recv()");
+    auto result = ::recv(fd, buffer.data(), buffer.size(), MSG_NOSIGNAL | MSG_DONTWAIT);
     if(result == 0) {
         throw CleanDisconnectException{};
     }
@@ -38,7 +41,10 @@ uint TcpClientConnection::recv(std::vector<uint8_t>& buffer) {
 }
 uint TcpClientConnection::send(const uint8_t* data, uint len) {
     assert(len > 0);
-    auto result = ::send(mSockFd, data, len, MSG_NOSIGNAL | MSG_DONTWAIT);
+    auto fd = mSockFd.load();
+    if(fd == -1)
+        util::throwErrno("recv()");
+    auto result = ::send(fd, data, len, MSG_NOSIGNAL | MSG_DONTWAIT);
     if(result == 0) {
         throw CleanDisconnectException{};
     }
@@ -51,11 +57,11 @@ uint TcpClientConnection::send(const uint8_t* data, uint len) {
     return result;
 }
 void TcpClientConnection::close() {
-    if(mSockFd >= 0) {
-        if(::close(mSockFd) < 0) {
-            spdlog::error("close(): {}", util::errnoToString());
+    int expected = mSockFd.load();
+    if(expected >= 0 && mSockFd.compare_exchange_strong(expected, -1)) {
+        if(::close(expected) < 0) {
+            spdlog::error("close({}): {}", expected, util::errnoToString());
         }
-        mSockFd = -1;
     }
 }
 

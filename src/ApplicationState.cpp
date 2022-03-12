@@ -5,11 +5,35 @@
 #include "SQLiteCpp/Transaction.h"
 #include "MQTTPublishPacketBuilder.hpp"
 #include "Statistics.hpp"
+#include "spdlog/sinks/base_sink.h"
+#include "spdlog/pattern_formatter.h"
 
 namespace nioev {
 
+thread_local std::unique_ptr<spdlog::formatter> tFormatter;
+class LogSink : public spdlog::sinks::base_sink<spdlog::details::null_mutex> {
+public:
+    LogSink(ApplicationState& app) : mApp(app) {
+        set_pattern_(nioev::util::LOG_PATTERN);
+    }
+
+protected:
+    void sink_it_(const spdlog::details::log_msg& msg) override {
+        spdlog::memory_buf_t formatted;
+        if(!tFormatter)
+            tFormatter.reset(new spdlog::pattern_formatter(nioev::util::LOG_PATTERN));
+        tFormatter->format(msg, formatted);
+        assert(formatted.size() > 0);
+        std::vector<uint8_t> formattedBuffer((uint8_t*)formatted.begin(), (uint8_t*)formatted.end() - 1);
+        mApp.publishAsync(AsyncPublishData{ LOG_TOPIC, std::move(formattedBuffer), QoS::QoS0, Retain::No });
+    }
+    void flush_() override { }
+    ApplicationState& mApp;
+};
+
 ApplicationState::ApplicationState()
 : mAsyncPublisher(*this), mStatistics(std::make_shared<Statistics>(*this)), mClientManager(*this), mWorkerThread([this]{workerThreadFunc();}) {
+    spdlog::default_logger()->sinks().push_back(std::make_shared<LogSink>(*this));
     mStatistics->init();
     mTimers.addPeriodicTask(std::chrono::seconds(2), [this] () mutable {
         cleanup();
@@ -43,6 +67,7 @@ ApplicationState::ApplicationState()
             executeChangeRequest(ChangeRequestDeactivateScript{std::move(name)});
         }
     }
+    UniqueLockWithAtomicTidUpdate<std::shared_mutex> lock{mMutex, mCurrentRWHolderOfMMutex};
     // fetch retained messages
     SQLite::Statement retainedMsgQuery(mDb, "SELECT topic,payload,timestamp,qos FROM retained_msg");
     while(retainedMsgQuery.executeStep()) {

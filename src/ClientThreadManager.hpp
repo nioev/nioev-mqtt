@@ -5,6 +5,7 @@
 #include <thread>
 #include <vector>
 #include "Forward.hpp"
+#include <shared_mutex>
 
 namespace nioev {
 
@@ -26,8 +27,9 @@ private:
     std::atomic<bool> mShouldQuit = false;
     int mEpollFd = -1;
     ApplicationState& mApp;
-    std::atomic<bool> mShouldSuspend = false;
-    std::atomic<int> mSuspendedThreads = 0;
+    std::shared_mutex mSuspendMutex;
+    std::shared_mutex mSuspendMutex2;
+    std::atomic<bool> mShouldSuspend{false};
 };
 
 }

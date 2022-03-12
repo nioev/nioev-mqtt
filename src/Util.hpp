@@ -308,5 +308,7 @@ private:
     std::chrono::steady_clock::time_point mStart;
 };
 
+constexpr static const char* LOG_PATTERN = "[%Y-%m-%d %H:%M:%S.%e] %^[%-7l]%$ [%-15N] %v";
+
 }
 }

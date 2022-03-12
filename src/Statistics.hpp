@@ -85,7 +85,7 @@ private:
         }
     }
 
-    Timers mBatchAnalysisTimer, mSampleWorkerThreadTimer;
+    Timers mBatchAnalysisTimer, mSampleWorkerThreadTimer; // TODO make single timer
     atomic_queue::AtomicQueueB2<PacketData> mCollectedData{100'000};
     std::atomic<uint64_t> mTotalPacketCountCounter{0};
     std::vector<PacketData> mAnalysisData;

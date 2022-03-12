@@ -32,28 +32,24 @@ ClientThreadManager::ClientThreadManager(ApplicationState& app)
     }
 }
 void ClientThreadManager::receiverThreadFunction() {
-    auto suspendIfRequested = [this] {
-        if(mShouldSuspend) {
-            mSuspendedThreads.fetch_add(1);
-            while(mShouldSuspend) {
-                std::this_thread::yield();
-            }
-            mSuspendedThreads.fetch_sub(1);
-        }
-    };
     sigset_t blockedSignalsDuringEpoll = { 0 };
     sigemptyset(&blockedSignalsDuringEpoll);
     sigaddset(&blockedSignalsDuringEpoll, SIGINT);
     sigaddset(&blockedSignalsDuringEpoll, SIGTERM);
     std::vector<uint8_t> bytes;
     bytes.resize(64 * 1024 * 4);
+    std::shared_lock<std::shared_mutex> suspendLock{mSuspendMutex};
     while(!mShouldQuit) {
-        suspendIfRequested();
         epoll_event events[128] = { 0 };
         int eventCount = epoll_pwait(mEpollFd, events, 128, -1, &blockedSignalsDuringEpoll);
         if(eventCount < 0) {
             if(errno == EINTR) {
-                suspendIfRequested();
+                if(mShouldQuit)
+                    continue;
+                suspendLock.unlock();
+                mSuspendMutex2.lock_shared();
+                mSuspendMutex2.unlock_shared();
+                suspendLock.lock();
                 continue;
             }
             spdlog::warn("epoll_wait(): {}", util::errnoToString());
@@ -457,19 +453,17 @@ ClientThreadManager::~ClientThreadManager() {
     }
 }
 void ClientThreadManager::suspendAllThreads() {
-    mShouldSuspend = true;
-    for(auto& thread: mReceiverThreads) {
-        pthread_kill(thread.native_handle(), SIGUSR1);
-    }
-    while(mSuspendedThreads != mReceiverThreads.size()) {
+    mSuspendMutex2.lock();
+    while(!mSuspendMutex.try_lock()) {
+        for(auto& thread: mReceiverThreads) {
+            pthread_kill(thread.native_handle(), SIGUSR1);
+        }
         std::this_thread::yield();
     }
+    mSuspendMutex2.unlock();
 }
 void ClientThreadManager::resumeAllThreads() {
-    mShouldSuspend = false;
-    while(mSuspendedThreads != 0) {
-        std::this_thread::yield();
-    }
+    mSuspendMutex.unlock();
 }
 
 }
