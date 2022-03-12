@@ -134,7 +134,10 @@ class UniqueLockWithAtomicTidUpdate : public std::unique_lock<T> {
 public:
     UniqueLockWithAtomicTidUpdate(T& lock, std::atomic<std::thread::id>& tid)
     : std::unique_lock<T>(lock), mTid(tid) {
-        tid = std::this_thread::get_id();
+        mTid = std::this_thread::get_id();
+    }
+    ~UniqueLockWithAtomicTidUpdate() {
+        mTid = std::thread::id();
     }
 };
 
