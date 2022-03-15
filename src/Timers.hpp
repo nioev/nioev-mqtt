@@ -9,7 +9,7 @@
 
 namespace nioev {
 
-class Timers {
+class Timers final {
 public:
     struct PeriodicTask {
         std::chrono::steady_clock::duration every;

@@ -4,6 +4,8 @@
 #include <mutex>
 #include <condition_variable>
 #include <thread>
+#include <cassert>
+#include <optional>
 
 namespace nioev {
 
@@ -14,22 +16,26 @@ template<typename TaskType>
 class GenServer {
 public:
     explicit GenServer(const char* threadName)
-    : mThreadName(threadName), mWorkerThread([this]{workerThreadFunc();}) { }
+    : mThreadName(threadName) { }
 
     virtual ~GenServer() {
         std::unique_lock<std::mutex> lock{ mTasksMutex };
         mShouldRun = false;
         mTasksCV.notify_all();
         lock.unlock();
-        mWorkerThread.join();
+        mWorkerThread->join();
     }
     virtual void enqueue(TaskType&& task) {
+        assert(mWorkerThread);
         std::unique_lock<std::mutex> lock{mTasksMutex};
         mTasks.emplace(std::move(task));
         mTasksCV.notify_all();
     }
 
 protected:
+    void startThread() {
+        mWorkerThread.template emplace([this]{workerThreadFunc();});
+    }
     virtual void handleTask(TaskType&&) = 0;
 private:
     void workerThreadFunc() {
@@ -54,7 +60,7 @@ private:
     std::condition_variable mTasksCV;
     std::queue<TaskType> mTasks;
     const char* mThreadName;
-    std::thread mWorkerThread;
+    std::optional<std::thread> mWorkerThread;
 };
 
 }

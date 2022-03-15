@@ -85,7 +85,6 @@ private:
         }
     }
 
-    Timers mBatchAnalysisTimer, mSampleWorkerThreadTimer; // TODO make single timer
     atomic_queue::AtomicQueueB2<PacketData> mCollectedData{100'000};
     std::atomic<uint64_t> mTotalPacketCountCounter{0};
     std::vector<PacketData> mAnalysisData;
@@ -95,6 +94,7 @@ private:
     std::vector<SleepLevelSampleCounts> mSleepLevelSampleCounts;
     AnalysisResults mAnalysisResult;
     std::chrono::steady_clock::time_point mStartTime;
+    Timers mBatchAnalysisTimer, mSampleWorkerThreadTimer; // TODO make single timer
 };
 
 }

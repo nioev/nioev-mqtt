@@ -446,10 +446,10 @@ void ApplicationState::operator()(ChangeRequestAddScript&& req) {
     }
 }
 void ApplicationState::operator()(ChangeRequestDeleteScript&& req) {
+    deleteScript(mScripts.find(req.name));
     SQLite::Statement deleteQuery{mDb, "DELETE FROM script WHERE name=?"};
     deleteQuery.bind(1, req.name);
     deleteQuery.exec();
-    mScripts.erase(req.name);
 }
 void ApplicationState::operator()(ChangeRequestActivateScript&& req) {
     auto script = mScripts.find(req.name);

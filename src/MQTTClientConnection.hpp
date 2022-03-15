@@ -66,8 +66,9 @@ public:
         util::SharedBuffer bytes;
         uint offset = 0;
     };
-    std::pair<std::reference_wrapper<std::queue<SendTask>>, std::unique_lock<std::timed_mutex>> getSendTasks() {
-        std::unique_lock<std::timed_mutex> lock{mSendMutex};
+    std::pair<std::reference_wrapper<std::queue<SendTask>>, std::unique_lock<std::mutex>> getSendTasks() {
+
+        std::unique_lock<std::mutex> lock{mSendMutex};
         return {mSendTasks, std::move(lock)};
     }
 
@@ -149,7 +150,7 @@ private:
     std::mutex mRecvMutex;
     PacketReceiveData mRecvData;
 
-    std::timed_mutex mSendMutex;
+    std::mutex mSendMutex;
     std::queue<SendTask> mSendTasks;
 
     std::mutex mRemaingingMutex;

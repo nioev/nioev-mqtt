@@ -13,7 +13,7 @@ namespace nioev {
 
 NativeLibraryCompiler::NativeLibraryCompiler()
 : GenServer<CompileNativeLibraryData>("native-lib-comp") {
-
+    startThread();
 }
 void NativeLibraryCompiler::handleTask(CompileNativeLibraryData&& nativeLibData) {
     util::DestructWrapper finishLoading{[&] {

@@ -271,8 +271,8 @@ private:
             callback(sub);
         }
     }
-    template<typename T = Subscriber>
-    void forEachSubscriberThatIsNotOfT(const std::string& topic, std::function<void(Subscription&)>&& callback) {
+    template<typename T = Subscriber, typename Callback>
+    void forEachSubscriberThatIsNotOfT(const std::string& topic, Callback&& callback) {
         auto[start, end] = mSimpleSubscriptions.equal_range(topic);
         for(auto it = start; it != end; ++it) {
             if(std::dynamic_pointer_cast<T>(it->second.subscriber) != nullptr)
