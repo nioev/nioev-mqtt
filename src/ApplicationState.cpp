@@ -512,7 +512,6 @@ void ApplicationState::publish(std::string&& topic, std::vector<uint8_t>&& msg, 
     std::shared_lock<std::shared_mutex> lock{ mMutex };
     publishNoLockNoRetain(topic, msg, qos, retain);
     lock.unlock();
-    mCurrentRWHolderOfMMutex = std::thread::id();
     if(retain == Retain::Yes) {
         // we aren't allowed to call requestChange from another thread while holding a lock, so we need to do it here
         requestChange(ChangeRequestRetain{std::move(topic), std::move(msg), qos});
