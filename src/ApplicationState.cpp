@@ -164,6 +164,7 @@ void ApplicationState::workerThreadFunc() {
 
 void ApplicationState::requestChange(ChangeRequest&& changeRequest, ApplicationState::RequestChangeMode mode) {
     if(mode == RequestChangeMode::SYNC_WHEN_IDLE || mode == RequestChangeMode::SYNC) {
+        UniqueLockWithAtomicTidUpdate<std::shared_mutex> lock{mMutex, mCurrentRWHolderOfMMutex};
         executeChangeRequest(std::move(changeRequest));
     } else if(mode == RequestChangeMode::ASYNC) {
         /* Because of it's finite size, we can only use the lockless queue if we don't hold the mutex currently; if we push an element
