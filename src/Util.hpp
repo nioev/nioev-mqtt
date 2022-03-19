@@ -36,8 +36,59 @@ inline void throwErrno(std::string msg) {
     throw std::runtime_error{msg + ": " + errnoToString()};
 }
 
-// basically the same as std::shared_ptr<std::vector<uint8_t>> just with one less memory allocation
 class SharedBuffer final {
+public:
+    SharedBuffer() = default;
+    ~SharedBuffer() = default;
+    [[nodiscard]] const uint8_t *data() const {
+        if(!mBuffer)
+            return nullptr;
+        return mBuffer->data();
+    }
+    [[nodiscard]] uint8_t *data() {
+        if(!mBuffer)
+            return nullptr;
+        return mBuffer->data();
+    }
+    [[nodiscard]] size_t size() const {
+        if(!mBuffer)
+            return 0;
+        return mBuffer->size();
+    }
+    void append(const void* data, size_t size) {
+        if(!mBuffer)
+            mBuffer = std::make_shared<std::vector<uint8_t>>();
+        mBuffer->insert(mBuffer->end(), (uint8_t*)data, (uint8_t*)data + size);
+    }
+    void insert(size_t index, const void* data, size_t size) {
+        if(!mBuffer) {
+            if(index == 0) {
+                append(data, size);
+            } else {
+                throw std::runtime_error{"No such index in shared buffer of size " + std::to_string(this->size()) + " at index " + std::to_string(index)};
+            }
+        }
+        mBuffer->insert(mBuffer->begin() + index, (uint8_t*)data, (uint8_t*) data + size);
+    }
+    SharedBuffer copy() {
+        SharedBuffer ret;
+        if(!mBuffer)
+            return ret;
+        ret.append(mBuffer->data(), mBuffer->size());
+        ret.mPacketId = mPacketId;
+        return ret;
+    }
+    [[nodiscard]] uint16_t getPacketId() const {
+        return mPacketId;
+    }
+    void setPacketId(uint16_t id) {
+        mPacketId = id;
+    }
+private:
+    uint16_t mPacketId{0};
+    std::shared_ptr<std::vector<uint8_t>> mBuffer;
+};
+/*class SharedBuffer final {
 public:
     SharedBuffer() = default;
     ~SharedBuffer();
@@ -78,7 +129,7 @@ private:
     size_t mReserved = 0;
     size_t mSize = 0;
     uint16_t mPacketId{0};
-};
+};*/
 
 class BinaryEncoder {
 public:

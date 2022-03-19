@@ -2,7 +2,9 @@
 
 namespace nioev::util {
 
-SharedBuffer::~SharedBuffer() {
+
+
+/*SharedBuffer::~SharedBuffer() {
     decRefCount();
 }
 SharedBuffer::SharedBuffer(const SharedBuffer& other) {
@@ -98,6 +100,6 @@ SharedBuffer SharedBuffer::copy() const {
     ret.mBuffer = (std::byte*)malloc(mSize + sizeof(std::atomic<int>));
     memcpy(ret.mBuffer, data(), mSize);
     return ret;
-}
+}*/
 
 }
