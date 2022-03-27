@@ -46,6 +46,13 @@ struct AnalysisResults {
     std::vector<TimeInfo> packetsPerMinute;
     std::vector<TimeInfo> packetsPerSecond;
 
+    struct ClientInfo {
+        std::string clientId;
+        std::string hostname;
+        uint16_t port{0};
+    };
+    std::vector<ClientInfo> clients;
+
     WorkerThreadSleepLevel currentSleepLevel{WorkerThreadSleepLevel::YIELD};
     std::vector<SleepLevelSampleCounts> sleepLevelSampleCounts{};
 };

@@ -303,6 +303,19 @@ void RESTAPI::run(ApplicationState& app) {
                         doc.AddMember(rapidjson::StringRef("active_subscriptions"), std::move(subs.Move()), doc.GetAllocator());
                     }
                     {
+                        rapidjson::Value clients;
+                        clients.SetObject();
+                        for(auto& c : stats.clients) {
+                            rapidjson::Value val;
+                            val.SetObject();
+                            val.AddMember(rapidjson::StringRef("hostname"), rapidjson::Value{ c.hostname.c_str(), static_cast<rapidjson::SizeType>(c.hostname.size()), doc.GetAllocator() }, doc.GetAllocator());
+                            val.AddMember(rapidjson::StringRef("port"), c.port, doc.GetAllocator());
+                            clients.AddMember(
+                                rapidjson::Value{ c.clientId.c_str(), static_cast<rapidjson::SizeType>(c.clientId.size()), doc.GetAllocator() }, std::move(val.Move()), doc.GetAllocator());
+                        }
+                        doc.AddMember(rapidjson::StringRef("clients"), std::move(clients.Move()), doc.GetAllocator());
+                    }
+                    {
                         rapidjson::Value sleepLevelCounts;
                         sleepLevelCounts.SetObject();
                         stats.sleepLevelSampleCounts.erase(--stats.sleepLevelSampleCounts.end());

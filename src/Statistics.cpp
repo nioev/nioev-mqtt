@@ -58,6 +58,11 @@ void Statistics::refresh() {
     mAnalysisResult.activeSubscriptions = mApp.getSubscriptionsCount();
     mAnalysisResult.uptimeSeconds = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - mStartTime).count();
 
+    mAnalysisResult.clients.clear();
+    mApp.forEachClient([&](const std::string& clientId, const std::string& hostname = {}, uint16_t port = 0) {
+       mAnalysisResult.clients.emplace_back(AnalysisResults::ClientInfo{clientId, hostname, port});
+    });
+
     for(auto& packet: mAnalysisData) {
         auto it = mAnalysisResult.topics.find(packet.topic);
         if(it == mAnalysisResult.topics.end()) {

@@ -95,11 +95,13 @@
     let appSleepState = "";
     let activeSubscriptions = 0;
     let uptime = 0;
+    let clients = [];
     function onDataReceived(stats) {
         totalMessageCount = stats.total_msg_count
         retainedMsgCount = stats.retained_msg_count
         retainedMsgBytes = stats.retained_msg_size_sum;
         appQueueDepth = stats.app_state_queue_depth;
+        clients = stats.clients;
         if(stats.current_sleep_level === "tens_of_milliseconds") {
             appSleepState = "10ms";
         } else if(stats.current_sleep_level === "milliseconds") {
@@ -205,6 +207,18 @@
         <div class="control" >
             <center>Messages per Minute</center>
             <canvas id="messagesPerMinute"></canvas>
+        </div>
+        <div class="control" id="clients">
+            <center>Clients</center>
+            <ul>
+                {#each Object.keys(clients) as c}
+                    {#if clients[c].port === 0}
+                        <li>[{c}] Not connected</li>
+                    {:else}
+                        <li>[{c}] connected from {clients[c].hostname}:{clients[c].port}</li>
+                    {/if}
+                {/each}
+            </ul>
         </div>
     </div>
 

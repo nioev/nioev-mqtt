@@ -221,6 +221,16 @@ public:
         return sum;
     }
     std::unordered_map<std::string, uint64_t> getSubscriptionsCount();
+    template<typename T> void forEachClient(T&& callback) const {
+        std::shared_lock<std::shared_mutex> lock{mMutex};
+        for(auto& c: mPersistentClientStates) {
+            if(c.second.currentClient) {
+                callback(c.second.clientId, c.second.currentClient->getTcpClient().getRemoteIp(), c.second.currentClient->getTcpClient().getRemotePort());
+            } else {
+                callback(c.second.clientId);
+            }
+        }
+    }
 private:
     struct Subscription {
         std::shared_ptr<Subscriber> subscriber;
@@ -297,7 +307,7 @@ private:
 
     // the order of these fields has been carefully evaluated and tested to be race-free during deconstruction, so be careful to change anything!
 
-    std::shared_mutex mMutex;
+    mutable std::shared_mutex mMutex;
     std::atomic<std::thread::id> mCurrentRWHolderOfMMutex;
 
     NativeLibraryCompiler mNativeLibManager;
