@@ -40,20 +40,36 @@ allows the scripts to interact in non-standard ways with the broker. Features I'
 
 ## Still missing features
 
-Please note that nioev-mqtt isn't as fully featured as [mosquitto](https://mosquitto.org/), but is way faster. Features
+Please note that nioev-mqtt isn't as fully featured as [mosquitto](https://mosquitto.org/). Features
 that are missing include:
 
  - User authentification (should be easy, I just have no need for it and so haven't looked into it)
  - Configuration file for configuring e.g. ports, database location, maximum queue depths, timeouts etc.
  - Efficient handling of many subscriptions - we don't build a tree structure right now. Simple supscriptions (no wildcards)
-   are stored in a table, the rest is are in a simple vector.
+   are stored in a hash map, the rest is are in a simple vector.
  - io_uring
  - MQTT 5
  - TLS
  - Bridge mode
  - Documentation beyond this file (feel free to open an issue if you need assistance)
  - Other advanced features
- - A nice icon
+ - A pretty icon
+
+## Getting started
+
+Note: nioev-mqtt only supports linux.
+```bash
+git clone --recursive https://github.com/VayuDev/nioev-mqtt.git
+cd nioev-mqtt
+mkdir build
+cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release
+make -j8
+./nioev
+```
+
+The broker runs on port 1883. The WebUI is availaible at http://localhost:1884. 
+An example script can be found in [examples/test.js](examples/test.js).
 
 ## Thank you to the following projects which nioev-mqtt uses:
 
