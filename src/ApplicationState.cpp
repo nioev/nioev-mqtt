@@ -536,7 +536,11 @@ void ApplicationState::publishNoLockNoRetain(const std::string& topic, const std
     if(util::startsWith(topic, "$NIOEV")) {
         //performSystemAction(topic, msg);
     }
-    forEachSubscriberThatIsOfT(topic, [&topic, &msg, publishQoS](Subscription& sub) {
+    std::unordered_set<Subscriber*> subs;
+    forEachSubscriberThatIsOfT(topic, [&topic, &msg, publishQoS, &subs](Subscription& sub) {
+        if(subs.contains(sub.subscriber.get()))
+            return;
+        subs.emplace(sub.subscriber.get());
         // according to the spec, we have to downgrade the publishQoS level here to match that of the publish; TODO allow overriding this behaviour in a config file
         auto usedQos = minQoS(sub.qos, publishQoS);
         sendPublish(*sub.subscriber, topic, msg, usedQos, Retained::No);
