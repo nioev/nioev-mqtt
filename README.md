@@ -62,6 +62,7 @@ Note: nioev-mqtt only supports linux.
 git clone --recursive https://github.com/VayuDev/nioev-mqtt.git
 cd nioev-mqtt
 mkdir build
+./package_quick.sh build
 cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release
 make -j8
