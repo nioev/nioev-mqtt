@@ -6,14 +6,20 @@ nioev-mqtt is a modern multithreaded mqtt broker with a focus on performance and
  - Built-in JS scripting engine based on QuickJS
  - WebUI for viewing statistics and configuring scripts
  - REST API & WS API for simple publishing & subscribing
+ - Written in C++
 
 ## Performance
 
 nioev-mqtt is heavily focused on performance. To my knowledge and limited, primitive testing, it's the fastest
 mqtt broker out there. It is written in C++ and heavily multithreaded, as opposed to [mosquitto](https://mosquitto.org/),
-which only uses a single thread. In all my tests, nioev-mqtt can handle about 2x-5x more packets per second if you've got 
-at least 4 cores available. Other proprietary MQTT brokers like [VerneMQ](https://vernemq.com/) or 
-[HiveMQ](https://www.hivemq.com/) are even slower than [mosquitto](https://mosquitto.org/) in my tests.
+which only uses a single thread. In all my tests, nioev-mqtt can handle up to 2 times more packets per second if you've got 
+at least 4 cores available. In some very synthetic benchmarks it was even 5 times faster. 
+Other proprietary MQTT brokers like [VerneMQ](https://vernemq.com/) or [HiveMQ](https://www.hivemq.com/) are even 
+slower than [mosquitto](https://mosquitto.org/) in most cirumstances.
+
+Of course this is hard to notice, as under most circumstances, network is the bottleneck, not the CPU. 
+This is mostly only useful under very complex loads with many subscribers or when you've got some very low-power 
+hardware like Raspberry Pis. 
 
 TODO add some nice benchmark graphs.
 
@@ -47,6 +53,7 @@ that are missing include:
  - Bridge mode
  - Documentation beyond this file (feel free to open an issue if you need assistance)
  - Other advanced features
+ - A nice icon
 
 ## Thank you to the following projects which nioev-mqtt uses:
 
