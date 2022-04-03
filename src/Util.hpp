@@ -182,12 +182,14 @@ public:
     }
     std::string decodeString() {
         auto len = decode2Bytes();
+        // TODO range checks
         std::string ret{mData.begin() + mOffset, mData.begin() + mOffset + len};
         mOffset += len;
         return ret;
     }
     std::vector<uint8_t> decodeBytesWithPrefixLength() {
         auto len = decode2Bytes();
+        // TODO range checks
         std::vector<uint8_t> ret{mData.begin() + mOffset, mData.begin() + mOffset + len};
         mOffset += len;
         return ret;
@@ -197,6 +199,7 @@ public:
     }
     uint16_t decode2Bytes() {
         uint16_t len;
+        // TODO range checks
         memcpy(&len, mData.data() + mOffset, 2);
         len = ntohs(len);
         mOffset += 2;
@@ -206,6 +209,7 @@ public:
         return mData.data() + mOffset;
     }
     void advance(uint length) {
+        // TODO range checks
         mOffset += length;
     }
     std::vector<uint8_t> getRemainingBytes() {
