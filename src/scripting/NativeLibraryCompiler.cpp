@@ -74,7 +74,7 @@ void NativeLibraryCompiler::handleTask(CompileNativeLibraryData&& nativeLibData)
         nativeLibData.statusOutput.error(nativeLibData.codeFilename, "Compilation failed!");
         return;
     }
-    nativeLibData.statusOutput.success(nativeLibData.codeFilename);
+    nativeLibData.statusOutput.success(nativeLibData.codeFilename, "");
 }
 void NativeLibraryCompiler::enqueue(CompileNativeLibraryData&& task) {
     std::unique_lock<std::shared_mutex> lock{mCurrentlyLoadingMutex};

@@ -50,7 +50,7 @@
             </div>
         {:else if currentPage === "scripts.html"}
             <div class="content" transition:fade="{{duration: 50}}">
-                <Scripts/>
+                <Scripts refreshRate={refreshRate}/>
             </div>
         {:else if currentPage === "settings.html"}
             <div class="content" transition:fade="{{duration: 50}}">

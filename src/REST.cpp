@@ -151,7 +151,7 @@ void RESTAPI::run(ApplicationState& app) {
                         }
                         spdlog::info("Adding script from Web-API: {}", scriptName);
                         app.addScript(
-                            scriptName, [res](auto&) { res->end("ok", true); },
+                            scriptName, [res](auto&, auto&) { res->end("ok", true); },
                             [res](auto&, const auto& error) {
                                 res->writeStatus("500 Internal Server Error");
                                 res->end(error, true);
@@ -214,7 +214,8 @@ void RESTAPI::run(ApplicationState& app) {
                         scriptObj.SetObject();
                         scriptObj.AddMember("name", rapidjson::Value{ script.name.c_str(), static_cast<rapidjson::SizeType>(script.name.size()), doc.GetAllocator() }.Move(), doc.GetAllocator());
                         // scriptObj.AddMember("code", rapidjson::Value{ script.code.c_str(), static_cast<rapidjson::SizeType>(script.code.size()), doc.GetAllocator() }.Move(), doc.GetAllocator());
-                        scriptObj.AddMember("active", rapidjson::Value{ script.active }.Move(), doc.GetAllocator());
+
+                        scriptObj.AddMember("state", rapidjson::StringRef(scriptStateToString(script.active)), doc.GetAllocator());
                         doc.AddMember(
                             rapidjson::Value{ script.name.c_str(), static_cast<rapidjson::SizeType>(script.name.size()), doc.GetAllocator() }.Move(), std::move(scriptObj.Move()), doc.GetAllocator());
                     }
@@ -241,7 +242,7 @@ void RESTAPI::run(ApplicationState& app) {
                             continue;
                         doc.AddMember("name", rapidjson::Value{ script.name.c_str(), static_cast<rapidjson::SizeType>(script.name.size()), doc.GetAllocator() }.Move(), doc.GetAllocator());
                         doc.AddMember("code", rapidjson::Value{ script.code.c_str(), static_cast<rapidjson::SizeType>(script.code.size()), doc.GetAllocator() }.Move(), doc.GetAllocator());
-                        doc.AddMember("active", rapidjson::Value{ script.active }.Move(), doc.GetAllocator());
+                        doc.AddMember("state", rapidjson::StringRef(scriptStateToString(script.active)), doc.GetAllocator());
                         scriptFound = true;
                     }
                     if(!scriptFound) {

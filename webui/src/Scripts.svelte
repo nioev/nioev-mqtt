@@ -1,20 +1,19 @@
 
 <script>
-    import {onMount} from "svelte";
+    import {onDestroy, onMount} from "svelte";
+    import RefreshManager from "./Utils";
 
-    let fetchPromise = (async function() {return await (await fetch("/scripts")).json()})();
     let scripts = {};
-    onMount(async () => {
-        scripts = await fetchPromise;
-    })
     async function activate(script) {
         await fetch("/scripts/" + encodeURIComponent(script) + "/activate", {method: "POST"})
         scripts[script].active = !scripts[script].active;
+        await updateStatus();
     }
 
     async function deactivate(script) {
         await fetch("/scripts/" + encodeURIComponent(script) + "/deactivate", {method: "POST"})
         scripts[script].active = !scripts[script].active;
+        await updateStatus();
     }
     async function deleteScript(script) {
         if(!confirm("Are you sure you want to delete " + script + "?")) {
@@ -44,44 +43,50 @@
         );
         console.log(scripts)
     }
+    let fetchPromise = undefined;
+    async function updateStatus() {
+        fetchPromise = (async function() {return await (await fetch("/scripts")).json()})();
+        scripts = await fetchPromise;
+
+    }
+
+    export let refreshRate;
+    let manager = new RefreshManager(updateStatus, refreshRate);
+    $: manager.refresh(refreshRate);
 </script>
 
 <main>
-    {#await fetchPromise}
-    {:then}
-        <div id="toolbar">
-
-            <span class="toolbar-item" id="newScript" on:click={newScript}>New</span>
-        </div>
-        <div id="scripts">
-        {#each Object.keys(scripts) as script (script)}
-            <div class="script">
-                <div class="scriptName">
-                    {scripts[script].name}
-                </div>
-                {#if scripts[script].active}
-                    <button on:click={deactivate(script)}>
-                        Deactivate
-                    </button>
-                {:else}
-                    <button on:click={activate(script)}>
-                        Activate
-                    </button>
-                {/if}
-                <button onclick="window.location = 'edit.html?script={script}'">
-                    Edit
-                </button>
-                <button on:click={deleteScript(script)}>
-                    Delete
-                </button>
+    <div id="toolbar">
+        <span class="toolbar-item" id="newScript" on:click={newScript}>New</span>
+    </div>
+    <div id="scripts">
+    {#each Object.keys(scripts).sort() as script (scripts[script].name + scripts[script].state)}
+        <div class="script">
+            <div class="scriptName">
+                {scripts[script].name}
             </div>
-        {/each}
+            {#if scripts[script].state === "running"}
+                <span on:click={deactivate(script)} class="info-tile info-tile-clickable">
+                    Deactivate
+                </span>
+            {:else if scripts[script].state === "deactivated"}
+                <span on:click={activate(script)}  class="info-tile info-tile-clickable">
+                    Activate
+                </span>
+            {:else}
+                <span  class="info-tile">
+                    {scripts[script].state}
+                </span>
+            {/if}
+            <span onclick="window.location = 'edit.html?script={script}'" class="info-tile info-tile-clickable">
+                Edit
+            </span>
+            <span on:click={deleteScript(script)} class="info-tile info-tile-clickable">
+                Delete
+            </span>
         </div>
-    {:catch error}
-        <div id="scripts">
-            {error.message}
-        </div>
-    {/await}
+    {/each}
+    </div>
 </main>
 
 <style>
@@ -110,7 +115,19 @@ main {
     border-radius: 10px;
     padding: 10px;
     cursor: pointer;
+}
 
+.info-tile {
+    border: 2px solid rgb(200, 200, 200);
+    background-color: rgb(250, 250, 250);
+    padding: 5px;
+    margin: 5px;
+}
+.info-tile-clickable {
+    cursor: pointer;
+    border: 2px solid rgb(150, 150, 150);
+    background-color: rgb(240, 240, 240);
+    user-select: none;
 }
 .script > * {
     margin: 0 0 0 10px;

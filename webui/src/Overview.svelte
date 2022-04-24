@@ -1,12 +1,13 @@
 <script>
     import Chart from "chart.js/auto";
     import {onMount, onDestroy} from "svelte";
+    import RefreshManager from "./Utils";
 
     function toScatterData(src, interval) {
         let values = [];
         let keys = Object.keys(src)
         let min = Math.min(...keys);
-        let max = Math.max(...keys);
+        let max = Math.max(Math.max(...keys), new Date() / 1000);
         for(let i = min; i <= max; i += interval) {
             let datapoint = src[i];
             if(datapoint === undefined) {
@@ -117,38 +118,10 @@
         uptime = stats.uptime_seconds;
     }
 
-    let refreshIntervalTimeoutId = 0;
     let graphSeconds;
     let graphMinutes;
 
     async function updateStatistics() {
-
-        let stats = await (await fetch("/statistics")).json();
-        graphSeconds(toScatterData(stats.msg_per_second, 1));
-        graphMinutes(toScatterData(stats.msg_per_minute, 60));
-        onDataReceived(stats);
-    }
-
-    let initDone = false;
-    onMount(async () => {
-        let stats = await (await statsPromise).json()
-        onDataReceived(stats);
-        graphSeconds = drawHistogram('messagesPerSecond', 'rgb(255, 99, 132)', toScatterData(stats.msg_per_second, 1));
-        graphMinutes = drawHistogram('messagesPerMinute', 'rgb(211,99,255)', toScatterData(stats.msg_per_minute, 60));
-        oldRefreshRate = refreshRate;
-        refreshIntervalTimeoutId = setInterval(updateStatistics, refreshRate);
-        initDone = true;
-    });
-
-    export let refreshRate;
-    let oldRefreshRate;
-    $: if (oldRefreshRate !== refreshRate && initDone) {
-        oldRefreshRate = refreshRate;
-        (async () => {
-            clearInterval(refreshIntervalTimeoutId);
-            await updateStatistics();
-            refreshIntervalTimeoutId = setInterval(updateStatistics, refreshRate);
-        })();
 
     }
     function formatDuration(seconds) {
@@ -159,9 +132,23 @@
 
         return (d >= 0 ? d + " days " : "") + h + ":" + m + ":" + s;
     }
-    onDestroy(() => {
-        clearInterval(refreshIntervalTimeoutId);
-    })
+
+
+    export let refreshRate;
+    let firstRefresh = true;
+    let manager = new RefreshManager(async () => {
+        let stats = await (await fetch("/statistics")).json();
+        if(firstRefresh) {
+            firstRefresh = false;
+            graphSeconds = drawHistogram('messagesPerSecond', 'rgb(255, 99, 132)', toScatterData(stats.msg_per_second, 1));
+            graphMinutes = drawHistogram('messagesPerMinute', 'rgb(211,99,255)', toScatterData(stats.msg_per_minute, 60));
+        } else {
+            graphSeconds(toScatterData(stats.msg_per_second, 1));
+            graphMinutes(toScatterData(stats.msg_per_minute, 60));
+        }
+        onDataReceived(stats);
+    }, refreshRate);
+    $: manager.refresh(refreshRate);
 </script>
 
 <main>

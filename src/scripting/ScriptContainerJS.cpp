@@ -16,19 +16,12 @@ ScriptContainerJS::ScriptContainerJS(ApplicationState& p, std::string scriptName
         mJSRuntime,
         [](JSRuntime*, void* scriptContainerJS) -> int {
             auto* self = reinterpret_cast<ScriptContainerJS*>(scriptContainerJS);
-            return self->mShouldAbort;
+            return std::chrono::steady_clock::now() - self->mTaskStartTime > std::chrono::seconds(5) || self->mState == ScriptState::STOPPING;
         },
         this);
 }
 ScriptContainerJS::~ScriptContainerJS() {
-    if(mScriptThread) {
-        std::unique_lock<std::mutex> lock{ mMutex };
-        mShouldAbort = true;
-        mCV.notify_all();
-        lock.unlock();
-        mScriptThread->join();
-        mScriptThread.reset();
-    }
+    forceQuit();
     while(!mTimeouts.empty()) {
         mTimeouts.top().freeJSValues(mJSContext);
         mTimeouts.pop();
@@ -41,6 +34,15 @@ ScriptContainerJS::~ScriptContainerJS() {
     mJSContext = nullptr;
     JS_FreeRuntime(mJSRuntime);
     mJSRuntime = nullptr;
+}
+void ScriptContainerJS::forceQuit() {
+    std::unique_lock<std::mutex> lock{ mMutex };
+    mState = ScriptState::STOPPING;
+    mCV.notify_all();
+    lock.unlock();
+    if(mScriptThread)
+        mScriptThread->join();
+    mScriptThread.reset();
 }
 
 void ScriptContainerJS::init(ScriptStatusOutput&& status) {
@@ -60,16 +62,21 @@ void ScriptContainerJS::run(const ScriptInputArgs& in, ScriptStatusOutput&& stat
     lock.unlock();
 }
 
+std::string jsValueToString(JSContext* ctx, JSValue obj) {
+    auto json = JS_JSONStringify(ctx, obj, JS_UNDEFINED, JS_UNDEFINED);
+    util::DestructWrapper destructJson{[&]{ JS_FreeValue(ctx, json); }};
+    auto cStr = JS_ToCString(ctx, json);
+    util::DestructWrapper destructCStr{[&]{ JS_FreeCString(ctx, cStr); }};
+    return cStr;
+}
+
 template<bool error>
 JSValue jsLog(JSContext* ctx, JSValue this_obj, int argc, JSValue* args) {
     ScriptContainerJS* self = reinterpret_cast<ScriptContainerJS*>(JS_GetContextOpaque(ctx));
     try {
         std::string toLog;
         for(int i = 0; i < argc; ++i) {
-            auto json = JS_JSONStringify(ctx, args[i], JS_UNDEFINED, JS_UNDEFINED);
-            util::DestructWrapper destructJson{[&]{ JS_FreeValue(ctx, json); }};
-            auto cStr = JS_ToCString(ctx, json);
-            util::DestructWrapper destructCStr{[&]{ JS_FreeCString(ctx, cStr); }};
+            auto cStr = jsValueToString(ctx, args[i]);
             toLog += cStr;
             if(i != argc - 1)
                 toLog += " ";
@@ -119,8 +126,7 @@ void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
         std::unique_lock<std::mutex> lock{ mMutex };
         mInitFailureMessage = errorMsg;
         lock.unlock();
-        mApp.requestChange(ChangeRequestUnsubscribeFromAll{makeShared()});
-        deactivate();
+        mState = ScriptState::INIT_FAILED;
         error(mName, errorMsg);
     };
 
@@ -176,6 +182,57 @@ void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
                 return JS_Throw(ctx, JS_NewString(ctx, e.what()));
             }
         }, "loadNativeLibrary", 1);
+    auto callScript = JS_NewCFunction(mJSContext, [](JSContext* ctx, JSValue this_obj, int argc, JSValue* args) {
+            ScriptContainerJS* self = reinterpret_cast<ScriptContainerJS*>(JS_GetContextOpaque(ctx));
+            try {
+                if(argc < 2) {
+                    throw std::runtime_error{"You need to pass the script you want to call and some argument"};
+                }
+                if(!JS_IsString(args[0])) {
+                    throw std::runtime_error{"First argument needs to be a string"};
+                }
+                auto libName = JS_ToCString(ctx, args[0]);
+                util::DestructWrapper destructLibName{[&] {
+                    JS_FreeCString(ctx, libName);
+                }};
+                auto cStr = jsValueToString(ctx, args[1]);
+
+                ScriptInputArgs input;
+                ScriptStatusOutput output;
+                bool done{false};
+                std::mutex mutex;
+                std::condition_variable cv;
+                std::string errorMsg;
+                std::string returnValue;
+                output.error = [&] (const auto&, const auto& msg) {
+                    std::unique_lock<std::mutex> lock{mutex};
+                    done = true;
+                    errorMsg = msg;
+                    cv.notify_all();
+                };
+                output.success = [&] (const auto&, const auto& value) {
+                    std::unique_lock<std::mutex> lock{mutex};
+                    done = true;
+                    returnValue = value;
+                    cv.notify_all();
+                };
+
+                input.params = ScriptForeignCall{cStr};
+                input.taskId = ScriptContainer::allocTaskId();
+                self->mApp.runScript(libName, input, std::move(output));
+
+                std::unique_lock<std::mutex> lock{mutex};
+                while(!done) {
+                    cv.wait(lock);
+                }
+                if(!errorMsg.empty()) {
+                    throw std::runtime_error{"Remote error: " + errorMsg};
+                }
+                return JS_ParseJSON(ctx, returnValue.c_str(), returnValue.size(), "ReturnValue.json");
+            } catch (std::exception& e) {
+                return JS_Throw(ctx, JS_NewString(ctx, e.what()));
+            }
+        }, "callScript", 1);
     auto publishFunc = JS_NewCFunction(mJSContext, [](JSContext* ctx, JSValue this_obj, int argc, JSValue* args) {
             ScriptContainerJS* self = reinterpret_cast<ScriptContainerJS*>(JS_GetContextOpaque(ctx));
             try {
@@ -243,6 +300,7 @@ void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
     auto nv = JS_NewObject(mJSContext);
     JS_SetPropertyStr(mJSContext, globalObj, "nv", nv);
     JS_SetPropertyStr(mJSContext, nv, "loadNativeLibrary", loadNativeLibFunc);
+    JS_SetPropertyStr(mJSContext, nv, "callScript", callScript);
     JS_SetPropertyStr(mJSContext, nv, "publish", publishFunc);
     JS_SetPropertyStr(mJSContext, nv, "subscribe", subscribeFunc);
     JS_SetPropertyStr(mJSContext, nv, "unsubscribe", unsubscribeFunc);
@@ -309,6 +367,7 @@ void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
     JS_SetPropertyStr(mJSContext, globalObj, "setInterval", JS_UNDEFINED);
     JS_SetPropertyStr(mJSContext, globalObj, "clearInterval", JS_UNDEFINED);
 
+    mTaskStartTime = std::chrono::steady_clock::now();
     auto ret = JS_Eval(mJSContext, mCode.c_str(), mCode.size(), mName.c_str(), 0);
     util::DestructWrapper destructRet{[&]{ JS_FreeValue(mJSContext, ret); }};
 
@@ -332,16 +391,17 @@ void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
             return;
         }
     }
+    initStatus.success(mName, jsValueToString(mJSContext, ret));
 
     destructRet.execute();
 
     // start run loop
-    while(!mShouldAbort) {
+    while(mState != ScriptState::STOPPING) {
         std::unique_lock<std::mutex> lock{ mMutex };
         while(mTasks.empty()) {
-            if(!mActive) {
+            if(mState == ScriptState::DEACTIVATED) {
                 mCV.wait(lock);
-                if(mShouldAbort) {
+                if(mState == ScriptState::STOPPING) {
                     return;
                 }
                 continue;
@@ -354,6 +414,7 @@ void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
                     auto timeout = mTimeouts.top();
                     mTimeouts.pop();
                     lock.unlock();
+                    mTaskStartTime = std::chrono::steady_clock::now();
                     auto timeoutCallRet = JS_Call(mJSContext, timeout.mFunction, globalObj, timeout.mFunctionArgs.size(), timeout.mFunctionArgs.data());
                     if(JS_IsException(timeoutCallRet)) {
                         spdlog::warn("[{}] Error in timeout function: {}", mName, getJSException());
@@ -366,7 +427,7 @@ void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
             } else {
                 mCV.wait(lock);
             }
-            if(mShouldAbort) {
+            if(mState == ScriptState::STOPPING) {
                return;
             }
         }
@@ -375,13 +436,6 @@ void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
         lock.unlock();
         performRun(input, std::move(status));
     }
-}
-void ScriptContainerJS::forceQuit() {
-    mShouldAbort = true;
-    mCV.notify_all();
-    if(mScriptThread)
-        mScriptThread->join();
-    mScriptThread.reset();
 }
 void ScriptContainerJS::performRun(const ScriptInputArgs& input, ScriptStatusOutput&& status) {
 
@@ -393,7 +447,7 @@ void ScriptContainerJS::performRun(const ScriptInputArgs& input, ScriptStatusOut
     auto paramObj = JS_NewObject(mJSContext);
     util::DestructWrapper destructParamObj{[&]{ JS_FreeValue(mJSContext, paramObj); }};
 
-    switch(input.index()) {
+    switch(input.params.index()) {
     case 0: {
         // publish
         runFunction = JS_GetPropertyStr(mJSContext, globalObj, "onPublish");
@@ -402,7 +456,7 @@ void ScriptContainerJS::performRun(const ScriptInputArgs& input, ScriptStatusOut
             return;
         }
 
-        auto& cppParams = std::get<0>(input);
+        auto& cppParams = std::get<0>(input.params);
         JS_SetPropertyStr(mJSContext, paramObj, "type", JS_NewString(mJSContext, "publish"));
         JS_SetPropertyStr(mJSContext, paramObj, "topic", JS_NewString(mJSContext, cppParams.topic.c_str()));
         JS_SetPropertyStr(mJSContext, paramObj, "retained", JS_NewBool(mJSContext, cppParams.retained == Retained::Yes));
@@ -421,9 +475,21 @@ void ScriptContainerJS::performRun(const ScriptInputArgs& input, ScriptStatusOut
         }
         break;
     }
+    case 1: {
+        runFunction = JS_GetPropertyStr(mJSContext, globalObj, "onCall");
+        if(!JS_IsFunction(mJSContext, runFunction)) {
+            status.error(mName, "function onCall not defined!");
+            return;
+        }
+        auto& cppParams = std::get<1>(input.params);
+        JS_SetPropertyStr(mJSContext, paramObj, "type", JS_NewString(mJSContext, "publish"));
+        JS_SetPropertyStr(mJSContext, paramObj, "arg", JS_ParseJSON(mJSContext, cppParams.payload.c_str(), cppParams.payload.size(), "CallArg.json"));
+        break;
+    }
     default:
         assert(false);
     }
+    mTaskStartTime = std::chrono::steady_clock::now();
     auto runResult = JS_Call(mJSContext, runFunction, globalObj, 1, &paramObj);
     util::DestructWrapper destructRunResult{[&]{ JS_FreeValue(mJSContext, runResult); }};
 
@@ -449,6 +515,8 @@ void ScriptContainerJS::performRun(const ScriptInputArgs& input, ScriptStatusOut
             status.syncAction(mName, SyncAction::Continue);
         }
     }
+    auto resultAsString = jsValueToString(mJSContext, runResult);
+    status.success(mName, resultAsString);
 }
 
 std::string ScriptContainerJS::getJSException() {

@@ -30,7 +30,14 @@ struct ScriptRunArgsMqttMessage {
     Retained retained;
 };
 
-using ScriptInputArgs = std::variant<ScriptRunArgsMqttMessage>;
+struct ScriptForeignCall {
+    std::string payload;
+};
+
+struct ScriptInputArgs {
+    std::variant<ScriptRunArgsMqttMessage, ScriptForeignCall> params;
+    int32_t taskId{-1}; // optionally setable to abort the task
+};
 
 enum class SyncAction {
     Continue,
@@ -38,10 +45,43 @@ enum class SyncAction {
 };
 
 struct ScriptStatusOutput {
-    std::function<void(const std::string& scriptName)> success = [](auto&) {};
+    std::function<void(const std::string& scriptName, const std::string& returnValue)> success = [](auto&, auto&) {};
     std::function<void(const std::string& scriptName, const std::string& reason)> error = [](auto& scriptName, const auto& error) {spdlog::error("[{}] Script error: {}", scriptName, error);};
     std::function<void(const std::string& scriptName, SyncAction action)> syncAction = [](auto&, auto) {};
 };
+
+enum class ScriptState {
+    UNKNOWN,
+    RUNNING,
+    STOPPING,
+    DEACTIVATED,
+    INIT_FAILED
+};
+
+
+static inline const char* scriptStateToString(ScriptState state) {
+    const char* stateStr{nullptr};
+    switch(state) {
+    case ScriptState::RUNNING:
+        stateStr = "running";
+        break;
+    case ScriptState::UNKNOWN:
+        stateStr = "unknown";
+        break;
+    case ScriptState::INIT_FAILED:
+        stateStr = "init_failed";
+        break;
+    case ScriptState::DEACTIVATED:
+        stateStr = "deactivated";
+        break;
+    case ScriptState::STOPPING:
+        stateStr = "stopping";
+        break;
+    default:
+        stateStr = "<error>";
+    }
+    return stateStr;
+}
 
 class ScriptContainer : public Subscriber {
 public:
@@ -62,9 +102,9 @@ public:
     }
 
     void publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained, MQTTPublishPacketBuilder& packetBuilder) override {
-        if(!mActive)
+        if(mState != ScriptState::RUNNING)
             return;
-        run(ScriptRunArgsMqttMessage{topic, payload, retained}, ScriptStatusOutput{});
+        run(ScriptInputArgs{ScriptRunArgsMqttMessage{topic, payload, retained}}, ScriptStatusOutput{});
     }
     const auto& getCode() const {
         return mCode;
@@ -76,18 +116,30 @@ public:
     /* Deactivated scripts will no longer receive any messages and should not run any further scheduled code.
      */
     void activate() {
+        if(mState != ScriptState::DEACTIVATED) {
+            return;
+        }
         std::unique_lock<std::mutex> lock{mMutex};
-        mActive = true;
+        mState = ScriptState::RUNNING;
         mCV.notify_all();
         lock.unlock();
         spdlog::info("[{}] Activated", mName);
     }
     void deactivate() {
-        mActive = false;
+        if(mState != ScriptState::RUNNING)
+            return;
+        mState = ScriptState::DEACTIVATED;
         spdlog::info("[{}] Deactivated", mName);
     }
     [[nodiscard]] bool isActive() const {
-        return mActive;
+        return mState != ScriptState::DEACTIVATED;
+    }
+    static int32_t allocTaskId() {
+        static std::atomic<uint16_t> mTaskID;
+        return mTaskID++;
+    }
+    ScriptState getState() const {
+        return mState;
     }
 
 protected:
@@ -95,9 +147,10 @@ protected:
     mutable std::mutex mScriptInitReturnMutex;
     std::optional<ScriptInitReturn> mScriptInitReturn;
     ApplicationState& mApp;
+    std::atomic<ScriptState> mState{ScriptState::RUNNING};
     std::string mCode, mName;
-    std::atomic<bool> mActive{true};
     std::condition_variable mCV;
+    std::string mInitFailureMessage; // protected by tasks mutex
 };
 
 }

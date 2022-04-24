@@ -31,16 +31,11 @@ protected:
     ApplicationState& mApp;
 };
 
-ApplicationState::ApplicationState()
-: mAsyncPublisher(*this), mStatistics(std::make_shared<Statistics>(*this)), mClientManager(*this), mWorkerThread([this]{workerThreadFunc();}) {
+ApplicationState::ApplicationState() : mAsyncPublisher(*this), mStatistics(std::make_shared<Statistics>(*this)), mClientManager(*this), mWorkerThread([this] { workerThreadFunc(); }) {
     spdlog::default_logger()->sinks().push_back(std::make_shared<LogSink>(*this));
     mStatistics->init();
-    mTimers.addPeriodicTask(std::chrono::seconds(2), [this] () mutable {
-        cleanup();
-    });
-    mTimers.addPeriodicTask(std::chrono::minutes(10), [this] () mutable {
-        syncRetainedMessagesToDb();
-    });
+    mTimers.addPeriodicTask(std::chrono::seconds(2), [this]() mutable { cleanup(); });
+    mTimers.addPeriodicTask(std::chrono::minutes(10), [this]() mutable { syncRetainedMessagesToDb(); });
     // initialize db
     mDb.exec("CREATE TABLE IF NOT EXISTS script (name TEXT UNIQUE PRIMARY KEY NOT NULL, code TEXT NOT NULL, persistent_state TEXT, active BOOL NOT NULL DEFAULT TRUE);");
     mDb.exec("CREATE TABLE IF NOT EXISTS retained_msg (topic TEXT UNIQUE PRIMARY KEY NOT NULL, payload BLOB NOT NULL, timestamp TIMESTAMP NOT NULL, qos INTEGER NOT NULL);");
@@ -61,23 +56,23 @@ ApplicationState::ApplicationState()
         }
         return true;
     });
-    for(auto& [name, code, active]: scripts) {
-        executeChangeRequest(ChangeRequestAddScript{name, std::move(code)});
+    for(auto& [name, code, active] : scripts) {
+        executeChangeRequest(ChangeRequestAddScript{ name, std::move(code) });
         if(!active) {
-            executeChangeRequest(ChangeRequestDeactivateScript{std::move(name)});
+            executeChangeRequest(ChangeRequestDeactivateScript{ std::move(name) });
         }
     }
-    UniqueLockWithAtomicTidUpdate<std::shared_mutex> lock{mMutex, mCurrentRWHolderOfMMutex};
+    UniqueLockWithAtomicTidUpdate<std::shared_mutex> lock{ mMutex, mCurrentRWHolderOfMMutex };
     // fetch retained messages
     SQLite::Statement retainedMsgQuery(mDb, "SELECT topic,payload,timestamp,qos FROM retained_msg");
     while(retainedMsgQuery.executeStep()) {
         auto payloadColumn = retainedMsgQuery.getColumn(1);
-        std::vector<uint8_t> payload{(uint8_t*)payloadColumn.getBlob(), (uint8_t*)payloadColumn.getBlob() + payloadColumn.getBytes()};
+        std::vector<uint8_t> payload{ (uint8_t*)payloadColumn.getBlob(), (uint8_t*)payloadColumn.getBlob() + payloadColumn.getBytes() };
 
-        std::stringstream timestampStr{retainedMsgQuery.getColumn(2).getString()};
+        std::stringstream timestampStr{ retainedMsgQuery.getColumn(2).getString() };
         struct tm timestamp = { 0 };
         timestampStr >> std::get_time(&timestamp, "%Y-%m-%d %H-%M-%S");
-        mRetainedMessages.emplace(retainedMsgQuery.getColumn(0), RetainedMessage{std::move(payload), mktime(&timestamp), static_cast<QoS>(retainedMsgQuery.getColumn(3).getInt())});
+        mRetainedMessages.emplace(retainedMsgQuery.getColumn(0), RetainedMessage{ std::move(payload), mktime(&timestamp), static_cast<QoS>(retainedMsgQuery.getColumn(3).getInt()) });
     }
 }
 ApplicationState::~ApplicationState() {
@@ -91,9 +86,9 @@ void ApplicationState::workerThreadFunc() {
 
     uint tasksPerformed = 0;
     auto processInternalQueue = [this, &tasksPerformed] {
-        for(auto& client: mClients) {
+        for(auto& client : mClients) {
             if(client->hasSendError() && !client->isLoggedOut()) {
-                requestChange(ChangeRequestLogoutClient{client->makeShared()});
+                requestChange(ChangeRequestLogoutClient{ client->makeShared() });
             }
         }
         while(!mQueueInternal.empty()) {
@@ -104,7 +99,7 @@ void ApplicationState::workerThreadFunc() {
     };
     uint yieldHelpCount = 0;
     while(mShouldRun) {
-        UniqueLockWithAtomicTidUpdate<std::shared_mutex> lock{mMutex, mCurrentRWHolderOfMMutex};
+        UniqueLockWithAtomicTidUpdate<std::shared_mutex> lock{ mMutex, mCurrentRWHolderOfMMutex };
         tasksPerformed = 0;
         while(!mQueue.was_empty()) {
             executeChangeRequest(mQueue.pop());
@@ -164,7 +159,7 @@ void ApplicationState::workerThreadFunc() {
 
 void ApplicationState::requestChange(ChangeRequest&& changeRequest, ApplicationState::RequestChangeMode mode) {
     if(mode == RequestChangeMode::SYNC_WHEN_IDLE || mode == RequestChangeMode::SYNC) {
-        UniqueLockWithAtomicTidUpdate<std::shared_mutex> lock{mMutex, mCurrentRWHolderOfMMutex};
+        UniqueLockWithAtomicTidUpdate<std::shared_mutex> lock{ mMutex, mCurrentRWHolderOfMMutex };
         executeChangeRequest(std::move(changeRequest));
     } else if(mode == RequestChangeMode::ASYNC) {
         /* Because of it's finite size, we can only use the lockless queue if we don't hold the mutex currently; if we push an element
@@ -187,14 +182,14 @@ void ApplicationState::executeChangeRequest(ChangeRequest&& changeRequest) {
 }
 
 static inline void sendPublish(Subscriber& sub, const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained) {
-    MQTTPublishPacketBuilder builder{topic, payload, retained};
+    MQTTPublishPacketBuilder builder{ topic, payload, retained };
     sub.publish(topic, payload, qos, retained, builder);
 }
 
 void ApplicationState::subscribeClientInternal(ChangeRequestSubscribe&& req, ShouldPersistSubscription persist) {
     if(req.subType == SubscriptionType::WILDCARD) {
         // check for existing subscription
-        for(auto& wildcardSub: mWildcardSubscriptions) {
+        for(auto& wildcardSub : mWildcardSubscriptions) {
             if(wildcardSub.subscriber == req.subscriber && wildcardSub.topic == req.topic) {
                 wildcardSub.qos = req.qos;
                 persist = ShouldPersistSubscription::No; // already persisted, so no need
@@ -202,7 +197,7 @@ void ApplicationState::subscribeClientInternal(ChangeRequestSubscribe&& req, Sho
             }
         }
         auto& sub = mWildcardSubscriptions.emplace_back(req.subscriber, req.topic, std::move(req.topicSplit), req.qos);
-        for(auto& retainedMessage: mRetainedMessages) {
+        for(auto& retainedMessage : mRetainedMessages) {
             if(util::doesTopicMatchSubscription(retainedMessage.first, sub.topicSplit)) {
                 sendPublish(*sub.subscriber, retainedMessage.first, retainedMessage.second.payload, minQoS(retainedMessage.second.qos, req.qos), Retained::Yes);
             }
@@ -210,7 +205,7 @@ void ApplicationState::subscribeClientInternal(ChangeRequestSubscribe&& req, Sho
 
     } else if(req.subType == SubscriptionType::SIMPLE) {
         // check for existing subscription
-        auto[existingSubStart, existingSubEnd] = mSimpleSubscriptions.equal_range(req.topic);
+        auto [existingSubStart, existingSubEnd] = mSimpleSubscriptions.equal_range(req.topic);
         for(auto it = existingSubStart; it != existingSubEnd; ++it) {
             if(it->second.subscriber == req.subscriber) {
                 it->second.qos = req.qos;
@@ -219,20 +214,18 @@ void ApplicationState::subscribeClientInternal(ChangeRequestSubscribe&& req, Sho
             }
         }
 
-        mSimpleSubscriptions.emplace(std::piecewise_construct,
-                                     std::make_tuple(req.topic),
-                                     std::make_tuple(req.subscriber, req.topic, std::vector<std::string>{}, req.qos));
+        mSimpleSubscriptions.emplace(std::piecewise_construct, std::make_tuple(req.topic), std::make_tuple(req.subscriber, req.topic, std::vector<std::string>{}, req.qos));
         auto retainedMessage = mRetainedMessages.find(req.topic);
         if(retainedMessage != mRetainedMessages.end()) {
             sendPublish(*req.subscriber, retainedMessage->first, retainedMessage->second.payload, minQoS(retainedMessage->second.qos, req.qos), Retained::Yes);
         }
     } else if(req.subType == SubscriptionType::OMNI) {
-        auto existingSub = std::find_if(mOmniSubscriptions.begin(), mOmniSubscriptions.end(), [&](const Subscription& sub) {return sub.subscriber == req.subscriber;});
+        auto existingSub = std::find_if(mOmniSubscriptions.begin(), mOmniSubscriptions.end(), [&](const Subscription& sub) { return sub.subscriber == req.subscriber; });
         if(existingSub == mOmniSubscriptions.end()) {
             persist = ShouldPersistSubscription::No;
         }
         auto& sub = mOmniSubscriptions.emplace_back(req.subscriber, req.topic, std::move(req.topicSplit), req.qos);
-        for(auto& retainedMessage: mRetainedMessages) {
+        for(auto& retainedMessage : mRetainedMessages) {
             sendPublish(*sub.subscriber, retainedMessage.first, retainedMessage.second.payload, minQoS(retainedMessage.second.qos, req.qos), Retained::Yes);
         }
     } else {
@@ -242,7 +235,7 @@ void ApplicationState::subscribeClientInternal(ChangeRequestSubscribe&& req, Sho
         return;
     auto subscriberAsMQTTConn = std::dynamic_pointer_cast<MQTTClientConnection>(req.subscriber);
     if(subscriberAsMQTTConn) {
-        auto[state, stateLock] = subscriberAsMQTTConn->getPersistentState();
+        auto [state, stateLock] = subscriberAsMQTTConn->getPersistentState();
         if(state && state->cleanSession == CleanSession::No) {
             state->subscriptions.emplace_back(PersistentClientState::PersistentSubscription{ std::move(req.topic), req.qos });
         }
@@ -252,7 +245,7 @@ void ApplicationState::operator()(ChangeRequestSubscribe&& req) {
     subscribeClientInternal(std::move(req), ShouldPersistSubscription::Yes);
 }
 void ApplicationState::operator()(ChangeRequestUnsubscribe&& req) {
-    auto[start, end] = mSimpleSubscriptions.equal_range(req.topic);
+    auto [start, end] = mSimpleSubscriptions.equal_range(req.topic);
     if(start != end) {
         for(auto it = start; it != end;) {
             if(it->second.subscriber == req.subscriber) {
@@ -262,13 +255,11 @@ void ApplicationState::operator()(ChangeRequestUnsubscribe&& req) {
             }
         }
     } else {
-        erase_if(mWildcardSubscriptions, [&req](auto& sub) {
-            return sub.subscriber == req.subscriber && sub.topic == req.topic;
-        });
+        erase_if(mWildcardSubscriptions, [&req](auto& sub) { return sub.subscriber == req.subscriber && sub.topic == req.topic; });
     }
     auto subscriberAsMQTTConn = std::dynamic_pointer_cast<MQTTClientConnection>(req.subscriber);
     if(subscriberAsMQTTConn) {
-        auto[state, stateLock] = subscriberAsMQTTConn->getPersistentState();
+        auto [state, stateLock] = subscriberAsMQTTConn->getPersistentState();
         if(state->cleanSession == CleanSession::No) {
             for(auto it = state->subscriptions.begin(); it != state->subscriptions.end(); ++it) {
                 if(it->topic == req.topic) {
@@ -287,17 +278,17 @@ void ApplicationState::operator()(ChangeRequestRetain&& req) {
     if(req.payload.empty()) {
         mRetainedMessages.erase(req.topic);
     } else {
-        mRetainedMessages.insert_or_assign(std::move(req.topic), RetainedMessage{std::move(req.payload), time(nullptr), req.qos});
+        mRetainedMessages.insert_or_assign(std::move(req.topic), RetainedMessage{ std::move(req.payload), time(nullptr), req.qos });
     }
 }
 void ApplicationState::cleanup() {
-    UniqueLockWithAtomicTidUpdate<std::shared_mutex> lock{mMutex, mCurrentRWHolderOfMMutex};
+    UniqueLockWithAtomicTidUpdate<std::shared_mutex> lock{ mMutex, mCurrentRWHolderOfMMutex };
     for(auto it = mClients.begin(); it != mClients.end(); ++it) {
-        if(!it->get()->isLoggedOut() && it->get()->getLastDataRecvTimestamp() + (int64_t)it->get()->getKeepAliveIntervalSeconds() * 2'000'000'000 <= std::chrono::steady_clock::now().time_since_epoch().count()) {
-            spdlog::info("[{}] Timeout after {} seconds, keep alive is {}",
-                         it->get()->getClientId(),
-                         (std::chrono::steady_clock::now().time_since_epoch().count() - it->get()->getLastDataRecvTimestamp()) / 1'000'000'000,
-                         it->get()->getKeepAliveIntervalSeconds());
+        if(!it->get()->isLoggedOut()
+           && it->get()->getLastDataRecvTimestamp() + (int64_t)it->get()->getKeepAliveIntervalSeconds() * 2'000'000'000 <= std::chrono::steady_clock::now().time_since_epoch().count()) {
+            spdlog::info(
+                "[{}] Timeout after {} seconds, keep alive is {}", it->get()->getClientId(),
+                (std::chrono::steady_clock::now().time_since_epoch().count() - it->get()->getLastDataRecvTimestamp()) / 1'000'000'000, it->get()->getKeepAliveIntervalSeconds());
             logoutClient(*it->get());
         }
     }
@@ -332,7 +323,7 @@ void ApplicationState::operator()(ChangeRequestLoginClient&& req) {
         auto start = randomId.size();
         existingSession = mPersistentClientStates.find(randomId);
         while(existingSession != mPersistentClientStates.end()) {
-            std::ifstream urandom{"/dev/urandom"};
+            std::ifstream urandom{ "/dev/urandom" };
             randomId.resize(start + 16);
             for(size_t i = start; i < randomId.size(); ++i) {
                 randomId.at(i) = AVAILABLE_RANDOM_CHARS[urandom.get() % strlen(AVAILABLE_RANDOM_CHARS)];
@@ -343,7 +334,6 @@ void ApplicationState::operator()(ChangeRequestLoginClient&& req) {
     } else {
         existingSession = mPersistentClientStates.find(req.clientId);
     }
-
 
     SessionPresent sessionPresent = SessionPresent::No;
     auto createNewSession = [&] {
@@ -369,7 +359,6 @@ void ApplicationState::operator()(ChangeRequestLoginClient&& req) {
         response.encodeByte(sessionPresent == SessionPresent::Yes ? 1 : 0);
         response.encodeByte(0); // everything okay
 
-
         req.client->sendData(response.moveData());
     };
 
@@ -389,12 +378,13 @@ void ApplicationState::operator()(ChangeRequestLoginClient&& req) {
             existingSession->second.cleanSession = req.cleanSession;
             req.client->setPersistentState(&existingSession->second);
             auto subs = std::move(existingSession->second.subscriptions);
-            for(auto& sub: subs) {
-                subscribeClientInternal(ChangeRequestSubscribe{req.client, sub.topic, util::splitTopics(sub.topic), util::hasWildcard(sub.topic) ? SubscriptionType::WILDCARD : SubscriptionType::SIMPLE, sub.qos},
+            for(auto& sub : subs) {
+                subscribeClientInternal(
+                    ChangeRequestSubscribe{ req.client, sub.topic, util::splitTopics(sub.topic), util::hasWildcard(sub.topic) ? SubscriptionType::WILDCARD : SubscriptionType::SIMPLE, sub.qos },
                     ShouldPersistSubscription::No);
             }
             sendConnack();
-            for(auto& qos1packet: existingSession->second.qos1sendingPackets) {
+            for(auto& qos1packet : existingSession->second.qos1sendingPackets) {
                 auto cpy = qos1packet.second.copy();
                 cpy.data()[0] |= 0x08; // set dup flag
                 // On a sidenote: The dup flag is so useless? Like no MQTT implementation really makes use of it, most just hand it to the client who
@@ -402,7 +392,7 @@ void ApplicationState::operator()(ChangeRequestLoginClient&& req) {
                 // the whole buffer. It doesn't really matter though because this is far removed from the hot code path.
                 req.client->sendData(std::move(cpy));
             }
-            for(auto& qos2packet: existingSession->second.qos2sendingPackets) {
+            for(auto& qos2packet : existingSession->second.qos2sendingPackets) {
                 auto cpy = qos2packet.second.copy();
                 cpy.data()[0] |= 0x08; // set dup flag
                 req.client->sendData(std::move(cpy));
@@ -441,14 +431,14 @@ void ApplicationState::operator()(ChangeRequestAddScript&& req) {
         mScripts.emplace(req.name, script);
         script->init(std::move(req.statusOutput));
     } else if(extension == ".cpp") {
-        mNativeLibManager.enqueue(CompileNativeLibraryData{std::move(req.statusOutput), req.name, std::move(req.code)});
+        mNativeLibManager.enqueue(CompileNativeLibraryData{ std::move(req.statusOutput), req.name, std::move(req.code) });
     } else {
         req.statusOutput.error(req.name, "Invalid script filename: " + req.name);
     }
 }
 void ApplicationState::operator()(ChangeRequestDeleteScript&& req) {
     deleteScript(mScripts.find(req.name));
-    SQLite::Statement deleteQuery{mDb, "DELETE FROM script WHERE name=?"};
+    SQLite::Statement deleteQuery{ mDb, "DELETE FROM script WHERE name=?" };
     deleteQuery.bind(1, req.name);
     deleteQuery.exec();
 }
@@ -456,7 +446,7 @@ void ApplicationState::operator()(ChangeRequestActivateScript&& req) {
     auto script = mScripts.find(req.name);
     if(script == mScripts.end())
         return;
-    SQLite::Statement updateQuery{mDb, "UPDATE script SET active=true WHERE name=?"};
+    SQLite::Statement updateQuery{ mDb, "UPDATE script SET active=true WHERE name=?" };
     updateQuery.bind(1, req.name);
     updateQuery.exec();
     script->second->activate();
@@ -465,7 +455,7 @@ void ApplicationState::operator()(ChangeRequestDeactivateScript&& req) {
     auto script = mScripts.find(req.name);
     if(script == mScripts.end())
         return;
-    SQLite::Statement updateQuery{mDb, "UPDATE script SET active=false WHERE name=?"};
+    SQLite::Statement updateQuery{ mDb, "UPDATE script SET active=false WHERE name=?" };
     updateQuery.bind(1, req.name);
     updateQuery.exec();
     script->second->deactivate();
@@ -493,7 +483,7 @@ void ApplicationState::logoutClient(MQTTClientConnection& client) {
     deleteAllSubscriptions(client);
     {
         // detach persistent state
-        auto[state, stateLock] = client.getPersistentState();
+        auto [state, stateLock] = client.getPersistentState();
         if(state) {
             if(state->cleanSession == CleanSession::Yes) {
                 mPersistentClientStates.erase(state->clientId);
@@ -515,26 +505,26 @@ void ApplicationState::publish(std::string&& topic, std::vector<uint8_t>&& msg, 
     lock.unlock();
     if(retain == Retain::Yes) {
         // we aren't allowed to call requestChange from another thread while holding a lock, so we need to do it here
-        requestChange(ChangeRequestRetain{std::move(topic), std::move(msg), qos});
+        requestChange(ChangeRequestRetain{ std::move(topic), std::move(msg), qos });
     }
 }
 void ApplicationState::publishInternal(std::string&& topic, std::vector<uint8_t>&& msg, QoS qos, Retain retain) {
     publishNoLockNoRetain(topic, msg, qos, retain);
     if(retain == Retain::Yes) {
-        requestChange(ChangeRequestRetain{std::move(topic), std::move(msg), qos});
+        requestChange(ChangeRequestRetain{ std::move(topic), std::move(msg), qos });
     }
 }
 void ApplicationState::publishNoLockNoRetain(const std::string& topic, const std::vector<uint8_t>& msg, QoS publishQoS, Retain retain) {
-    // NOTE: It's possible that we only have a read-only lock here, so we aren't allowed to call requestChange
-    #ifndef NDEBUG
-        if(topic != LOG_TOPIC) {
-            std::string dataAsStr{msg.begin(), msg.end()};
-            spdlog::trace("Publishing on '{}' data '{}'", topic, dataAsStr);
-        }
-    #endif
+// NOTE: It's possible that we only have a read-only lock here, so we aren't allowed to call requestChange
+#ifndef NDEBUG
+    if(topic != LOG_TOPIC) {
+        std::string dataAsStr{ msg.begin(), msg.end() };
+        spdlog::trace("Publishing on '{}' data '{}'", topic, dataAsStr);
+    }
+#endif
     // first check for publish to $NIOEV
     if(util::startsWith(topic, "$NIOEV")) {
-        //performSystemAction(topic, msg);
+        // performSystemAction(topic, msg);
     }
     std::unordered_set<Subscriber*> subs;
     forEachSubscriberThatIsOfT(topic, [&topic, &msg, publishQoS, &subs](Subscription& sub) {
@@ -546,10 +536,9 @@ void ApplicationState::publishNoLockNoRetain(const std::string& topic, const std
         sendPublish(*sub.subscriber, topic, msg, usedQos, Retained::No);
     });
     // TODO reimplement sync scripts
-
 }
 void ApplicationState::handleNewClientConnection(TcpClientConnection&& conn) {
-    UniqueLockWithAtomicTidUpdate<std::shared_mutex> lock{mMutex, mCurrentRWHolderOfMMutex};
+    UniqueLockWithAtomicTidUpdate<std::shared_mutex> lock{ mMutex, mCurrentRWHolderOfMMutex };
     spdlog::info("New connection from [{}:{}]", conn.getRemoteIp(), conn.getRemotePort());
     auto newClient = mClients.emplace_back(std::make_shared<MQTTClientConnection>(*this, std::move(conn)));
     mClientManager.addClientConnection(*newClient);
@@ -562,28 +551,29 @@ void ApplicationState::deleteAllSubscriptions(Subscriber& sub) {
             it++;
         }
     }
-    erase_if(mWildcardSubscriptions, [&sub](auto& subscription) {
-        return subscription.subscriber.get() == &sub;
-    });
+    erase_if(mWildcardSubscriptions, [&sub](auto& subscription) { return subscription.subscriber.get() == &sub; });
 }
 ApplicationState::ScriptsInfo ApplicationState::getScriptsInfo() {
-    UniqueLockWithAtomicTidUpdate lock{mMutex, mCurrentRWHolderOfMMutex};
+    UniqueLockWithAtomicTidUpdate lock{ mMutex, mCurrentRWHolderOfMMutex };
     ScriptsInfo ret;
-    SQLite::Statement scriptQuery(mDb, "SELECT name,code,active FROM script ORDER BY name ASC");
+    SQLite::Statement scriptQuery(mDb, "SELECT name,code FROM script ORDER BY name ASC");
     while(scriptQuery.executeStep()) {
         ScriptsInfo::ScriptInfo scriptInfo;
         scriptInfo.name = scriptQuery.getColumn(0).getString();
         scriptInfo.code = scriptQuery.getColumn(1).getString();
-        scriptInfo.active = scriptQuery.getColumn(2).getInt();
+        auto script = mScripts.find(scriptInfo.name);
+        if(script != mScripts.end()) {
+            scriptInfo.active = script->second->getState();
+        }
         ret.scripts.emplace_back(std::move(scriptInfo));
     }
     return ret;
 }
 void ApplicationState::syncRetainedMessagesToDb() {
-    UniqueLockWithAtomicTidUpdate lock{mMutex, mCurrentRWHolderOfMMutex};
-    SQLite::Transaction transaction{mDb};
+    UniqueLockWithAtomicTidUpdate lock{ mMutex, mCurrentRWHolderOfMMutex };
+    SQLite::Transaction transaction{ mDb };
     mDb.exec("DELETE FROM retained_msg");
-    for(auto& msg: mRetainedMessages) {
+    for(auto& msg : mRetainedMessages) {
         mQueryInsertRetainedMsg->bindNoCopy(1, msg.first);
         mQueryInsertRetainedMsg->bindNoCopy(2, msg.second.payload.data(), msg.second.payload.size());
         struct tm res;
@@ -602,11 +592,10 @@ void ApplicationState::syncRetainedMessagesToDb() {
     spdlog::info("Synced retained messages to db");
 }
 void ApplicationState::addScript(
-    std::string name, std::function<void(const std::string&)>&& onSuccess, std::function<void(const std::string&, const std::string&)>&& onError,
-    std::string code) {
+    std::string name, std::function<void(const std::string&, const std::string&)>&& onSuccess, std::function<void(const std::string&, const std::string&)>&& onError, std::string code) {
     if(!util::hasValidScriptExtension(name))
         return;
-    UniqueLockWithAtomicTidUpdate<std::shared_mutex> lock{mMutex, mCurrentRWHolderOfMMutex};
+    UniqueLockWithAtomicTidUpdate<std::shared_mutex> lock{ mMutex, mCurrentRWHolderOfMMutex };
     mQueryInsertScript->bindNoCopy(1, name);
     mQueryInsertScript->bindNoCopy(2, code);
     mQueryInsertScript->exec();
@@ -615,16 +604,16 @@ void ApplicationState::addScript(
     ScriptStatusOutput statusOutput;
     statusOutput.success = std::move(onSuccess);
     auto originalError = std::move(statusOutput.error);
-    statusOutput.error = [onError = std::move(onError), originalError = std::move(originalError)] (auto& scriptName, const auto& error) {
+    statusOutput.error = [onError = std::move(onError), originalError = std::move(originalError)](auto& scriptName, const auto& error) {
         originalError(scriptName, error);
         onError(scriptName, error);
     };
-    requestChange(ChangeRequestAddScript{std::move(name), std::move(code), std::move(statusOutput)});
+    requestChange(ChangeRequestAddScript{ std::move(name), std::move(code), std::move(statusOutput) });
 }
 std::unordered_map<std::string, uint64_t> ApplicationState::getSubscriptionsCount() {
-    std::shared_lock<std::shared_mutex> lock{mMutex};
+    std::shared_lock<std::shared_mutex> lock{ mMutex };
     std::unordered_map<std::string, uint64_t> counts;
-    auto addSub = [&] (const Subscriber& sub) {
+    auto addSub = [&](const Subscriber& sub) {
         auto it = counts.find(sub.getType());
         if(it == counts.end()) {
             counts.emplace(sub.getType(), 1);
@@ -632,17 +621,29 @@ std::unordered_map<std::string, uint64_t> ApplicationState::getSubscriptionsCoun
             it->second += 1;
         }
     };
-    for(auto &s: mSimpleSubscriptions) {
+    for(auto& s : mSimpleSubscriptions) {
         addSub(*s.second.subscriber);
     }
-    for(auto &s: mWildcardSubscriptions) {
+    for(auto& s : mWildcardSubscriptions) {
         addSub(*s.subscriber);
     }
-    for(auto &s: mOmniSubscriptions) {
+    for(auto& s : mOmniSubscriptions) {
         addSub(*s.subscriber);
     }
     return counts;
+}
+void ApplicationState::runScript(const std::string& name, const ScriptInputArgs& input, ScriptStatusOutput&& output) {
+    std::shared_lock<std::shared_mutex> lock{ mMutex };
+    auto script = mScripts.find(name);
+    if(script == mScripts.end()) {
+        output.error(name, "Couldn't find script");
+        return;
+    }
+    if(!script->second->isActive()) {
+        output.error(name, "Script is inactive!");
+        return;
+    }
+    mScripts.at(name)->run(input, std::move(output));
+}
 
 }
-}
-

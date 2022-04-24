@@ -29,13 +29,11 @@ private:
     std::optional<bool> getJSBoolProperty(const JSValue& obj, std::string_view name);
     std::optional<std::vector<uint8_t>> extractPayload(const JSValue& obj);
 
-    std::atomic<bool> mShouldAbort = false;
     JSRuntime* mJSRuntime;
     JSContext* mJSContext;
     std::optional<std::thread> mScriptThread;
 
     std::queue<std::pair<ScriptInputArgs, ScriptStatusOutput>> mTasks;
-    std::string mInitFailureMessage; // protected by tasks mutex
 
     struct TimeoutData {
         std::chrono::steady_clock::time_point mLastIntervalCall{std::chrono::steady_clock::now()};
@@ -67,6 +65,7 @@ private:
     std::unordered_map<std::string, NativeLibrary> mNativeLibs;
     std::priority_queue<TimeoutData> mTimeouts;
     int32_t mTimeoutIdCounter = 1;
+    std::chrono::steady_clock::time_point mTaskStartTime;
 
     template<bool error>
     friend JSValue jsLog(JSContext* ctx, JSValue this_obj, int argc, JSValue* args);

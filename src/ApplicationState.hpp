@@ -185,15 +185,17 @@ public:
         struct ScriptInfo {
             std::string name;
             std::string code;
-            bool active{false};
+            ScriptState active{ScriptState::UNKNOWN};
         };
         std::vector<ScriptInfo> scripts;
     };
     ScriptsInfo getScriptsInfo();
 
-    void addScript(std::string name, std::function<void(const std::string& scriptName)>&& onSuccess, std::function<void(const std::string& scriptName, const std::string&)>&& onError, std::string code);
+    void addScript(std::string name, std::function<void(const std::string& scriptName, const std::string& value)>&& onSuccess, std::function<void(const std::string& scriptName, const std::string&)>&& onError, std::string code);
 
     void syncRetainedMessagesToDb();
+
+    void runScript(const std::string& name, const ScriptInputArgs& input, ScriptStatusOutput&& output);
 
     auto getListOfCurrentlyLoadingNativeLibs() const {
         return mNativeLibManager.getListOfCurrentlyLoadingNativeLibs();
