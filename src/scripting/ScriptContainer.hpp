@@ -131,8 +131,8 @@ public:
         mState = ScriptState::DEACTIVATED;
         spdlog::info("[{}] Deactivated", mName);
     }
-    [[nodiscard]] bool isActive() const {
-        return mState != ScriptState::DEACTIVATED;
+    [[nodiscard]] bool isRunning() const {
+        return mState == ScriptState::RUNNING;
     }
     static int32_t allocTaskId() {
         static std::atomic<uint16_t> mTaskID;

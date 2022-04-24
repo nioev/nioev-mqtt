@@ -70,6 +70,7 @@ struct ChangeRequestAddScript {
     std::string name;
     std::string code;
     ScriptStatusOutput statusOutput;
+    bool fromStartup{false};
 };
 
 struct ChangeRequestDeleteScript {
@@ -336,6 +337,9 @@ private:
 
     std::atomic<bool> mShouldRun = true;
     std::atomic<WorkerThreadSleepLevel> mWorkerThreadSleepLevel;
+
+    size_t mAmountOfScriptsLoadedFromDBOnStartup{0};
+    std::atomic<size_t> mScriptsAlreadyAddedFromStartup{0};
 
     Timers mTimers;
     std::unordered_map<std::string, std::shared_ptr<ScriptContainer>> mScripts;

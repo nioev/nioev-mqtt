@@ -56,8 +56,9 @@ ApplicationState::ApplicationState() : mAsyncPublisher(*this), mStatistics(std::
         }
         return true;
     });
+    mAmountOfScriptsLoadedFromDBOnStartup = scripts.size();
     for(auto& [name, code, active] : scripts) {
-        executeChangeRequest(ChangeRequestAddScript{ name, std::move(code) });
+        executeChangeRequest(ChangeRequestAddScript{ name, std::move(code), ScriptStatusOutput{}, true });
         if(!active) {
             executeChangeRequest(ChangeRequestDeactivateScript{ std::move(name) });
         }
@@ -435,6 +436,9 @@ void ApplicationState::operator()(ChangeRequestAddScript&& req) {
     } else {
         req.statusOutput.error(req.name, "Invalid script filename: " + req.name);
     }
+    if(req.fromStartup) {
+        mScriptsAlreadyAddedFromStartup += 1;
+    }
 }
 void ApplicationState::operator()(ChangeRequestDeleteScript&& req) {
     deleteScript(mScripts.find(req.name));
@@ -633,17 +637,26 @@ std::unordered_map<std::string, uint64_t> ApplicationState::getSubscriptionsCoun
     return counts;
 }
 void ApplicationState::runScript(const std::string& name, const ScriptInputArgs& input, ScriptStatusOutput&& output) {
-    std::shared_lock<std::shared_mutex> lock{ mMutex };
-    auto script = mScripts.find(name);
-    if(script == mScripts.end()) {
-        output.error(name, "Couldn't find script");
+    while(true) {
+        std::shared_lock<std::shared_mutex> lock{ mMutex };
+        auto script = mScripts.find(name);
+        if(script == mScripts.end()) {
+            if(mAmountOfScriptsLoadedFromDBOnStartup <= mScriptsAlreadyAddedFromStartup) {
+                output.error(name, "Couldn't find script");
+                return;
+            }
+            lock.unlock();
+            spdlog::warn("Stalling foreign script call while waiting for the script to appear (this only happens during startup)");
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            continue;
+        }
+        if(!script->second->isRunning()) {
+            output.error(name, "Script isn't running!");
+            return;
+        }
+        mScripts.at(name)->run(input, std::move(output));
         return;
     }
-    if(!script->second->isActive()) {
-        output.error(name, "Script is inactive!");
-        return;
-    }
-    mScripts.at(name)->run(input, std::move(output));
 }
 
 }
