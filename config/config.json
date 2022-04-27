@@ -1,0 +1,10 @@
+{
+  "mqtt-port": 1883,
+  "webui-port": 1884,
+  "bind": "0.0.0.0",
+  "rapid-mode": false,
+  "per-client-packet-counters": false,
+  "force-subscribe-qos": false,
+  "maximum-send-queue-length": 1000,
+  "maximum-send-mutex-wait-us": 1000
+}

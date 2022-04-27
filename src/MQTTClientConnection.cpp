@@ -27,21 +27,20 @@ bool MQTTClientConnection::sendData(util::SharedBuffer&& bytes, SendDataType typ
         uint totalBytesSent = 0;
         uint bytesSent = 0;
 
-        std::unique_lock<std::mutex> lock{mSendMutex/*, std::defer_lock*/};
-        /*if(type == SendDataType::DEFAULT) {
+        std::unique_lock<std::timed_mutex> lock{mSendMutex, std::defer_lock};
+        if(type == SendDataType::DEFAULT) {
             lock.lock();
         } else {
             // TODO make configurable
-            if(!lock.try_lock_for(std::chrono::microseconds(100))) {
+            if(!lock.try_lock_for(std::chrono::milliseconds(1))) {
                 spdlog::warn("[{}] Dropping message due to inability to acquire lock within 1ms", mClientId);
                 return false;
             }
-        }*/
-        //lock.lock();
+        }
 
         // TODO make configurable
         if(type == SendDataType::PUBLISH && mSendTasks.size() > 1000) {
-            //spdlog::warn("[{}] Dropping packet due to large queue depth", mClientId);
+            spdlog::warn("[{}] Dropping packet due to large queue depth", mClientId);
             return false;
         }
         if(mSendTasks.empty()) {

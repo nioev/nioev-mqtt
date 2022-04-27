@@ -150,7 +150,7 @@ private:
     std::mutex mRecvMutex;
     PacketReceiveData mRecvData;
 
-    std::mutex mSendMutex;
+    std::timed_mutex mSendMutex;
     std::queue<SendTask> mSendTasks;
 
     std::mutex mRemaingingMutex;
