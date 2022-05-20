@@ -157,7 +157,6 @@ void RESTAPI::run(ApplicationState& app) {
                                 res->end(error, true);
                             },
                             std::move(fullCode));
-                        res->end("ok", true);
                     });
                     res->onAborted([] {});
                 } catch(std::exception& e) {
