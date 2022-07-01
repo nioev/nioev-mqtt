@@ -1,7 +1,8 @@
 #include "Statistics.hpp"
-#include "MQTTPublishPacketBuilder.hpp"
-#include "Timers.hpp"
 #include "ApplicationState.hpp"
+#include "MQTTPublishPacketBuilder.hpp"
+#include "StatisticsConverter.hpp"
+#include "Timers.hpp"
 
 namespace nioev {
 
@@ -9,7 +10,7 @@ Statistics::Statistics(ApplicationState& app)
 : mApp(app) {
     mBatchAnalysisTimer.addPeriodicTask(std::chrono::minutes(1), [this] {
         std::unique_lock<std::shared_mutex> lock{mMutex};
-        refresh();
+        refreshInternal();
     });
     mSampleWorkerThreadTimer.addPeriodicTask(std::chrono::milliseconds(20), [this] {
         auto currentSleepLevel = mApp.getCurrentWorkerThreadSleepLevel();
@@ -40,7 +41,7 @@ void Statistics::push(atomic_queue::AtomicQueueB2<PacketData>& queue, PacketData
         }
     }
 }
-void Statistics::refresh() {
+void Statistics::refreshInternal() {
     util::Stopwatch stopwatch{"Statistical analysis"};
     {
         PacketData packet;
@@ -88,11 +89,19 @@ void Statistics::refresh() {
     createHistogram<std::chrono::seconds, 60 * 2>(mAnalysisResult.packetsPerSecond);
 
     mAnalysisData.clear();
+
+    auto jsonString = StatisticsConverter::statsToJson(mAnalysisResult);
+    std::vector<uint8_t> jsonBuffer((const uint8_t*)jsonString.c_str(), (const uint8_t*)jsonString.c_str() + jsonString.size());
+    mApp.publishAsync(AsyncPublishData{"$NIOEV/stats", jsonBuffer, QoS::QoS2, Retain::Yes});
 }
 AnalysisResults Statistics::getResults() {
     std::unique_lock<std::shared_mutex> lock{mMutex};
-    refresh();
+    refreshInternal();
     return mAnalysisResult;
+}
+void Statistics::refresh() {
+    std::unique_lock<std::shared_mutex> lock{mMutex};
+    refreshInternal();
 }
 
 }

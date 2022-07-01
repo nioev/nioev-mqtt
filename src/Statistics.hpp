@@ -67,9 +67,10 @@ public:
     virtual const char* getType() const override {
         return "stats";
     }
+    void refresh();
 private:
     void push(atomic_queue::AtomicQueueB2<PacketData>& queue, PacketData&& packet);
-    void refresh();
+    void refreshInternal();
 
     template<typename Interval, size_t MaxSize>
     void createHistogram(std::vector<AnalysisResults::TimeInfo>& list) {

@@ -505,7 +505,7 @@ void ApplicationState::logoutClient(MQTTClientConnection& client) {
 }
 void ApplicationState::publish(std::string&& topic, std::vector<uint8_t>&& msg, QoS qos, Retain retain) {
     std::shared_lock<std::shared_mutex> lock{ mMutex };
-    publishNoLockNoRetain(topic, msg, qos, retain);
+    retain = publishNoLockNoRetain(topic, msg, qos, retain);
     lock.unlock();
     if(retain == Retain::Yes) {
         // we aren't allowed to call requestChange from another thread while holding a lock, so we need to do it here
@@ -513,12 +513,12 @@ void ApplicationState::publish(std::string&& topic, std::vector<uint8_t>&& msg, 
     }
 }
 void ApplicationState::publishInternal(std::string&& topic, std::vector<uint8_t>&& msg, QoS qos, Retain retain) {
-    publishNoLockNoRetain(topic, msg, qos, retain);
+    retain = publishNoLockNoRetain(topic, msg, qos, retain);
     if(retain == Retain::Yes) {
         requestChange(ChangeRequestRetain{ std::move(topic), std::move(msg), qos });
     }
 }
-void ApplicationState::publishNoLockNoRetain(const std::string& topic, const std::vector<uint8_t>& msg, QoS publishQoS, Retain retain) {
+Retain ApplicationState::publishNoLockNoRetain(const std::string& topic, const std::vector<uint8_t>& msg, QoS publishQoS, Retain retain) {
 // NOTE: It's possible that we only have a read-only lock here, so we aren't allowed to call requestChange
 #ifndef NDEBUG
     if(topic != LOG_TOPIC) {
@@ -528,7 +528,8 @@ void ApplicationState::publishNoLockNoRetain(const std::string& topic, const std
 #endif
     // first check for publish to $NIOEV
     if(util::startsWith(topic, "$NIOEV")) {
-        // performSystemAction(topic, msg);
+        performSystemAction(topic, std::string_view{(const char*)msg.data(), (const char*)msg.data() + msg.size()}, msg);
+        retain = Retain::No;
     }
     std::unordered_set<Subscriber*> subs;
     forEachSubscriberThatIsOfT(topic, [&topic, &msg, publishQoS, &subs](Subscription& sub) {
@@ -539,6 +540,7 @@ void ApplicationState::publishNoLockNoRetain(const std::string& topic, const std
         auto usedQos = minQoS(sub.qos, publishQoS);
         sendPublish(*sub.subscriber, topic, msg, usedQos, Retained::No);
     });
+    return retain;
     // TODO reimplement sync scripts
 }
 void ApplicationState::handleNewClientConnection(TcpClientConnection&& conn) {
@@ -656,6 +658,16 @@ void ApplicationState::runScript(const std::string& name, const ScriptInputArgs&
         }
         mScripts.at(name)->run(input, std::move(output));
         return;
+    }
+}
+void ApplicationState::performSystemAction(const std::string& topic, std::string_view payloadStr, const std::vector<uint8_t>& payloadBytes) {
+    if(payloadStr.size() > 1024 * 1024) {
+        spdlog::warn("Dropping system action request due to 1MB size limit");
+        return;
+    }
+    if(topic == "$NIOEV/request_new_stats") {
+        assert(mStatistics);
+        mStatistics->refresh();
     }
 }
 

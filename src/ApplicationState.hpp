@@ -249,7 +249,7 @@ private:
     // basically the same as publish but without acquiring a read-only lock
     void publishInternal(std::string&& topic, std::vector<uint8_t>&& msg, QoS qos, Retain retain);
 
-    void publishNoLockNoRetain(const std::string& topic, const std::vector<uint8_t>& msg, QoS publishQoS, Retain retain);
+    Retain publishNoLockNoRetain(const std::string& topic, const std::vector<uint8_t>& msg, QoS publishQoS, Retain retain);
     void executeChangeRequest(ChangeRequest&&);
     void workerThreadFunc();
 
@@ -307,6 +307,8 @@ private:
     }
     void deleteScript(std::unordered_map<std::string, std::shared_ptr<ScriptContainer>>::iterator it);
     void deleteAllSubscriptions(Subscriber& sub);
+
+    void performSystemAction(const std::string& topic, std::string_view payloadStr, const std::vector<uint8_t>& payloadBytes);
 
     // the order of these fields has been carefully evaluated and tested to be race-free during deconstruction, so be careful to change anything!
 
