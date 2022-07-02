@@ -4,6 +4,15 @@
 
 namespace nioev::StatisticsConverter {
 
+static std::string stringify(const rapidjson::Document& doc) {
+
+    rapidjson::StringBuffer docStringified;
+    rapidjson::Writer<rapidjson::StringBuffer> docWriter{ docStringified };
+    doc.Accept(docWriter);
+    std::string body{ docStringified.GetString(), docStringified.GetLength() };
+    return body;
+}
+
 std::string nioev::StatisticsConverter::statsToJson(const nioev::AnalysisResults& stats) {
     rapidjson::Document doc;
     doc.SetObject();
@@ -97,12 +106,32 @@ std::string nioev::StatisticsConverter::statsToJson(const nioev::AnalysisResults
         addHistogram(stats.packetsPerSecond, "msg_per_second");
         addHistogram(stats.packetsPerMinute, "msg_per_minute");
     }
+    return stringify(doc);
+}
+std::string statsToMsgPerSecondJsonWebUI(const AnalysisResults& res) {
+    rapidjson::Document doc;
+    doc.SetArray();
+    for(auto& m: res.packetsPerSecond) {
+        rapidjson::Value obj;
+        obj.SetObject();
+        obj.AddMember(rapidjson::StringRef("x"), rapidjson::Value{std::chrono::duration_cast<std::chrono::seconds>(m.timestamp.time_since_epoch()).count()}, doc.GetAllocator());
+        obj.AddMember(rapidjson::StringRef("y"), rapidjson::Value{m.packetCount}, doc.GetAllocator());
+        doc.PushBack(std::move(obj.Move()), doc.GetAllocator());
+    }
 
-    rapidjson::StringBuffer docStringified;
-    rapidjson::Writer<rapidjson::StringBuffer> docWriter{ docStringified };
-    doc.Accept(docWriter);
-    std::string body{ docStringified.GetString(), docStringified.GetLength() };
-    return body;
+    return stringify(doc);
+}
+std::string statsToMsgPerMinuteJsonWebUI(const AnalysisResults& res) {
+    rapidjson::Document doc;
+    doc.SetArray();
+    for(auto& m: res.packetsPerMinute) {
+        rapidjson::Value obj;
+        obj.SetObject();
+        obj.AddMember(rapidjson::StringRef("x"), rapidjson::Value{std::chrono::duration_cast<std::chrono::seconds>(m.timestamp.time_since_epoch()).count()}, doc.GetAllocator());
+        obj.AddMember(rapidjson::StringRef("y"), rapidjson::Value{m.packetCount}, doc.GetAllocator());
+        doc.PushBack(std::move(obj.Move()), doc.GetAllocator());
+    }
+    return stringify(doc);
 }
 
 }

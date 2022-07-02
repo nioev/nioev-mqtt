@@ -25,11 +25,11 @@ add_custom_command(OUTPUT quickjs-carr.h COMMAND bash ${PROJECT_SOURCE_DIR}/pack
 
 file(GLOB_RECURSE WEBUI_FILES ${PROJECT_SOURCE_DIR}/webui/src/**)
 
-add_custom_target(webui
-        COMMAND npm run build
-        COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/webui/public ${CMAKE_CURRENT_BINARY_DIR}/webui
-        WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/webui
-        DEPENDS ${WEBUI_FILES})
+#add_custom_target(webui
+#        COMMAND npm run build
+#        COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/webui/public ${CMAKE_CURRENT_BINARY_DIR}/webui
+#        WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/webui
+#        DEPENDS ${WEBUI_FILES})
 
 add_executable(nioev
         src/main.cpp
@@ -72,7 +72,7 @@ add_executable(nioev
         src/quickjs_h_embedded.hpp
         src/quickjs_h_embedded.cpp src/Statistics.cpp src/Statistics.hpp src/REST.cpp src/REST.hpp src/GlobalConfig.cpp src/GlobalConfig.hpp src/StatisticsConverter.cpp src/StatisticsConverter.hpp)
 
-add_dependencies(nioev webui)
+#add_dependencies(nioev webui)
 
 target_link_libraries(nioev
         libzstd_static

@@ -17,7 +17,7 @@ Statistics::Statistics(ApplicationState& app)
         {
             std::unique_lock<std::shared_mutex> lock{mMutex};
             auto nowRounded = std::chrono::floor<std::chrono::minutes>(std::chrono::system_clock::now());
-            ensureEnoughSpace<60>(mSleepLevelSampleCounts, nowRounded);
+            ensureEnoughSpace<std::chrono::minutes, 60>(mSleepLevelSampleCounts, nowRounded);
             mSleepLevelSampleCounts.back().samples.at(static_cast<int>(currentSleepLevel)) += 1;
         }
     });
@@ -25,6 +25,14 @@ Statistics::Statistics(ApplicationState& app)
 }
 void Statistics::init() {
     mApp.requestChange(ChangeRequestSubscribe{makeShared(), "", {}, SubscriptionType::OMNI, QoS::QoS2});
+
+    // TODO move ui logic to nioev-scripting?
+    mApp.publishAsync(AsyncPublishData{"nioev/ui/services/mqtt", util::stringToBuffer("{}"), QoS::QoS2, Retain::Yes});
+    mApp.publishAsync(AsyncPublishData{"nioev/ui/services/mqtt/Stats", util::stringToBuffer(R"({"type": "grid"})"), QoS::QoS2, Retain::Yes});
+    mApp.publishAsync(AsyncPublishData{"nioev/ui/services/mqtt/Stats/99_pinger", util::stringToBuffer(R"({"type": "pinger", "interval_ms": 15000, "topic": "$NIOEV/request_new_stats"})"), QoS::QoS2, Retain::Yes});
+    mApp.publishAsync(AsyncPublishData{"nioev/ui/services/mqtt/Stats/01_msg_per_second", util::stringToBuffer(R"({"type": "graph", "headline": "Messages per Second"})"), QoS::QoS2, Retain::Yes});
+    mApp.publishAsync(AsyncPublishData{"nioev/ui/services/mqtt/Stats/02_msg_per_minute", util::stringToBuffer(R"({"type": "graph", "headline": "Messages per Minute"})"), QoS::QoS2, Retain::Yes});
+    refresh();
 }
 void Statistics::publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained, MQTTPublishPacketBuilder& packetBuilder) {
     PacketData packet{topic, payload.size(), std::chrono::system_clock::now(), qos};
@@ -72,7 +80,7 @@ void Statistics::refreshInternal() {
             it = inserted.first;
         }
         auto nowRounded = std::chrono::floor<std::chrono::minutes>(std::chrono::system_clock::now());
-        ensureEnoughSpace<60>(it->second, nowRounded);
+        ensureEnoughSpace<std::chrono::minutes, 60>(it->second, nowRounded);
         it->second.back().cummulativePacketSize += packet.payloadLength;
         it->second.back().packetCount += 1;
         it->second.back().qosPacketCounts[static_cast<uint8_t>(packet.qos)] += 1;
@@ -86,13 +94,15 @@ void Statistics::refreshInternal() {
     }
 
     createHistogram<std::chrono::minutes, 60 * 24>(mAnalysisResult.packetsPerMinute);
+    ensureEnoughSpace<std::chrono::minutes, 60 * 24>(mAnalysisResult.packetsPerMinute, std::chrono::floor<std::chrono::minutes>(std::chrono::system_clock::now()) - std::chrono::minutes(1));
     createHistogram<std::chrono::seconds, 60 * 2>(mAnalysisResult.packetsPerSecond);
+    ensureEnoughSpace<std::chrono::seconds , 60 * 2>(mAnalysisResult.packetsPerSecond, std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now()) - std::chrono::seconds(1));
 
     mAnalysisData.clear();
 
-    auto jsonString = StatisticsConverter::statsToJson(mAnalysisResult);
-    std::vector<uint8_t> jsonBuffer((const uint8_t*)jsonString.c_str(), (const uint8_t*)jsonString.c_str() + jsonString.size());
-    mApp.publishAsync(AsyncPublishData{"$NIOEV/stats", jsonBuffer, QoS::QoS2, Retain::Yes});
+    mApp.publishAsync(AsyncPublishData{"$NIOEV/stats", util::stringToBuffer(StatisticsConverter::statsToJson(mAnalysisResult)), QoS::QoS2, Retain::Yes});
+    mApp.publishAsync(AsyncPublishData{"nioev/ui/services/mqtt/Stats/01_msg_per_second/data", util::stringToBuffer(StatisticsConverter::statsToMsgPerSecondJsonWebUI(mAnalysisResult)), QoS::QoS2, Retain::Yes});
+    mApp.publishAsync(AsyncPublishData{"nioev/ui/services/mqtt/Stats/02_msg_per_minute/data", util::stringToBuffer(StatisticsConverter::statsToMsgPerMinuteJsonWebUI(mAnalysisResult)), QoS::QoS2, Retain::Yes});
 }
 AnalysisResults Statistics::getResults() {
     std::unique_lock<std::shared_mutex> lock{mMutex};

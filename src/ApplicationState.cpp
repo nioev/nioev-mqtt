@@ -529,7 +529,7 @@ Retain ApplicationState::publishNoLockNoRetain(const std::string& topic, const s
     // first check for publish to $NIOEV
     if(util::startsWith(topic, "$NIOEV")) {
         performSystemAction(topic, std::string_view{(const char*)msg.data(), (const char*)msg.data() + msg.size()}, msg);
-        retain = Retain::No;
+        //retain = Retain::No;
     }
     std::unordered_set<Subscriber*> subs;
     forEachSubscriberThatIsOfT(topic, [&topic, &msg, publishQoS, &subs](Subscription& sub) {

@@ -76,17 +76,26 @@ private:
     void createHistogram(std::vector<AnalysisResults::TimeInfo>& list) {
         for(auto it = mAnalysisData.begin(); it != mAnalysisData.end(); ++it) {
             auto rounded = std::chrono::floor<Interval>(it->timestamp);
-            ensureEnoughSpace<MaxSize>(list, rounded);
+            ensureEnoughSpace<Interval, MaxSize>(list, rounded);
             list.back().packetCount += 1;
             list.back().cummulativePacketSize += it->payloadLength;
         }
     };
 
-    template<size_t MaxSize, typename T>
+    template<typename Interval, size_t MaxSize, typename T>
     void ensureEnoughSpace(std::vector<T>& list, std::chrono::system_clock::time_point roundedTimestamp) {
-        if(list.empty() || list.back().timestamp != roundedTimestamp) {
+        if(list.empty()) {
             list.emplace_back();
             list.back().timestamp = roundedTimestamp;
+        } else {
+            while(list.back().timestamp < roundedTimestamp) {
+                list.emplace_back();
+                list.back().timestamp = list.at(list.size() - 2).timestamp + Interval{1};
+
+                while(list.size() > MaxSize) {
+                    list.erase(list.begin());
+                }
+            }
         }
         while(list.size() > MaxSize) {
             list.erase(list.begin());
