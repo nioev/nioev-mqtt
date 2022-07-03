@@ -133,5 +133,18 @@ std::string statsToMsgPerMinuteJsonWebUI(const AnalysisResults& res) {
     }
     return stringify(doc);
 }
+std::string stringToJSON(const std::string& str) {
+    rapidjson::Document doc;
+    doc.SetString(str.c_str(), str.size());
+    return stringify(doc);
+}
+std::string stringListToJSON(const std::vector<std::string>& strs) {
+    rapidjson::Document doc;
+    doc.SetArray();
+    for(auto& s: strs) {
+        doc.PushBack(rapidjson::StringRef(s.c_str(), s.size()), doc.GetAllocator());
+    }
+    return stringify(doc);
+}
 
 }
