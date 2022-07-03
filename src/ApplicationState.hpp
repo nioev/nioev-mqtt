@@ -263,24 +263,18 @@ private:
 
     void logoutClient(MQTTClientConnection& client);
     // ensure you have at least a readonly lock when calling
-    template<typename T = Subscriber>
-    void forEachSubscriberThatIsOfT(const std::string& topic, std::function<void(Subscription&)>&& callback) {
+    template<typename Callback>
+    void forEachSubscriber(const std::string& topic, Callback&& callback) {
         auto[start, end] = mSimpleSubscriptions.equal_range(topic);
         for(auto it = start; it != end; ++it) {
-            if(std::dynamic_pointer_cast<T>(it->second.subscriber) == nullptr)
-                continue;
             callback(it->second);
         }
         for(auto& sub: mWildcardSubscriptions) {
-            if(std::dynamic_pointer_cast<T>(sub.subscriber) == nullptr)
-                continue;
             if(util::doesTopicMatchSubscription(topic, sub.topicSplit)) {
                 callback(sub);
             }
         }
         for(auto& sub: mOmniSubscriptions) {
-            if(std::dynamic_pointer_cast<T>(sub.subscriber) == nullptr)
-                continue;
             callback(sub);
         }
     }

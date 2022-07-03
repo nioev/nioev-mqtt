@@ -532,7 +532,7 @@ Retain ApplicationState::publishNoLockNoRetain(const std::string& topic, const s
         //retain = Retain::No;
     }
     std::unordered_set<Subscriber*> subs;
-    forEachSubscriberThatIsOfT(topic, [&topic, &msg, publishQoS, &subs](Subscription& sub) {
+    forEachSubscriber(topic, [&topic, &msg, publishQoS, &subs](Subscription& sub) {
         if(subs.contains(sub.subscriber.get()))
             return;
         subs.emplace(sub.subscriber.get());
