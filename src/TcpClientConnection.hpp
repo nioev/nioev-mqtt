@@ -5,7 +5,7 @@
 #include <vector>
 #include "nioev/lib/Util.hpp"
 
-namespace nioev {
+namespace nioev::mqtt {
 
 // used to tell the catcher that there is no need to log the error
 class CleanDisconnectException : public std::exception {

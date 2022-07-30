@@ -6,7 +6,7 @@
 
 #include "Forward.hpp"
 
-namespace nioev {
+namespace nioev::mqtt {
 using namespace nioev::lib;
 
 class Subscriber : public std::enable_shared_from_this<Subscriber> {

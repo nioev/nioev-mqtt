@@ -11,7 +11,7 @@
 #include <condition_variable>
 #include "nioev/lib/GenServer.hpp"
 
-namespace nioev {
+namespace nioev::mqtt {
 
 using namespace nioev::lib;
 

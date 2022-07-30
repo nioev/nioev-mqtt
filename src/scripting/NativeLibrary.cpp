@@ -1,7 +1,7 @@
 #include "NativeLibrary.hpp"
 #include <dlfcn.h>
 
-namespace nioev {
+namespace nioev::mqtt {
 
 NativeLibrary::NativeLibrary(std::string path)
 : mPath(std::move(path)) {

@@ -5,7 +5,7 @@
 #include "atomic_queue/atomic_queue.h"
 #include <shared_mutex>
 
-namespace nioev {
+namespace nioev::mqtt {
 
 struct PacketData {
     std::string topic;

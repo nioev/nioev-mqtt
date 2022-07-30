@@ -7,7 +7,7 @@
 #include "Forward.hpp"
 #include <shared_mutex>
 
-namespace nioev {
+namespace nioev::mqtt {
 
 using namespace nioev::lib;
 

@@ -1,9 +1,9 @@
 #include "AsyncPublisher.hpp"
 #include "ApplicationState.hpp"
 
-namespace nioev {
+namespace nioev::mqtt {
 
-nioev::AsyncPublisher::AsyncPublisher(ApplicationState& app)
+AsyncPublisher::AsyncPublisher(ApplicationState& app)
 : GenServer<AsyncPublishData>("async-pub") , mApp(app) {
     startThread();
 }

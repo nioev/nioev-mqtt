@@ -8,7 +8,7 @@
 #include "spdlog/sinks/base_sink.h"
 #include "spdlog/pattern_formatter.h"
 
-namespace nioev {
+namespace nioev::mqtt {
 
 thread_local std::unique_ptr<spdlog::formatter> tFormatter;
 class LogSink : public spdlog::sinks::base_sink<spdlog::details::null_mutex> {

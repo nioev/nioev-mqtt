@@ -13,7 +13,7 @@
 #include "Subscriber.hpp"
 #include "Forward.hpp"
 
-namespace nioev {
+namespace nioev::mqtt {
 
 class MQTTClientConnection final : public Subscriber {
 public:

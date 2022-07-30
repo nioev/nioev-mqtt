@@ -9,14 +9,14 @@
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 
-namespace nioev {
+namespace nioev::mqtt {
 
 struct PerWebsocketClientData {
     std::string topic;
     bool topicHasWildcard{true};
 };
 
-class WSSubscriber : public nioev::Subscriber {
+class WSSubscriber : public Subscriber {
 public:
     WSSubscriber(ApplicationState& app, uWS::Loop& loop, uWS::WebSocket<false, true, PerWebsocketClientData>* ws) : mApp(app), mLoop(loop), mWS(ws) { }
     void publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained, MQTTPublishPacketBuilder&) override {

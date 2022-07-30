@@ -1,7 +1,7 @@
 #include "ScriptContainerManager.hpp"
 #include "../ApplicationState.hpp"
 
-namespace nioev {
+namespace nioev::mqtt {
 
 void ScriptContainerManager::deleteScriptFromApp(const std::string& name) {
     // FIXME delete script here

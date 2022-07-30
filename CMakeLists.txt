@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.0)
-project(nioev)
+project(nioev_mqtt)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g")
@@ -33,7 +33,7 @@ file(GLOB_RECURSE WEBUI_FILES ${PROJECT_SOURCE_DIR}/webui/src/**)
 #        WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/webui
 #        DEPENDS ${WEBUI_FILES})
 
-add_executable(nioev
+add_executable(nioev_mqtt
         src/main.cpp
         src/TcpServer.cpp
         src/TcpServer.hpp
@@ -72,7 +72,7 @@ add_executable(nioev
 
 #add_dependencies(nioev webui)
 
-target_link_libraries(nioev
+target_link_libraries(nioev_mqtt
         libzstd_static
         uWebSockets
         spdlog

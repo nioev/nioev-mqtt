@@ -16,7 +16,7 @@
 
 #include "spdlog/spdlog.h"
 
-namespace nioev {
+namespace nioev::mqtt {
 
 using namespace nioev::lib;
 

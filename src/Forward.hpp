@@ -1,6 +1,6 @@
 #pragma once
 
-namespace nioev {
+namespace nioev::mqtt {
 
 class TcpClientConnection;
 class MQTTClientConnection;

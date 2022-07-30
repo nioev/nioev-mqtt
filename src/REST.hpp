@@ -16,7 +16,7 @@ struct WebSocket;
 struct Loop;
 }
 
-namespace nioev {
+namespace nioev::mqtt {
 
 struct PerWebsocketClientData;
 struct WSSubscriber;

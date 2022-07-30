@@ -8,7 +8,7 @@
 #include <condition_variable>
 #include "NativeLibrary.hpp"
 
-namespace nioev {
+namespace nioev::mqtt {
 
 class ScriptContainerJS final : public ScriptContainer {
 public:

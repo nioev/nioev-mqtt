@@ -14,7 +14,7 @@
 #include "nioev/lib/Util.hpp"
 
 
-using namespace nioev;
+using namespace nioev::mqtt;
 
 std::atomic<TcpServer*> gTcpServer = nullptr;
 

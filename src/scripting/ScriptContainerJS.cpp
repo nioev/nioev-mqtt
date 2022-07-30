@@ -6,7 +6,7 @@
 #include "spdlog/spdlog.h"
 #include "../ApplicationState.hpp"
 
-namespace nioev {
+namespace nioev::mqtt {
 
 using namespace nioev::lib;
 

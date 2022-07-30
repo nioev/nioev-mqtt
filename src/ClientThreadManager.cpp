@@ -8,7 +8,7 @@
 #include "nioev/lib/Enums.hpp"
 #include "ApplicationState.hpp"
 
-namespace nioev {
+namespace nioev::mqtt {
 
 using namespace nioev::lib;
 

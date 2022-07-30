@@ -2,7 +2,7 @@
 
 #include <string>
 
-namespace nioev {
+namespace nioev::mqtt {
 
 class TcpClientConnection;
 

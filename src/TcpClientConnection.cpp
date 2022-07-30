@@ -5,7 +5,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-namespace nioev {
+namespace nioev::mqtt {
 
 using namespace nioev::lib;
 

@@ -7,7 +7,7 @@
 #include <thread>
 #include <optional>
 
-namespace nioev {
+namespace nioev::mqtt {
 
 class TcpServer {
     int mSockFd;

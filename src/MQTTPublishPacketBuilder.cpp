@@ -1,7 +1,7 @@
 #include "MQTTPublishPacketBuilder.hpp"
 
 
-namespace nioev {
+namespace nioev::mqtt {
 
 std::atomic<uint16_t> MQTTPublishPacketBuilder::gPacketIdCounter{ 0 };
 

@@ -7,7 +7,7 @@
 #include <thread>
 #include <variant>
 
-namespace nioev {
+namespace nioev::mqtt {
 
 class Timers final {
 public:

@@ -19,7 +19,7 @@
 #include "Statistics.hpp"
 #include <bitset>
 
-namespace nioev {
+namespace nioev::mqtt {
 
 static inline bool operator==(const std::reference_wrapper<MQTTClientConnection>& a, const std::reference_wrapper<MQTTClientConnection>& b) {
     return &a.get() == &b.get();

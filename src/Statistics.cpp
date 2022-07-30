@@ -4,7 +4,7 @@
 #include "StatisticsConverter.hpp"
 #include "Timers.hpp"
 
-namespace nioev {
+namespace nioev::mqtt {
 
 Statistics::Statistics(ApplicationState& app)
 : mApp(app) {

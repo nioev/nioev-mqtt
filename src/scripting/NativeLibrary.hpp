@@ -6,7 +6,7 @@
 #include <mutex>
 #include <vector>
 
-namespace nioev {
+namespace nioev::mqtt {
 
 /* This class represents a .so file and wraps in a nice C++ RAII-style. Pretty much every function can throw an exception, so be sure to catch them!
  */

@@ -2,7 +2,7 @@
 
 #include "nioev/lib/Util.hpp"
 
-namespace nioev {
+namespace nioev::mqtt {
 
 using namespace nioev::lib;
 

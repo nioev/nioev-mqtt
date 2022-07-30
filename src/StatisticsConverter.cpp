@@ -2,7 +2,7 @@
 #include "rapidjson/document.h"
 #include "rapidjson/writer.h"
 
-namespace nioev::StatisticsConverter {
+namespace nioev::mqtt::StatisticsConverter {
 
 static std::string stringify(const rapidjson::Document& doc) {
 
@@ -13,7 +13,7 @@ static std::string stringify(const rapidjson::Document& doc) {
     return body;
 }
 
-std::string nioev::StatisticsConverter::statsToJson(const nioev::AnalysisResults& stats) {
+std::string statsToJson(const AnalysisResults& stats) {
     rapidjson::Document doc;
     doc.SetObject();
 

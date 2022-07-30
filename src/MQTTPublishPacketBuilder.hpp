@@ -3,7 +3,7 @@
 #include "nioev/lib/Util.hpp"
 #include <array>
 
-namespace nioev {
+namespace nioev::mqtt {
 using namespace nioev::lib;
 
 class MQTTPublishPacketBuilder {

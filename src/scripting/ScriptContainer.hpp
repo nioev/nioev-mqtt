@@ -13,7 +13,7 @@
 #include "../Subscriber.hpp"
 #include <condition_variable>
 
-namespace nioev {
+namespace nioev::mqtt {
 
 using namespace nioev::lib;
 

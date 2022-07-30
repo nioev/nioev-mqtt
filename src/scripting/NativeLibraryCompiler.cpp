@@ -9,7 +9,7 @@
 #include <sys/wait.h>
 #include <filesystem>
 
-namespace nioev {
+namespace nioev::mqtt {
 
 using namespace nioev::lib;
 
