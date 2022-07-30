@@ -1,9 +1,11 @@
 #include "MQTTClientConnection.hpp"
 #include "ApplicationState.hpp"
-#include "Util.hpp"
+#include "nioev/lib/Util.hpp"
 #include "MQTTPublishPacketBuilder.hpp"
 
 namespace nioev {
+
+using namespace nioev::lib;
 
 void MQTTClientConnection::publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained, MQTTPublishPacketBuilder& packetBuilder) {
     auto packet = packetBuilder.getPacket(qos);
@@ -22,7 +24,7 @@ void MQTTClientConnection::publish(const std::string& topic, const std::vector<u
     }
 }
 
-bool MQTTClientConnection::sendData(util::SharedBuffer&& bytes, SendDataType type) {
+bool MQTTClientConnection::sendData(SharedBuffer&& bytes, SendDataType type) {
     try {
         uint totalBytesSent = 0;
         uint bytesSent = 0;

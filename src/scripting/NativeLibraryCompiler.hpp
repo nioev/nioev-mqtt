@@ -1,11 +1,13 @@
 #pragma once
 
-#include "../GenServer.hpp"
+#include "nioev/lib/GenServer.hpp"
 #include "ScriptContainer.hpp"
 #include <unordered_set>
 #include <shared_mutex>
 
 namespace nioev {
+
+using namespace nioev::lib;
 
 struct CompileNativeLibraryData {
     ScriptStatusOutput statusOutput;

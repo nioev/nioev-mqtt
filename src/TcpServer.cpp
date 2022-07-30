@@ -11,12 +11,14 @@
 #include <arpa/inet.h>
 #include "poll.h"
 
-#include "Util.hpp"
+#include "nioev/lib/Util.hpp"
 #include "TcpClientConnection.hpp"
 
 #include "spdlog/spdlog.h"
 
 namespace nioev {
+
+using namespace nioev::lib;
 
 TcpServer::TcpServer(uint16_t port, TcpClientHandlerInterface& handler) {
     struct sockaddr_in servaddr = { 0 };
@@ -72,7 +74,7 @@ void TcpServer::loopThreadFunc(TcpClientHandlerInterface& handler) {
                 spdlog::info("Safely aborted TcpServer accept loop");
                 return;
             }
-            spdlog::error("poll(): {}", util::errnoToString());
+            spdlog::error("poll(): {}", errnoToString());
             continue;
         }
         if(!mShouldRun) {
@@ -80,7 +82,7 @@ void TcpServer::loopThreadFunc(TcpClientHandlerInterface& handler) {
         }
         auto clientFd = accept4(mSockFd, (struct sockaddr*)&clientAddr, &len, SOCK_NONBLOCK | SOCK_CLOEXEC);
         if(clientFd < 0) {
-            spdlog::error("Failed to accept client: {}", util::errnoToString());
+            spdlog::error("Failed to accept client: {}", errnoToString());
             continue;
         }
 

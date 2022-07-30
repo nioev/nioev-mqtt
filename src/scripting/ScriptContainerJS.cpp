@@ -2,11 +2,13 @@
 
 #include <utility>
 #include "quickjs.h"
-#include "../Util.hpp"
+#include "nioev/lib/Util.hpp"
 #include "spdlog/spdlog.h"
 #include "../ApplicationState.hpp"
 
 namespace nioev {
+
+using namespace nioev::lib;
 
 ScriptContainerJS::ScriptContainerJS(ApplicationState& p, std::string scriptName, std::string&& scriptCode)
 : ScriptContainer(p, std::move(scriptName), std::move(scriptCode)) {
@@ -64,9 +66,9 @@ void ScriptContainerJS::run(const ScriptInputArgs& in, ScriptStatusOutput&& stat
 
 std::string jsValueToString(JSContext* ctx, JSValue obj) {
     auto json = JS_JSONStringify(ctx, obj, JS_UNDEFINED, JS_UNDEFINED);
-    util::DestructWrapper destructJson{[&]{ JS_FreeValue(ctx, json); }};
+    DestructWrapper destructJson{[&]{ JS_FreeValue(ctx, json); }};
     auto cStr = JS_ToCString(ctx, json);
-    util::DestructWrapper destructCStr{[&]{ JS_FreeCString(ctx, cStr); }};
+    DestructWrapper destructCStr{[&]{ JS_FreeCString(ctx, cStr); }};
     return cStr;
 }
 
@@ -101,7 +103,7 @@ JSValue jsSubOrUnsub(JSContext* ctx, JSValue this_obj, int argc, JSValue* args) 
                 throw std::runtime_error{"All args to subscribe must be strings!"};
             }
             auto topic = JS_ToCString(ctx, args[i]);
-            util::DestructWrapper destructTopic{[&] {
+            DestructWrapper destructTopic{[&] {
                 JS_FreeCString(ctx, topic);
             }};
             if constexpr(sub) {
@@ -135,7 +137,7 @@ void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
     JS_SetContextOpaque(mJSContext, this);
 
     auto globalObj = JS_GetGlobalObject(mJSContext);
-    util::DestructWrapper destructGlobalObj{[&]{ JS_FreeValue(mJSContext, globalObj); }};
+    DestructWrapper destructGlobalObj{[&]{ JS_FreeValue(mJSContext, globalObj); }};
     auto console = JS_NewObject(mJSContext);
     JS_SetPropertyStr(mJSContext, globalObj, "console", console);
     JS_SetPropertyStr(mJSContext, console, "log", logFunc);
@@ -151,7 +153,7 @@ void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
                     throw std::runtime_error{"First argument needs to be a string"};
                 }
                 auto libName = JS_ToCString(ctx, args[0]);
-                util::DestructWrapper destructLibName{[&] {
+                DestructWrapper destructLibName{[&] {
                     JS_FreeCString(ctx, libName);
                 }};
                 std::string libNameStr = libName;
@@ -192,7 +194,7 @@ void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
                     throw std::runtime_error{"First argument needs to be a string"};
                 }
                 auto libName = JS_ToCString(ctx, args[0]);
-                util::DestructWrapper destructLibName{[&] {
+                DestructWrapper destructLibName{[&] {
                     JS_FreeCString(ctx, libName);
                 }};
                 auto cStr = jsValueToString(ctx, args[1]);
@@ -243,13 +245,13 @@ void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
                     throw std::runtime_error{"First argument to publish needs to be a string"};
                 }
                 auto topic = JS_ToCString(ctx, args[0]);
-                util::DestructWrapper destructTopic{[&] {
+                DestructWrapper destructTopic{[&] {
                     JS_FreeCString(ctx, topic);
                 }};
                 std::vector<uint8_t> payload;
                 if(JS_IsString(args[1])) {
                     auto payloadStr = JS_ToCString(ctx, args[1]);
-                    util::DestructWrapper destructPayloadStr{[&] {
+                    DestructWrapper destructPayloadStr{[&] {
                         JS_FreeCString(ctx, payloadStr);
                     }};
                     payload = {payloadStr, payloadStr + strlen(payloadStr)};
@@ -258,7 +260,7 @@ void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
                     size_t bytesPerElement = 0;
                     size_t bytesOffset = 0;
                     auto payloadBytesValue = JS_GetTypedArrayBuffer(ctx, args[1], &bytesOffset, &bytesSize, &bytesPerElement);
-                    util::DestructWrapper destructPayloadBytesValue{[&]{ JS_FreeValue(ctx, payloadBytesValue); }};
+                    DestructWrapper destructPayloadBytesValue{[&]{ JS_FreeValue(ctx, payloadBytesValue); }};
                     if(JS_IsException(payloadBytesValue)) {
                         throw std::runtime_error{"Second argument to publish needs to be a string or an Uint8Array"};
                     }
@@ -369,7 +371,7 @@ void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
 
     mTaskStartTime = std::chrono::steady_clock::now();
     auto ret = JS_Eval(mJSContext, mCode.c_str(), mCode.size(), mName.c_str(), 0);
-    util::DestructWrapper destructRet{[&]{ JS_FreeValue(mJSContext, ret); }};
+    DestructWrapper destructRet{[&]{ JS_FreeValue(mJSContext, ret); }};
 
     if(JS_IsException(ret)) {
         initStatus.error(mName, getJSException());
@@ -440,12 +442,12 @@ void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
 void ScriptContainerJS::performRun(const ScriptInputArgs& input, ScriptStatusOutput&& status) {
 
     auto globalObj = JS_GetGlobalObject(mJSContext);
-    util::DestructWrapper destructGlobalObj{[&]{ JS_FreeValue(mJSContext, globalObj); }};
+    DestructWrapper destructGlobalObj{[&]{ JS_FreeValue(mJSContext, globalObj); }};
 
     JSValue runFunction = JS_UNDEFINED;
-    util::DestructWrapper destructRunFunction{[&]{ JS_FreeValue(mJSContext, runFunction); }};
+    DestructWrapper destructRunFunction{[&]{ JS_FreeValue(mJSContext, runFunction); }};
     auto paramObj = JS_NewObject(mJSContext);
-    util::DestructWrapper destructParamObj{[&]{ JS_FreeValue(mJSContext, paramObj); }};
+    DestructWrapper destructParamObj{[&]{ JS_FreeValue(mJSContext, paramObj); }};
 
     switch(input.params.index()) {
     case 0: {
@@ -462,10 +464,10 @@ void ScriptContainerJS::performRun(const ScriptInputArgs& input, ScriptStatusOut
         JS_SetPropertyStr(mJSContext, paramObj, "retained", JS_NewBool(mJSContext, cppParams.retained == Retained::Yes));
 
         auto arrayBuffer = JS_NewArrayBuffer(mJSContext, const_cast<uint8_t*>(cppParams.payload.data()), cppParams.payload.size(), [](JSRuntime*, void*, void*) {}, nullptr, true);
-        util::DestructWrapper destructArrayBuffer{[&]{ JS_FreeValue(mJSContext, arrayBuffer); }};
+        DestructWrapper destructArrayBuffer{[&]{ JS_FreeValue(mJSContext, arrayBuffer); }};
 
         auto uint8ArrayFunc = JS_GetPropertyStr(mJSContext, globalObj, "Uint8Array");
-        util::DestructWrapper destructUint8ArrayFunc{[&]{ JS_FreeValue(mJSContext, uint8ArrayFunc); }};
+        DestructWrapper destructUint8ArrayFunc{[&]{ JS_FreeValue(mJSContext, uint8ArrayFunc); }};
 
         JS_SetPropertyStr(mJSContext, paramObj, "payloadBytes", JS_CallConstructor(mJSContext, uint8ArrayFunc, 1, &arrayBuffer));
         if(cppParams.payload.empty()) {
@@ -491,7 +493,7 @@ void ScriptContainerJS::performRun(const ScriptInputArgs& input, ScriptStatusOut
     }
     mTaskStartTime = std::chrono::steady_clock::now();
     auto runResult = JS_Call(mJSContext, runFunction, globalObj, 1, &paramObj);
-    util::DestructWrapper destructRunResult{[&]{ JS_FreeValue(mJSContext, runResult); }};
+    DestructWrapper destructRunResult{[&]{ JS_FreeValue(mJSContext, runResult); }};
 
     if(JS_IsException(runResult)) {
         status.error(mName, getJSException());
@@ -530,19 +532,19 @@ std::string ScriptContainerJS::getJSException() {
 
 std::optional<std::string> ScriptContainerJS::getJSStringProperty(const JSValue& obj, std::string_view name) {
     auto prop = JS_GetPropertyStr(mJSContext, obj, name.data());
-    util::DestructWrapper destructProp{[&]{ JS_FreeValue(mJSContext, prop); }};
+    DestructWrapper destructProp{[&]{ JS_FreeValue(mJSContext, prop); }};
     if(!JS_IsString(prop)) {
         return {};
     }
     auto propStr = JS_ToCString(mJSContext, prop);
-    util::DestructWrapper destructPropStr{[&]{ JS_FreeCString(mJSContext, propStr); }};
+    DestructWrapper destructPropStr{[&]{ JS_FreeCString(mJSContext, propStr); }};
     std::string ret = propStr;
     return {std::move(ret)};
 }
 
 std::optional<bool> ScriptContainerJS::getJSBoolProperty(const JSValue& obj, std::string_view name) {
     auto prop = JS_GetPropertyStr(mJSContext, obj, name.data());
-    util::DestructWrapper destructProp{[&]{ JS_FreeValue(mJSContext, prop); }};
+    DestructWrapper destructProp{[&]{ JS_FreeValue(mJSContext, prop); }};
     if(!JS_IsBool(prop))
         return {};
     auto ret = JS_ToBool(mJSContext, prop);
@@ -554,7 +556,7 @@ std::optional<bool> ScriptContainerJS::getJSBoolProperty(const JSValue& obj, std
 
 std::optional<int32_t> ScriptContainerJS::getJSIntProperty(const JSValue& obj, std::string_view name) {
     auto prop = JS_GetPropertyStr(mJSContext, obj, name.data());
-    util::DestructWrapper destructProp{[&]{ JS_FreeValue(mJSContext, prop); }};
+    DestructWrapper destructProp{[&]{ JS_FreeValue(mJSContext, prop); }};
     if(!JS_IsNumber(prop))
         return {};
     int32_t ret = 0;
@@ -571,12 +573,12 @@ std::optional<std::vector<uint8_t>> ScriptContainerJS::extractPayload(const JSVa
         // we need either payloadStr or payloadBytes, so check now
         auto payloadBytesObj = JS_GetPropertyStr(mJSContext, action, "payloadBytes");
         //spdlog::info("Payload: '{}'", JS_ToCString(mJSContext, JS_JSONStringify(mJSContext, payloadBytesObj, JS_NewString(mJSContext, ""), JS_NewString(mJSContext, ""))));
-        util::DestructWrapper destructPayloadBytesObj{[&]{ JS_FreeValue(mJSContext, payloadBytesObj); }};
+        DestructWrapper destructPayloadBytesObj{[&]{ JS_FreeValue(mJSContext, payloadBytesObj); }};
         size_t bytesSize = 0;
         size_t bytesPerElement = 0;
         size_t bytesOffset = 0;
         auto payloadBytesValue = JS_GetTypedArrayBuffer(mJSContext, payloadBytesObj, &bytesOffset, &bytesSize, &bytesPerElement);
-        util::DestructWrapper destructPayloadBytesValue{[&]{ JS_FreeValue(mJSContext, payloadBytesValue); }};
+        DestructWrapper destructPayloadBytesValue{[&]{ JS_FreeValue(mJSContext, payloadBytesValue); }};
         if(JS_IsException(payloadBytesValue)) {
             return {};
         }

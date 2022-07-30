@@ -14,14 +14,14 @@ thread_local std::unique_ptr<spdlog::formatter> tFormatter;
 class LogSink : public spdlog::sinks::base_sink<spdlog::details::null_mutex> {
 public:
     LogSink(ApplicationState& app) : mApp(app) {
-        set_pattern_(nioev::util::LOG_PATTERN);
+        set_pattern_(nioev::lib::LOG_PATTERN);
     }
 
 protected:
     void sink_it_(const spdlog::details::log_msg& msg) override {
         spdlog::memory_buf_t formatted;
         if(!tFormatter)
-            tFormatter.reset(new spdlog::pattern_formatter(nioev::util::LOG_PATTERN));
+            tFormatter.reset(new spdlog::pattern_formatter(nioev::lib::LOG_PATTERN));
         tFormatter->format(msg, formatted);
         assert(formatted.size() > 0);
         std::vector<uint8_t> formattedBuffer((uint8_t*)formatted.begin(), (uint8_t*)formatted.end() - 1);
@@ -49,9 +49,9 @@ ApplicationState::ApplicationState() : mAsyncPublisher(*this), mStatistics(std::
         scripts.emplace_back(scriptQuery.getColumn(0), scriptQuery.getColumn(1), scriptQuery.getColumn(2).getInt());
     }
     std::sort(scripts.begin(), scripts.end(), [](auto& a, auto& b) -> bool {
-        if(util::getFileExtension(std::get<0>(a)) == ".cpp") {
+        if(getFileExtension(std::get<0>(a)) == ".cpp") {
             return true;
-        } else if(util::getFileExtension(std::get<0>(b)) == ".cpp") {
+        } else if(getFileExtension(std::get<0>(b)) == ".cpp") {
             return false;
         }
         return true;
@@ -199,7 +199,7 @@ void ApplicationState::subscribeClientInternal(ChangeRequestSubscribe&& req, Sho
         }
         auto& sub = mWildcardSubscriptions.emplace_back(req.subscriber, req.topic, std::move(req.topicSplit), req.qos);
         for(auto& retainedMessage : mRetainedMessages) {
-            if(util::doesTopicMatchSubscription(retainedMessage.first, sub.topicSplit)) {
+            if(doesTopicMatchSubscription(retainedMessage.first, sub.topicSplit)) {
                 sendPublish(*sub.subscriber, retainedMessage.first, retainedMessage.second.payload, minQoS(retainedMessage.second.qos, req.qos), Retained::Yes);
             }
         }
@@ -354,7 +354,7 @@ void ApplicationState::operator()(ChangeRequestLoginClient&& req) {
         if(connackSent)
             return;
         connackSent = true;
-        util::BinaryEncoder response;
+        BinaryEncoder response;
         response.encodeByte(static_cast<uint8_t>(MQTTMessageType::CONNACK) << 4);
         response.encodeByte(2); // remaining packet length
         response.encodeByte(sessionPresent == SessionPresent::Yes ? 1 : 0);
@@ -381,7 +381,7 @@ void ApplicationState::operator()(ChangeRequestLoginClient&& req) {
             auto subs = std::move(existingSession->second.subscriptions);
             for(auto& sub : subs) {
                 subscribeClientInternal(
-                    ChangeRequestSubscribe{ req.client, sub.topic, util::splitTopics(sub.topic), util::hasWildcard(sub.topic) ? SubscriptionType::WILDCARD : SubscriptionType::SIMPLE, sub.qos },
+                    ChangeRequestSubscribe{ req.client, sub.topic, splitTopics(sub.topic), hasWildcard(sub.topic) ? SubscriptionType::WILDCARD : SubscriptionType::SIMPLE, sub.qos },
                     ShouldPersistSubscription::No);
             }
             sendConnack();
@@ -399,7 +399,7 @@ void ApplicationState::operator()(ChangeRequestLoginClient&& req) {
                 req.client->sendData(std::move(cpy));
             }
             for(size_t i = 0; i < existingSession->second.qos2pubrecReceived.count(); ++i) {
-                util::BinaryEncoder encoder;
+                BinaryEncoder encoder;
                 encoder.encodeByte((static_cast<uint8_t>(MQTTMessageType::PUBREL) << 4) | 0b10);
                 encoder.encodeByte(2); // remaining length
                 encoder.encode2Bytes(i);
@@ -426,7 +426,7 @@ void ApplicationState::operator()(ChangeRequestAddScript&& req) {
         deleteScript(existingScript);
     }
     std::shared_ptr<ScriptContainer> script;
-    auto extension = util::getFileExtension(req.name);
+    auto extension = getFileExtension(req.name);
     if(extension == ".js") {
         script = std::make_shared<ScriptContainerJS>(*this, req.name, std::move(req.code));
         mScripts.emplace(req.name, script);
@@ -527,7 +527,7 @@ Retain ApplicationState::publishNoLockNoRetain(const std::string& topic, const s
     }
 #endif
     // first check for publish to $NIOEV
-    if(util::startsWith(topic, "$NIOEV")) {
+    if(startsWith(topic, "$NIOEV")) {
         performSystemAction(topic, std::string_view{(const char*)msg.data(), (const char*)msg.data() + msg.size()}, msg);
         //retain = Retain::No;
     }
@@ -599,7 +599,7 @@ void ApplicationState::syncRetainedMessagesToDb() {
 }
 void ApplicationState::addScript(
     std::string name, std::function<void(const std::string&, const std::string&)>&& onSuccess, std::function<void(const std::string&, const std::string&)>&& onError, std::string code) {
-    if(!util::hasValidScriptExtension(name))
+    if(!hasValidScriptExtension(name))
         return;
     UniqueLockWithAtomicTidUpdate<std::shared_mutex> lock{ mMutex, mCurrentRWHolderOfMMutex };
     mQueryInsertScript->bindNoCopy(1, name);

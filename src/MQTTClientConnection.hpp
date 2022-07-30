@@ -9,7 +9,7 @@
 
 #include "Forward.hpp"
 #include "TcpClientConnection.hpp"
-#include "Enums.hpp"
+#include "nioev/lib/Enums.hpp"
 #include "Subscriber.hpp"
 #include "Forward.hpp"
 
@@ -63,7 +63,7 @@ public:
     }
 
     struct SendTask {
-        util::SharedBuffer bytes;
+        SharedBuffer bytes;
         uint offset = 0;
     };
     std::pair<std::reference_wrapper<std::queue<SendTask>>, std::unique_lock<std::timed_mutex>> getSendTasks() {
@@ -136,7 +136,7 @@ public:
         return mSendError;
     }
 
-    bool sendData(util::SharedBuffer&& bytes, SendDataType type = SendDataType::DEFAULT);
+    bool sendData(SharedBuffer&& bytes, SendDataType type = SendDataType::DEFAULT);
     void publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained, MQTTPublishPacketBuilder& packetBuilder) override;
 
     virtual const char* getType() const override {

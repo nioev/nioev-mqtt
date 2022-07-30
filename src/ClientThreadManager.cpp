@@ -1,21 +1,22 @@
 #include "ClientThreadManager.hpp"
-#include "Util.hpp"
+#include "nioev/lib/Util.hpp"
 #include <spdlog/spdlog.h>
 #include <sys/epoll.h>
 #include <signal.h>
 #include <unistd.h>
 
-#include "Enums.hpp"
+#include "nioev/lib/Enums.hpp"
 #include "ApplicationState.hpp"
-#include "Util.hpp"
 
 namespace nioev {
+
+using namespace nioev::lib;
 
 ClientThreadManager::ClientThreadManager(ApplicationState& app)
 : mApp(app) {
     mEpollFd = epoll_create1(EPOLL_CLOEXEC);
     if(mEpollFd < 0) {
-        spdlog::critical("Failed to create epoll fd: " + util::errnoToString());
+        spdlog::critical("Failed to create epoll fd: " + errnoToString());
         exit(5);
     }
     uint threadCount = std::max<uint>(4, std::thread::hardware_concurrency() / 2);
@@ -52,7 +53,7 @@ void ClientThreadManager::receiverThreadFunction() {
                 suspendLock.lock();
                 continue;
             }
-            spdlog::warn("epoll_wait(): {}", util::errnoToString());
+            spdlog::warn("epoll_wait(): {}", errnoToString());
             continue;
         }
         for(int i = 0; i < eventCount; ++i) {
@@ -109,7 +110,7 @@ void ClientThreadManager::receiverThreadFunction() {
                                     auto[_, sendLock] = client.getSendTasks();
                                     std::vector<uint8_t> toMove{bytes.begin(), bytes.begin() + bytesReceived};
                                     if(epoll_ctl(mEpollFd, EPOLL_CTL_DEL, events[i].data.fd, nullptr) < 0) {
-                                        spdlog::warn("epoll_ctl(EPOLL_CTL_DEL) failed: {}", util::errnoToString());
+                                        spdlog::warn("epoll_ctl(EPOLL_CTL_DEL) failed: {}", lib::errnoToString());
                                     }
                                     // FIXME scripting
                                     //mApp.passTcpClientToScriptingEngine(client.moveTcpClient(), std::move(toMove));
@@ -184,19 +185,19 @@ void ClientThreadManager::addClientConnection(MQTTClientConnection& conn) {
     ev.data.ptr = &conn;
     ev.events = EPOLLET | EPOLLIN | EPOLLOUT | EPOLLEXCLUSIVE;
     if(epoll_ctl(mEpollFd, EPOLL_CTL_ADD, conn.getTcpClient().getFd(), &ev) < 0) {
-        spdlog::critical("Failed to add fd to epoll: {}", util::errnoToString());
+        spdlog::critical("Failed to add fd to epoll: {}", lib::errnoToString());
         exit(6);
     }
 }
 void ClientThreadManager::removeClientConnection(MQTTClientConnection& conn) {
     if(epoll_ctl(mEpollFd, EPOLL_CTL_DEL, conn.getTcpClient().getFd(), nullptr) < 0) {
-        spdlog::debug("Failed to remove fd from epoll: {}", util::errnoToString());
+        spdlog::debug("Failed to remove fd from epoll: {}", lib::errnoToString());
     }
 }
 void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, const MQTTClientConnection::PacketReceiveData& recvData, std::unique_lock<std::mutex>& clientReceiveLock) {
     spdlog::debug("Received packet of type {}", recvData.messageType);
 
-    util::BinaryDecoder decoder{recvData.currentReceiveBuffer, recvData.packetLength};
+    BinaryDecoder decoder{recvData.currentReceiveBuffer, recvData.packetLength};
     switch(client.getState()) {
     case MQTTClientConnection::ConnectionState::INITIAL: {
         switch(recvData.messageType) {
@@ -211,7 +212,7 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
             uint8_t protocolLevel = decoder.decodeByte();
             if(protocolLevel != 4) {
                 // we only support MQTT 3.1.1
-                util::BinaryEncoder response;
+                BinaryEncoder response;
                 response.encodeByte(static_cast<uint8_t>(MQTTMessageType::CONNACK) << 4);
                 response.encodeByte(2); // remaining packet length
                 response.encodeByte(0); // no session present
@@ -284,14 +285,14 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
                 auto id = decoder.decode2Bytes();
                 if(qos == QoS::QoS1) {
                     // send PUBACK
-                    util::BinaryEncoder encoder;
+                    BinaryEncoder encoder;
                     encoder.encodeByte(static_cast<uint8_t>(MQTTMessageType::PUBACK) << 4);
                     encoder.encode2Bytes(id);
                     encoder.insertPacketLength();
                     client.sendData(encoder.moveData());
                 } else {
                     // send PUBREC
-                    util::BinaryEncoder encoder;
+                    BinaryEncoder encoder;
                     encoder.encodeByte(static_cast<uint8_t>(MQTTMessageType::PUBREC) << 4);
                     encoder.encode2Bytes(id);
                     encoder.insertPacketLength();
@@ -327,7 +328,7 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
             }
 
             // send PUBCOMP
-            util::BinaryEncoder encoder;
+            BinaryEncoder encoder;
             encoder.encodeByte(static_cast<uint8_t>(MQTTMessageType::PUBCOMP) << 4);
             encoder.encode2Bytes(id);
             encoder.insertPacketLength(); // TODO prevent unnecessary calls like this by precomputing payload length
@@ -348,7 +349,7 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
             }
 
             // send PUBREL
-            util::BinaryEncoder encoder;
+            BinaryEncoder encoder;
             encoder.encodeByte((static_cast<uint8_t>(MQTTMessageType::PUBREL) << 4) | 0b10);
             encoder.encode2Bytes(id);
             encoder.insertPacketLength();
@@ -369,7 +370,7 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
             auto packetIdentifier = decoder.decode2Bytes();
 
 
-            util::BinaryEncoder encoder;
+            BinaryEncoder encoder;
             encoder.encodeByte(static_cast<uint8_t>(MQTTMessageType::SUBACK) << 4);
             encoder.encode2Bytes(packetIdentifier);
             do {
@@ -404,7 +405,7 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
             } while(!decoder.empty());
 
             // prepare SUBACK
-            util::BinaryEncoder encoder;
+            BinaryEncoder encoder;
             encoder.encodeByte(static_cast<uint8_t>(MQTTMessageType::UNSUBACK) << 4);
             encoder.encode2Bytes(packetIdentifier);
             encoder.insertPacketLength();
@@ -416,7 +417,7 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
             if(recvData.firstByte != 0xC0) {
                 protocolViolation("PINGREQ Invalid first byte");
             }
-            util::BinaryEncoder encoder;
+            BinaryEncoder encoder;
             encoder.encodeByte(static_cast<uint8_t>(MQTTMessageType::PINGRESP) << 4);
             encoder.insertPacketLength();
             client.sendData(encoder.moveData());
@@ -449,7 +450,7 @@ ClientThreadManager::~ClientThreadManager() {
         t.join();
     }
     if(close(mEpollFd)) {
-        spdlog::error("close(): {}", util::errnoToString());
+        spdlog::error("close(): {}", lib::errnoToString());
     }
 }
 void ClientThreadManager::suspendAllThreads() {

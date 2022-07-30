@@ -20,6 +20,8 @@ add_subdirectory(thirdparty/uWebSockets-CMake)
 add_subdirectory(thirdparty/zstd/build/cmake)
 add_subdirectory(thirdparty/SQLiteCpp)
 
+include_directories(thirdparty/libnioev/include)
+
 include_directories (${CMAKE_BINARY_DIR})
 add_custom_command(OUTPUT quickjs-carr.h COMMAND bash ${PROJECT_SOURCE_DIR}/package_quick.sh ${CMAKE_BINARY_DIR} SOURCES ${PROJECT_SOURCE_DIR}/thirdparty/quickjs-2021-03-27/quickjs.h)
 
@@ -35,7 +37,6 @@ add_executable(nioev
         src/main.cpp
         src/TcpServer.cpp
         src/TcpServer.hpp
-        src/Util.hpp
         src/TcpClientHandlerInterface.hpp
         src/MQTTClientConnection.hpp
         src/TcpClientConnection.cpp
@@ -43,7 +44,6 @@ add_executable(nioev
         src/ClientThreadManager.cpp
         src/ClientThreadManager.hpp
         src/Forward.hpp
-        src/Enums.hpp
         src/scripting/ScriptContainerManager.hpp
         src/scripting/ScriptContainer.hpp
         src/scripting/ScriptContainerJS.cpp
@@ -60,14 +60,12 @@ add_executable(nioev
         src/AsyncPublisher.cpp
         src/AsyncPublisher.hpp
         src/MQTTClientConnection.cpp
-        src/Util.cpp
         src/MQTTPublishPacketBuilder.hpp
         src/MQTTPublishPacketBuilder.cpp
         src/scripting/NativeLibrary.cpp
         src/scripting/NativeLibrary.hpp
         src/scripting/NativeLibraryCompiler.cpp
         src/scripting/NativeLibraryCompiler.hpp
-        src/GenServer.hpp
         quickjs-carr.h
         src/quickjs_h_embedded.hpp
         src/quickjs_h_embedded.cpp src/Statistics.cpp src/Statistics.hpp src/REST.cpp src/REST.hpp src/GlobalConfig.cpp src/GlobalConfig.hpp src/StatisticsConverter.cpp src/StatisticsConverter.hpp)

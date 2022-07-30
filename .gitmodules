@@ -16,3 +16,6 @@
 [submodule "thirdparty/SQLiteCpp"]
 	path = thirdparty/SQLiteCpp
 	url = https://github.com/SRombauts/SQLiteCpp.git
+[submodule "thirdparty/libnioev"]
+	path = thirdparty/libnioev
+	url = https://github.com/nioev/libnioev

@@ -1,8 +1,10 @@
 #pragma once
 
-#include "Util.hpp"
+#include "nioev/lib/Util.hpp"
 
 namespace nioev {
+
+using namespace nioev::lib;
 
 template<uint Length>
 class BigString final {

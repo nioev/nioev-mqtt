@@ -91,12 +91,12 @@ using ChangeRequest = std::variant<ChangeRequestSubscribe, ChangeRequestUnsubscr
 
 static inline ChangeRequest makeChangeRequestSubscribe(std::shared_ptr<Subscriber> sub, std::string&& topic, QoS qos = QoS::QoS0, bool isOmni = false) {
     assert(isOmni == false); // they are currently not used, so if you need an omni subscription, test thorougly!
-    auto split = util::splitTopics(topic);
+    auto split = splitTopics(topic);
     SubscriptionType type;
     if(isOmni) {
         type = SubscriptionType::OMNI;
     } else {
-        type = util::hasWildcard(topic) ? SubscriptionType::WILDCARD : SubscriptionType::SIMPLE;
+        type = hasWildcard(topic) ? SubscriptionType::WILDCARD : SubscriptionType::SIMPLE;
     }
     return ChangeRequestSubscribe{
         std::move(sub),
@@ -115,8 +115,8 @@ struct PersistentClientState {
     int64_t lastDisconnectTime = 0;
 
     // these two are protected by the lock in MQTTClientConnection::mRemainingMutex
-    std::unordered_map<uint16_t, util::SharedBuffer> qos1sendingPackets;
-    std::unordered_map<uint16_t, util::SharedBuffer> qos2sendingPackets;
+    std::unordered_map<uint16_t, SharedBuffer> qos1sendingPackets;
+    std::unordered_map<uint16_t, SharedBuffer> qos2sendingPackets;
     std::bitset<256 * 256> qos2pubrecReceived;
     std::bitset<256 * 256> qos2receivingPacketIds;
 
@@ -270,7 +270,7 @@ private:
             callback(it->second);
         }
         for(auto& sub: mWildcardSubscriptions) {
-            if(util::doesTopicMatchSubscription(topic, sub.topicSplit)) {
+            if(doesTopicMatchSubscription(topic, sub.topicSplit)) {
                 callback(sub);
             }
         }
@@ -289,7 +289,7 @@ private:
         for(auto& sub: mWildcardSubscriptions) {
             if(std::dynamic_pointer_cast<T>(sub.subscriber) != nullptr)
                 continue;
-            if(util::doesTopicMatchSubscription(topic, sub.topicSplit)) {
+            if(doesTopicMatchSubscription(topic, sub.topicSplit)) {
                 callback(sub);
             }
         }

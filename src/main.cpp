@@ -11,7 +11,7 @@
 
 #include "scripting/NativeLibrary.hpp"
 #include "REST.hpp"
-#include "Util.hpp"
+#include "nioev/lib/Util.hpp"
 
 
 using namespace nioev;
@@ -30,7 +30,7 @@ int main() {
     signal(SIGUSR1, [](int) {});
 
     spdlog::set_level(spdlog::level::info);
-    spdlog::set_pattern(nioev::util::LOG_PATTERN);
+    spdlog::set_pattern(nioev::lib::LOG_PATTERN);
     ApplicationState app;
 
     RESTAPI rest;

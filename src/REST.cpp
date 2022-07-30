@@ -100,7 +100,7 @@ void RESTAPI::run(ApplicationState& app) {
                                                                                  .upgrade =
                                                                                      [](auto* res, uWS::HttpRequest* req, auto* context) {
                                                                                          std::string topic{ req->getUrl().substr(6) };
-                                                                                         auto topicHasWildcard = util::hasWildcard(topic);
+                                                                                         auto topicHasWildcard = hasWildcard(topic);
                                                                                          res->template upgrade<PerWebsocketClientData>(
                                                                                              PerWebsocketClientData{ std::move(topic), topicHasWildcard }, req->getHeader("sec-websocket-key"),
                                                                                              req->getHeader("sec-websocket-protocol"), req->getHeader("sec-websocket-extensions"), context);
@@ -140,7 +140,7 @@ void RESTAPI::run(ApplicationState& app) {
                 try {
                     std::string fullCode;
                     std::string scriptName{ req->getParameter(0) };
-                    if(!util::hasValidScriptExtension(scriptName)) {
+                    if(!hasValidScriptExtension(scriptName)) {
                         res->writeStatus("400 Bad Request");
                         res->end("Invalid script name", true);
                         return;
@@ -309,7 +309,7 @@ void RESTAPI::run(ApplicationState& app) {
                         res->end("Not found", true);
                         return;
                     }
-                    auto extension = util::getFileExtension(fullFilePath);
+                    auto extension = getFileExtension(fullFilePath);
                     if(extension == ".js") {
                         res->writeHeader("Content-Type", "application/javascript");
                     } else if(extension == ".html") {

@@ -1,13 +1,15 @@
 #pragma once
 
 #include "MQTTClientConnection.hpp"
-#include "Util.hpp"
+#include "nioev/lib/Util.hpp"
 #include <thread>
 #include <vector>
 #include "Forward.hpp"
 #include <shared_mutex>
 
 namespace nioev {
+
+using namespace nioev::lib;
 
 class ClientThreadManager {
 public:

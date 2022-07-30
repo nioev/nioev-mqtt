@@ -3,15 +3,17 @@
 #include "Forward.hpp"
 #include <string>
 #include <vector>
-#include "Enums.hpp"
+#include "nioev/lib/Enums.hpp"
 #include <cstdint>
 #include <mutex>
 #include <queue>
 #include <thread>
 #include <condition_variable>
-#include "GenServer.hpp"
+#include "nioev/lib/GenServer.hpp"
 
 namespace nioev {
+
+using namespace nioev::lib;
 
 struct AsyncPublishData {
     std::string topic;

@@ -7,13 +7,15 @@
 #include <functional>
 #include <optional>
 #include <mutex>
-#include "../Enums.hpp"
+#include "nioev/lib/Enums.hpp"
 #include "../Forward.hpp"
 #include "spdlog/spdlog.h"
 #include "../Subscriber.hpp"
 #include <condition_variable>
 
 namespace nioev {
+
+using namespace nioev::lib;
 
 enum class ScriptRunType {
     Sync,

@@ -1,5 +1,5 @@
 #pragma once
-#include "Enums.hpp"
+#include "nioev/lib/Enums.hpp"
 #include <string>
 #include <vector>
 #include <memory>
@@ -7,6 +7,7 @@
 #include "Forward.hpp"
 
 namespace nioev {
+using namespace nioev::lib;
 
 class Subscriber : public std::enable_shared_from_this<Subscriber> {
 public:
