@@ -297,6 +297,9 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
                     state->qos2receivingPacketIds[id] = true;
                 }
             }
+            if(client.getMQTTVersion() == MQTTVersion::V5) {
+                decoder.decodeProperties();
+            }
             std::vector<uint8_t> data = decoder.getRemainingBytes();
             mApp.publish(std::move(topic), std::move(data), qos, retain);
             break;
