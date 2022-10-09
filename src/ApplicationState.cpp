@@ -262,7 +262,7 @@ void ApplicationState::operator()(ChangeRequestUnsubscribe&& req) {
     if(subscriberAsMQTTConn) {
         auto [state, stateLock] = subscriberAsMQTTConn->getPersistentState();
         if(state->cleanSession == CleanSession::No) {
-            for(auto it = state->subscriptions.begin(); it != state->subscriptions.end(); ++it) {
+            for(auto it = state->subscriptions.begin(); it != state->subscriptions.end();) {
                 if(it->topic == req.topic) {
                     it = state->subscriptions.erase(it);
                 } else {
