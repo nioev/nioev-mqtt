@@ -356,10 +356,12 @@ void ApplicationState::operator()(ChangeRequestLoginClient&& req) {
         connackSent = true;
         BinaryEncoder response;
         response.encodeByte(static_cast<uint8_t>(MQTTMessageType::CONNACK) << 4);
-        response.encodeByte(2); // remaining packet length
         response.encodeByte(sessionPresent == SessionPresent::Yes ? 1 : 0);
         response.encodeByte(0); // everything okay
-
+        if(req.client->getMQTTVersion() == MQTTVersion::V5) {
+            response.encodeByte(0); // properties length - TODO implement connack properties
+        }
+        response.insertPacketLength();
         req.client->sendData(response.moveData());
     };
 

@@ -78,11 +78,11 @@ void NativeLibraryCompiler::handleTask(CompileNativeLibraryData&& nativeLibData)
     }
     nativeLibData.statusOutput.success(nativeLibData.codeFilename, "");
 }
-void NativeLibraryCompiler::enqueue(CompileNativeLibraryData&& task) {
+GenServerEnqueueResult NativeLibraryCompiler::enqueue(CompileNativeLibraryData&& task) {
     std::unique_lock<std::shared_mutex> lock{mCurrentlyLoadingMutex};
     mCurrentlyLoading.emplace(getFileStem(task.codeFilename));
     lock.unlock();
-    GenServer<CompileNativeLibraryData>::enqueue(std::move(task));
+    return GenServer<CompileNativeLibraryData>::enqueue(std::move(task));
 }
 
 }

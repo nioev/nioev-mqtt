@@ -132,6 +132,19 @@ public:
         mLastDataReceivedTimestamp = newTimestamp;
     }
 
+    void setConnectProperties(PropertyList properties) {
+        mConnectProperties = std::move(properties);
+    }
+    const PropertyList& getConnectPropertyList() const {
+        return mConnectProperties;
+    }
+    void setMQTTVersion(MQTTVersion version) {
+        mMQTTVersion = version;
+    }
+    MQTTVersion getMQTTVersion() const {
+        return mMQTTVersion;
+    }
+
     bool hasSendError() {
         return mSendError;
     }
@@ -161,8 +174,12 @@ private:
         Retain retain;
     };
     std::optional<WillStruct> mWill;
-    std::atomic<uint16_t> mKeepAliveIntervalSeconds = 10;
     PersistentClientState* mPersistentState = nullptr;
+
+    // don't need a lock, protected by mRecvMutex
+    uint16_t mKeepAliveIntervalSeconds = 10;
+    PropertyList mConnectProperties;
+    MQTTVersion mMQTTVersion = MQTTVersion::V4;
 
     std::atomic<bool> mLoggedOut = false, mSendError = false;
     std::string mClientId;

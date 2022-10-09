@@ -105,17 +105,6 @@ void ClientThreadManager::receiverThreadFunction() {
                         for(uint i = 0; i < bytesReceived;) {
                             switch(recvData.recvState) {
                             case MQTTClientConnection::PacketReceiveState::IDLE: {
-                                if(bytes.at(i) == 'S' && client.getState() == MQTTClientConnection::ConnectionState::INITIAL) {
-                                    // simplified protocol, handled by the scripting engine
-                                    auto[_, sendLock] = client.getSendTasks();
-                                    std::vector<uint8_t> toMove{bytes.begin(), bytes.begin() + bytesReceived};
-                                    if(epoll_ctl(mEpollFd, EPOLL_CTL_DEL, events[i].data.fd, nullptr) < 0) {
-                                        spdlog::warn("epoll_ctl(EPOLL_CTL_DEL) failed: {}", lib::errnoToString());
-                                    }
-                                    // FIXME scripting
-                                    //mApp.passTcpClientToScriptingEngine(client.moveTcpClient(), std::move(toMove));
-                                    throw CleanDisconnectException{};
-                                }
                                 recvData = {};
                                 uint8_t packetTypeId = bytes.at(i) >> 4;
                                 if(packetTypeId >= static_cast<int>(MQTTMessageType::Count) || packetTypeId == 0) {
@@ -210,7 +199,7 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
             decoder.advance(6);
 
             uint8_t protocolLevel = decoder.decodeByte();
-            if(protocolLevel != 4) {
+            if(protocolLevel != 4 && protocolLevel != 5) {
                 // we only support MQTT 3.1.1
                 BinaryEncoder response;
                 response.encodeByte(static_cast<uint8_t>(MQTTMessageType::CONNACK) << 4);
@@ -222,6 +211,9 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
                 client.sendData(response.moveData());
                 break;
             }
+            auto version = static_cast<MQTTVersion>(protocolLevel);
+            client.setMQTTVersion(version);
+
             uint8_t connectFlags = decoder.decodeByte();
             uint16_t keepAlive = decoder.decode2Bytes();
             client.setKeepAliveIntervalSeconds(keepAlive);
@@ -229,6 +221,10 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
                 protocolViolation("Invalid connect flags bit set");
             }
             bool cleanSession = connectFlags & 0x2;
+            if(version == MQTTVersion::V5) {
+                client.setConnectProperties(decoder.decodeProperties());
+            }
+
             auto clientId = decoder.decodeString();
             if(clientId.empty() && !cleanSession) {
                 protocolViolation("Invalid client id");

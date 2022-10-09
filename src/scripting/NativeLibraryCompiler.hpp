@@ -23,7 +23,7 @@ public:
         return {mCurrentlyLoading, std::move(lock)};
     }
 
-    void enqueue(CompileNativeLibraryData&& task) override;
+    GenServerEnqueueResult enqueue(CompileNativeLibraryData&& task) override;
 private:
     void handleTask(CompileNativeLibraryData&&) override;
 
