@@ -193,6 +193,9 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
         case MQTTMessageType::CONNECT: {
             // initial connect
             constexpr uint8_t protocolName[] = { 0, 4, 'M', 'Q', 'T', 'T' };
+            if(decoder.getCurrentRemainingLength() < 6) {
+                protocolViolation("Missing MQTT protocol specifier");
+            }
             if(memcmp(protocolName, decoder.getCurrentPtr(), 6) != 0) {
                 protocolViolation("Invalid protocol version");
             }
