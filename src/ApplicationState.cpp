@@ -359,7 +359,11 @@ void ApplicationState::operator()(ChangeRequestLoginClient&& req) {
         response.encodeByte(sessionPresent == SessionPresent::Yes ? 1 : 0);
         response.encodeByte(0); // everything okay
         if(req.client->getMQTTVersion() == MQTTVersion::V5) {
-            response.encodeByte(0); // properties length - TODO implement connack properties
+            PropertyList properties;
+            properties.emplace(MQTTProperty::TOPIC_ALIAS_MAXIMUM, uint16_t(0));
+            properties.emplace(MQTTProperty::SUBSCRIPTION_IDENTIFIER_AVAILABLE, uint8_t(0)); // FIXME support sub identifiers
+            properties.emplace(MQTTProperty::SHARED_SUBSCRIPTION_AVAILABLE, uint8_t(0));
+            response.encodePropertyList(properties);
         }
         response.insertPacketLength();
         req.client->sendData(response.moveData());
