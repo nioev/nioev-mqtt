@@ -62,7 +62,7 @@ class Statistics : public Subscriber {
 public:
     Statistics(ApplicationState& app);
     void init();
-    void publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained, MQTTPublishPacketBuilder& packetBuilder) override;
+    void publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained, const PropertyList& properties, MQTTPublishPacketBuilder& packetBuilder) override;
     AnalysisResults getResults();
     virtual const char* getType() const override {
         return "stats";

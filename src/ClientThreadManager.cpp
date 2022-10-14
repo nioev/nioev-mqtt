@@ -65,27 +65,24 @@ void ClientThreadManager::receiverThreadFunction() {
                 }
                 if(events[i].events & EPOLLOUT) {
                     // we can write some data!
+
                     auto [sendTasksRef, sendTasksRefLock] = client.getSendTasks();
                     auto& sendTasks = sendTasksRef.get();
-                    while(!sendTasks.empty()) {
-                        auto& task = sendTasks.front();
-                        // send data
-                        uint bytesSend = 0;
-                        do {
-                            bytesSend = client.getTcpClient().send(task.bytes.data() + task.offset, task.bytes.size() - task.offset);
-                            task.offset += bytesSend;
-                        } while(bytesSend > 0 && task.offset < task.bytes.size());
-
-                        if(task.offset >= task.bytes.size()) {
-                            sendTasks.pop();
-                            if(client.getState() == MQTTClientConnection::ConnectionState::INVALID_PROTOCOL_VERSION) {
-                                assert(sendTasks.empty());
-                                throw CleanDisconnectException{};
+                    if(!sendTasks.empty()) {
+                        client.getTcpClient().sendScatter(sendTasks.data(), sendTasks.size());
+                        size_t donePackets = 0;
+                        for(InTransitEncodedPacket& packet: sendTasks) {
+                            if(packet.isDone()) {
+                                donePackets += 1;
+                            } else {
+                                break;
                             }
-                        } else {
-                            break;
                         }
-
+                        sendTasks.erase(sendTasks.begin(), sendTasks.begin() + donePackets);
+                        if(sendTasks.empty() && client.getState() == MQTTClientConnection::ConnectionState::INVALID_PROTOCOL_VERSION) {
+                            assert(sendTasks.empty());
+                            throw CleanDisconnectException{};
+                        }
                     }
                 }
                 if(events[i].events & (EPOLLIN | EPOLLHUP)) {
@@ -205,13 +202,12 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
             if(protocolLevel != 4 && protocolLevel != 5) {
                 // we only support MQTT 3.1.1
                 BinaryEncoder response;
-                response.encodeByte(static_cast<uint8_t>(MQTTMessageType::CONNACK) << 4);
                 response.encodeByte(2); // remaining packet length
                 response.encodeByte(0); // no session present
                 response.encodeByte(1); // invalid protocol version
                 client.setState(MQTTClientConnection::ConnectionState::INVALID_PROTOCOL_VERSION);
                 spdlog::error("Invalid protocol version requested by client: {}", protocolLevel);
-                client.sendData(response.moveData());
+                client.sendData(EncodedPacket::fromData(static_cast<uint8_t>(MQTTMessageType::CONNACK) << 4, response.moveData()));
                 break;
             }
             auto version = static_cast<MQTTVersion>(protocolLevel);
@@ -280,41 +276,43 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
             if(topic.empty()) {
                 protocolViolation("Invalid topic");
             }
+            bool doDeliverOnward = true;
             if(qos == QoS::QoS1 || qos == QoS::QoS2) {
                 auto id = decoder.decode2Bytes();
                 if(qos == QoS::QoS1) {
                     // send PUBACK
                     BinaryEncoder encoder;
-                    encoder.encodeByte(static_cast<uint8_t>(MQTTMessageType::PUBACK) << 4);
                     encoder.encode2Bytes(id);
-                    encoder.insertPacketLength();
-                    client.sendData(encoder.moveData());
+                    client.sendData(EncodedPacket::fromData(static_cast<uint8_t>(MQTTMessageType::PUBACK) << 4, encoder.moveData()));
                 } else {
+                    auto[state, stateLock] = client.getPersistentState();
+                    doDeliverOnward = !state->qos2receivingPacketIds[id];
+                    state->qos2receivingPacketIds[id] = true;
+                    stateLock.unlock();
                     // send PUBREC
                     BinaryEncoder encoder;
-                    encoder.encodeByte(static_cast<uint8_t>(MQTTMessageType::PUBREC) << 4);
                     encoder.encode2Bytes(id);
-                    encoder.insertPacketLength();
-                    client.sendData(encoder.moveData());
-                    auto[state, stateLock] = client.getPersistentState();
-                    state->qos2receivingPacketIds[id] = true;
+                    client.sendData(EncodedPacket::fromData(static_cast<uint8_t>(MQTTMessageType::PUBREC) << 4, encoder.moveData()));
                 }
             }
-            if(client.getMQTTVersion() == MQTTVersion::V5) {
-                decoder.decodeProperties();
+            if(doDeliverOnward) {
+                PropertyList properties;
+                if(client.getMQTTVersion() == MQTTVersion::V5) {
+                    properties = decoder.decodeProperties();
+                }
+                std::vector<uint8_t> data = decoder.getRemainingBytes();
+                mApp.publish(std::move(topic), std::move(data), qos, retain, properties);
             }
-            std::vector<uint8_t> data = decoder.getRemainingBytes();
-            mApp.publish(std::move(topic), std::move(data), qos, retain);
             break;
         }
         case MQTTMessageType::PUBACK: {
             uint16_t id = decoder.decode2Bytes();
             auto[state, lock] = client.getPersistentState();
-            state->qos1sendingPackets.erase(id);
+            state->highQoSSendingPackets.erase(id);
             break;
         }
         case MQTTMessageType::PUBREL: {
-            // QoS 2 part 2
+            // QoS 2 part 2 (receiving packet)
             if(recvData.firstByte != 0x62) {
                 protocolViolation("Invalid first byte in PUBREL");
             }
@@ -331,10 +329,8 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
 
             // send PUBCOMP
             BinaryEncoder encoder;
-            encoder.encodeByte(static_cast<uint8_t>(MQTTMessageType::PUBCOMP) << 4);
             encoder.encode2Bytes(id);
-            encoder.insertPacketLength(); // TODO prevent unnecessary calls like this by precomputing payload length
-            client.sendData(encoder.moveData());
+            client.sendData(EncodedPacket::fromData(static_cast<uint8_t>(MQTTMessageType::PUBCOMP) << 4, encoder.moveData()));
             break;
         }
         case MQTTMessageType::PUBREC: {
@@ -342,7 +338,7 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
             uint16_t id = decoder.decode2Bytes();
             {
                 auto[state, stateLock] = client.getPersistentState();
-                auto erased = state->qos2sendingPackets.erase(id);
+                auto erased = state->highQoSSendingPackets.erase(id);
                 if(erased != 1) {
                     stateLock.unlock();
                     spdlog::warn("[{}] PUBREC no such message id (erased {})", client.getClientId(), erased);
@@ -352,10 +348,8 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
 
             // send PUBREL
             BinaryEncoder encoder;
-            encoder.encodeByte((static_cast<uint8_t>(MQTTMessageType::PUBREL) << 4) | 0b10);
             encoder.encode2Bytes(id);
-            encoder.insertPacketLength();
-            client.sendData(encoder.moveData());
+            client.sendData(EncodedPacket::fromData((static_cast<uint8_t>(MQTTMessageType::PUBREL) << 4) | 0b10, encoder.moveData()));
             break;
         }
         case MQTTMessageType::PUBCOMP: {
@@ -373,7 +367,6 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
 
 
             BinaryEncoder encoder;
-            encoder.encodeByte(static_cast<uint8_t>(MQTTMessageType::SUBACK) << 4);
             encoder.encode2Bytes(packetIdentifier);
             do {
                 auto topic = decoder.decodeString();
@@ -391,8 +384,7 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
             } while(!decoder.empty());
 
 
-            encoder.insertPacketLength();
-            client.sendData(encoder.moveData());
+            client.sendData(EncodedPacket::fromData(static_cast<uint8_t>(MQTTMessageType::SUBACK) << 4, encoder.moveData()));
 
             break;
         }
@@ -408,10 +400,8 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
 
             // prepare SUBACK
             BinaryEncoder encoder;
-            encoder.encodeByte(static_cast<uint8_t>(MQTTMessageType::UNSUBACK) << 4);
             encoder.encode2Bytes(packetIdentifier);
-            encoder.insertPacketLength();
-            client.sendData(encoder.moveData());
+            client.sendData(EncodedPacket::fromData(static_cast<uint8_t>(MQTTMessageType::UNSUBACK) << 4, encoder.moveData()));
 
             break;
         }
@@ -420,9 +410,7 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
                 protocolViolation("PINGREQ Invalid first byte");
             }
             BinaryEncoder encoder;
-            encoder.encodeByte(static_cast<uint8_t>(MQTTMessageType::PINGRESP) << 4);
-            encoder.insertPacketLength();
-            client.sendData(encoder.moveData());
+            client.sendData(EncodedPacket::fromFirstByte(static_cast<uint8_t>(MQTTMessageType::PINGRESP) << 4));
             spdlog::debug("Replying to PINGREQ");
             break;
         }

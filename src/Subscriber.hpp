@@ -1,5 +1,6 @@
 #pragma once
 #include "nioev/lib/Enums.hpp"
+#include "nioev/lib/Util.hpp"
 #include <string>
 #include <vector>
 #include <memory>
@@ -11,7 +12,7 @@ using namespace nioev::lib;
 
 class Subscriber : public std::enable_shared_from_this<Subscriber> {
 public:
-    virtual void publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained, MQTTPublishPacketBuilder& packetBuilder) = 0;
+    virtual void publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained, const PropertyList& properties, MQTTPublishPacketBuilder& packetBuilder) = 0;
     virtual ~Subscriber() = default;
 
     auto makeShared() {

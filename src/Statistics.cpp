@@ -27,16 +27,16 @@ void Statistics::init() {
     mApp.requestChange(ChangeRequestSubscribe{makeShared(), "", {}, SubscriptionType::OMNI, QoS::QoS2});
 
     // TODO move ui logic to nioev-scripting?
-    mApp.publishAsync(AsyncPublishData{"nioev/ui/services/mqtt", stringToBuffer("{}"), QoS::QoS2, Retain::Yes});
-    mApp.publishAsync(AsyncPublishData{"nioev/ui/services/mqtt/Stats", stringToBuffer(R"({"type": "list", "orientation": "vertical"})"), QoS::QoS2, Retain::Yes});
-    mApp.publishAsync(AsyncPublishData{"nioev/ui/services/mqtt/Stats/00_toolbar", stringToBuffer(R"({"type": "grid", "stretch": true, "columnWidth": "300px"})"), QoS::QoS2, Retain::Yes});
+    mApp.publishAsync(MQTTPacket{"nioev/ui/services/mqtt", stringToBuffer("{}"), QoS::QoS2, Retain::Yes});
+    mApp.publishAsync(MQTTPacket{"nioev/ui/services/mqtt/Stats", stringToBuffer(R"({"type": "list", "orientation": "vertical"})"), QoS::QoS2, Retain::Yes});
+    mApp.publishAsync(MQTTPacket{"nioev/ui/services/mqtt/Stats/00_toolbar", stringToBuffer(R"({"type": "grid", "stretch": true, "columnWidth": "300px"})"), QoS::QoS2, Retain::Yes});
     //mApp.publishAsync(AsyncPublishData{"nioev/ui/services/mqtt/Stats/00_toolbar/99_pinger", stringToBuffer(R"({"type": "pinger", "topic": "$NIOEV/request_new_stats", "interval_ms": 15000})"), QoS::QoS2, Retain::Yes});
-    mApp.publishAsync(AsyncPublishData{"nioev/ui/services/mqtt/Stats/05_grid", stringToBuffer(R"({"type": "grid"})"), QoS::QoS2, Retain::Yes});
-    mApp.publishAsync(AsyncPublishData{"nioev/ui/services/mqtt/Stats/05_grid/01_msg_per_second", stringToBuffer(R"({"type": "graph", "headline": "Messages per Second"})"), QoS::QoS2, Retain::Yes});
-    mApp.publishAsync(AsyncPublishData{"nioev/ui/services/mqtt/Stats/05_grid/02_msg_per_minute", stringToBuffer(R"({"type": "graph", "headline": "Messages per Minute"})"), QoS::QoS2, Retain::Yes});
+    mApp.publishAsync(MQTTPacket{"nioev/ui/services/mqtt/Stats/05_grid", stringToBuffer(R"({"type": "grid"})"), QoS::QoS2, Retain::Yes});
+    mApp.publishAsync(MQTTPacket{"nioev/ui/services/mqtt/Stats/05_grid/01_msg_per_second", stringToBuffer(R"({"type": "graph", "headline": "Messages per Second"})"), QoS::QoS2, Retain::Yes});
+    mApp.publishAsync(MQTTPacket{"nioev/ui/services/mqtt/Stats/05_grid/02_msg_per_minute", stringToBuffer(R"({"type": "graph", "headline": "Messages per Minute"})"), QoS::QoS2, Retain::Yes});
     refresh();
 }
-void Statistics::publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained, MQTTPublishPacketBuilder& packetBuilder) {
+void Statistics::publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained, const PropertyList& properties, MQTTPublishPacketBuilder& packetBuilder) {
     // TODO remove system clock syscall somehow?
     PacketData packet{topic, payload.size(), std::chrono::system_clock::now(), qos};
     push(mCollectedData, std::move(packet));
@@ -103,28 +103,28 @@ void Statistics::refreshInternal() {
 
     mAnalysisData.clear();
 
-    mApp.publishAsync(AsyncPublishData{"$NIOEV/stats", stringToBuffer(StatisticsConverter::statsToJson(mAnalysisResult)), QoS::QoS2, Retain::Yes});
-    mApp.publishAsync(AsyncPublishData{"nioev/ui/services/mqtt/Stats/05_grid/01_msg_per_second/data", stringToBuffer(StatisticsConverter::statsToMsgPerSecondJsonWebUI(mAnalysisResult)), QoS::QoS2, Retain::Yes});
-    mApp.publishAsync(AsyncPublishData{"nioev/ui/services/mqtt/Stats/05_grid/02_msg_per_minute/data", stringToBuffer(StatisticsConverter::statsToMsgPerMinuteJsonWebUI(mAnalysisResult)), QoS::QoS2, Retain::Yes});
-    mApp.publishAsync(AsyncPublishData{"nioev/ui/services/mqtt/Stats/00_toolbar/00_version", stringToBuffer(R"({"type": "twoline", "content": "Alpha", "headline": "Version"})"), QoS::QoS2, Retain::Yes});
-    mApp.publishAsync(AsyncPublishData{"nioev/ui/services/mqtt/Stats/00_toolbar/05_uptime",
+    mApp.publishAsync(MQTTPacket{"$NIOEV/stats", stringToBuffer(StatisticsConverter::statsToJson(mAnalysisResult)), QoS::QoS2, Retain::Yes});
+    mApp.publishAsync(MQTTPacket{"nioev/ui/services/mqtt/Stats/05_grid/01_msg_per_second/data", stringToBuffer(StatisticsConverter::statsToMsgPerSecondJsonWebUI(mAnalysisResult)), QoS::QoS2, Retain::Yes});
+    mApp.publishAsync(MQTTPacket{"nioev/ui/services/mqtt/Stats/05_grid/02_msg_per_minute/data", stringToBuffer(StatisticsConverter::statsToMsgPerMinuteJsonWebUI(mAnalysisResult)), QoS::QoS2, Retain::Yes});
+    mApp.publishAsync(MQTTPacket{"nioev/ui/services/mqtt/Stats/00_toolbar/00_version", stringToBuffer(R"({"type": "twoline", "content": "Alpha", "headline": "Version"})"), QoS::QoS2, Retain::Yes});
+    mApp.publishAsync(MQTTPacket{"nioev/ui/services/mqtt/Stats/00_toolbar/05_uptime",
                                         stringToBuffer(R"({"type": "twoline", "content": )" + std::to_string(mAnalysisResult.uptimeSeconds) +  R"(, "headline": "Uptime"})"), QoS::QoS2, Retain::Yes});
-    mApp.publishAsync(AsyncPublishData{"nioev/ui/services/mqtt/Stats/00_toolbar/10_total_msg",
+    mApp.publishAsync(MQTTPacket{"nioev/ui/services/mqtt/Stats/00_toolbar/10_total_msg",
                                         stringToBuffer(R"({"type": "twoline", "content": )" + std::to_string(mAnalysisResult.totalPacketCount) +  R"(, "headline": "Total Messages"})"), QoS::QoS2, Retain::Yes});
 
     size_t subs = 0;
     for(auto& s: mAnalysisResult.activeSubscriptions) {
         subs += s.second;
     }
-    mApp.publishAsync(AsyncPublishData{"nioev/ui/services/mqtt/Stats/00_toolbar/15_active_subs",
+    mApp.publishAsync(MQTTPacket{"nioev/ui/services/mqtt/Stats/00_toolbar/15_active_subs",
                                         stringToBuffer(R"({"type": "twoline", "content": )" + std::to_string(subs) +  R"(, "headline": "Active Subscriptions"})"), QoS::QoS2, Retain::Yes});
-    mApp.publishAsync(AsyncPublishData{"nioev/ui/services/mqtt/Stats/00_toolbar/20_sleep_state",
+    mApp.publishAsync(MQTTPacket{"nioev/ui/services/mqtt/Stats/00_toolbar/20_sleep_state",
                                         stringToBuffer(R"({"type": "twoline", "content": ")" + std::string(workerThreadSleepLevelToString(mAnalysisResult.currentSleepLevel)) +  R"(", "headline": "Sleep State"})"), QoS::QoS2, Retain::Yes});
-    mApp.publishAsync(AsyncPublishData{"nioev/ui/services/mqtt/Stats/00_toolbar/25_app_queue_depth",
+    mApp.publishAsync(MQTTPacket{"nioev/ui/services/mqtt/Stats/00_toolbar/25_app_queue_depth",
                                         stringToBuffer(R"({"type": "twoline", "content": )" + std::to_string(mAnalysisResult.appStateQueueDepth) +  R"(, "headline": "App Queue Depth"})"), QoS::QoS2, Retain::Yes});
-    mApp.publishAsync(AsyncPublishData{"nioev/ui/services/mqtt/Stats/00_toolbar/30_retained_count",
+    mApp.publishAsync(MQTTPacket{"nioev/ui/services/mqtt/Stats/00_toolbar/30_retained_count",
                                         stringToBuffer(R"({"type": "twoline", "content": )" + std::to_string(mAnalysisResult.retainedMsgCount) +  R"(, "headline": "Retained Count"})"), QoS::QoS2, Retain::Yes});
-    mApp.publishAsync(AsyncPublishData{"nioev/ui/services/mqtt/Stats/00_toolbar/35_retained_bytes",
+    mApp.publishAsync(MQTTPacket{"nioev/ui/services/mqtt/Stats/00_toolbar/35_retained_bytes",
                                         stringToBuffer(R"({"type": "twoline", "content": )" + std::to_string(mAnalysisResult.retainedMsgCummulativeSize) +  R"(, "headline": "Retained Bytes"})"), QoS::QoS2, Retain::Yes});
     std::vector<std::string> rows;
     for(auto& c: mAnalysisResult.clients) {
@@ -134,7 +134,7 @@ void Statistics::refreshInternal() {
         row += c.hostname + ":" + std::to_string(c.port);
         rows.emplace_back(std::move(row));
     }
-    mApp.publishAsync(AsyncPublishData{"nioev/ui/services/mqtt/Stats/05_grid/05_clients", stringToBuffer(R"({"type": "items", "headline": "Clients", "lines": )" + StatisticsConverter::stringListToJSON(rows) + "}"), QoS::QoS2, Retain::Yes});
+    mApp.publishAsync(MQTTPacket{"nioev/ui/services/mqtt/Stats/05_grid/05_clients", stringToBuffer(R"({"type": "items", "headline": "Clients", "lines": )" + StatisticsConverter::stringListToJSON(rows) + "}"), QoS::QoS2, Retain::Yes});
 }
 AnalysisResults Statistics::getResults() {
     std::unique_lock<std::shared_mutex> lock{mMutex};

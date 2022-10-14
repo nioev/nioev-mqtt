@@ -10,23 +10,18 @@
 #include <thread>
 #include <condition_variable>
 #include "nioev/lib/GenServer.hpp"
+#include "nioev/lib/Util.hpp"
 
 namespace nioev::mqtt {
 
 using namespace nioev::lib;
 
-struct AsyncPublishData {
-    std::string topic;
-    std::vector<uint8_t> payload;
-    QoS qos;
-    Retain retain;
-};
 
-class AsyncPublisher : public GenServer<AsyncPublishData> {
+class AsyncPublisher : public GenServer<MQTTPacket> {
 public:
     explicit AsyncPublisher(ApplicationState& app);
 private:
-    void handleTask(AsyncPublishData&&) override;
+    void handleTask(MQTTPacket&&) override;
     ApplicationState& mApp;
 };
 

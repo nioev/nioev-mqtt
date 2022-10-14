@@ -291,7 +291,7 @@ void ScriptContainerJS::scriptThreadFunc(ScriptStatusOutput&& initStatus) {
                     qos = static_cast<QoS>(qosInt);
                 }
 
-                self->mApp.publishAsync(AsyncPublishData{topic, std::move(payload), qos, retain});
+                self->mApp.publishAsync(MQTTPacket{topic, std::move(payload), qos, retain});
                 return JS_UNDEFINED;
             } catch (std::exception& e) {
                 return JS_Throw(ctx, JS_NewString(ctx, e.what()));

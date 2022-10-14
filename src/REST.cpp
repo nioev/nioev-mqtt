@@ -19,7 +19,7 @@ struct PerWebsocketClientData {
 class WSSubscriber : public Subscriber {
 public:
     WSSubscriber(ApplicationState& app, uWS::Loop& loop, uWS::WebSocket<false, true, PerWebsocketClientData>* ws) : mApp(app), mLoop(loop), mWS(ws) { }
-    void publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained, MQTTPublishPacketBuilder&) override {
+    void publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained, const PropertyList& properties, MQTTPublishPacketBuilder&) override {
         mLoop.defer([this, topic, payload, active = mActive] {
             if(!*active)
                 return;
@@ -86,7 +86,7 @@ void RESTAPI::run(ApplicationState& app) {
                         res->end("Invalid QoS (0, 1 or 2 allowed)", true);
                         return;
                     }
-                    app.publish(std::move(topic), std::move(payload), qos, retain);
+                    app.publish(std::move(topic), std::move(payload), qos, retain, {});
                     res->end("ok", true);
                 } catch(std::exception& e) {
                     res->writeStatus("500 Internal Server Error");
@@ -121,7 +121,7 @@ void RESTAPI::run(ApplicationState& app) {
                                                                                         if(userData->topicHasWildcard)
                                                                                             return;
 
-                                                                                        app.publishAsync(AsyncPublishData{userData->topic, std::vector<uint8_t>{msg.begin(), msg.end()}, QoS::QoS0, Retain::No});
+                                                                                        app.publishAsync(MQTTPacket{userData->topic, std::vector<uint8_t>{msg.begin(), msg.end()}, QoS::QoS0, Retain::No});
                                                                                      },
                                                                                  .close =
                                                                                      [this, &app](uWS::WebSocket<false, true, PerWebsocketClientData>* ws, int code, std::string_view message) {

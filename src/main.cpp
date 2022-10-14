@@ -49,6 +49,7 @@ int main() {
     } };
 
 
+
     TcpServer server{ 1883, app };
     gTcpServer = &server;
     spdlog::info("MQTT Broker started");

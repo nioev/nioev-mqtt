@@ -25,7 +25,7 @@ protected:
         tFormatter->format(msg, formatted);
         assert(formatted.size() > 0);
         std::vector<uint8_t> formattedBuffer((uint8_t*)formatted.begin(), (uint8_t*)formatted.end() - 1);
-        mApp.publishAsync(AsyncPublishData{ LOG_TOPIC, std::move(formattedBuffer), QoS::QoS0, Retain::No });
+        mApp.publishAsync(MQTTPacket{ LOG_TOPIC, std::move(formattedBuffer), QoS::QoS0, Retain::No });
     }
     void flush_() override { }
     ApplicationState& mApp;
@@ -73,7 +73,7 @@ ApplicationState::ApplicationState() : mAsyncPublisher(*this), mStatistics(std::
         std::stringstream timestampStr{ retainedMsgQuery.getColumn(2).getString() };
         struct tm timestamp = { 0 };
         timestampStr >> std::get_time(&timestamp, "%Y-%m-%d %H-%M-%S");
-        mRetainedMessages.emplace(retainedMsgQuery.getColumn(0), RetainedMessage{ std::move(payload), mktime(&timestamp), static_cast<QoS>(retainedMsgQuery.getColumn(3).getInt()) });
+        mRetainedMessages.emplace(retainedMsgQuery.getColumn(0), RetainedMessage{ std::move(payload), mktime(&timestamp), static_cast<QoS>(retainedMsgQuery.getColumn(3).getInt()) /* FIXME: PROPERTIES */ });
     }
 }
 ApplicationState::~ApplicationState() {
@@ -182,9 +182,9 @@ void ApplicationState::executeChangeRequest(ChangeRequest&& changeRequest) {
     std::visit(*this, std::move(changeRequest));
 }
 
-static inline void sendPublish(Subscriber& sub, const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained) {
-    MQTTPublishPacketBuilder builder{ topic, payload, retained };
-    sub.publish(topic, payload, qos, retained, builder);
+static inline void sendPublish(Subscriber& sub, const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained, const PropertyList& properties) {
+    MQTTPublishPacketBuilder builder{ topic, payload, retained, properties };
+    sub.publish(topic, payload, qos, retained, properties, builder);
 }
 
 void ApplicationState::subscribeClientInternal(ChangeRequestSubscribe&& req, ShouldPersistSubscription persist) {
@@ -200,7 +200,7 @@ void ApplicationState::subscribeClientInternal(ChangeRequestSubscribe&& req, Sho
         auto& sub = mWildcardSubscriptions.emplace_back(req.subscriber, req.topic, std::move(req.topicSplit), req.qos);
         for(auto& retainedMessage : mRetainedMessages) {
             if(doesTopicMatchSubscription(retainedMessage.first, sub.topicSplit)) {
-                sendPublish(*sub.subscriber, retainedMessage.first, retainedMessage.second.payload, minQoS(retainedMessage.second.qos, req.qos), Retained::Yes);
+                sendPublish(*sub.subscriber, retainedMessage.first, retainedMessage.second.payload, minQoS(retainedMessage.second.qos, req.qos), Retained::Yes, retainedMessage.second.properties);
             }
         }
 
@@ -218,7 +218,7 @@ void ApplicationState::subscribeClientInternal(ChangeRequestSubscribe&& req, Sho
         mSimpleSubscriptions.emplace(std::piecewise_construct, std::make_tuple(req.topic), std::make_tuple(req.subscriber, req.topic, std::vector<std::string>{}, req.qos));
         auto retainedMessage = mRetainedMessages.find(req.topic);
         if(retainedMessage != mRetainedMessages.end()) {
-            sendPublish(*req.subscriber, retainedMessage->first, retainedMessage->second.payload, minQoS(retainedMessage->second.qos, req.qos), Retained::Yes);
+            sendPublish(*req.subscriber, retainedMessage->first, retainedMessage->second.payload, minQoS(retainedMessage->second.qos, req.qos), Retained::Yes, retainedMessage->second.properties);
         }
     } else if(req.subType == SubscriptionType::OMNI) {
         auto existingSub = std::find_if(mOmniSubscriptions.begin(), mOmniSubscriptions.end(), [&](const Subscription& sub) { return sub.subscriber == req.subscriber; });
@@ -227,7 +227,7 @@ void ApplicationState::subscribeClientInternal(ChangeRequestSubscribe&& req, Sho
         }
         auto& sub = mOmniSubscriptions.emplace_back(req.subscriber, req.topic, std::move(req.topicSplit), req.qos);
         for(auto& retainedMessage : mRetainedMessages) {
-            sendPublish(*sub.subscriber, retainedMessage.first, retainedMessage.second.payload, minQoS(retainedMessage.second.qos, req.qos), Retained::Yes);
+            sendPublish(*sub.subscriber, retainedMessage.first, retainedMessage.second.payload, minQoS(retainedMessage.second.qos, req.qos), Retained::Yes, retainedMessage.second.properties);
         }
     } else {
         assert(false);
@@ -276,10 +276,10 @@ void ApplicationState::operator()(ChangeRequestUnsubscribeFromAll&& req) {
     deleteAllSubscriptions(*req.subscriber);
 }
 void ApplicationState::operator()(ChangeRequestRetain&& req) {
-    if(req.payload.empty()) {
-        mRetainedMessages.erase(req.topic);
+    if(req.packet.payload.empty()) {
+        mRetainedMessages.erase(req.packet.topic);
     } else {
-        mRetainedMessages.insert_or_assign(std::move(req.topic), RetainedMessage{ std::move(req.payload), time(nullptr), req.qos });
+        mRetainedMessages.insert_or_assign(std::move(req.packet.topic), RetainedMessage{ std::move(req.packet.payload), time(nullptr), req.packet.qos, req.packet.properties });
     }
 }
 void ApplicationState::cleanup() {
@@ -290,7 +290,7 @@ void ApplicationState::cleanup() {
             spdlog::info(
                 "[{}] Timeout after {} seconds, keep alive is {}", it->get()->getClientId(),
                 (std::chrono::steady_clock::now().time_since_epoch().count() - it->get()->getLastDataRecvTimestamp()) / 1'000'000'000, it->get()->getKeepAliveIntervalSeconds());
-            logoutClient(*it->get());
+            logoutClient(**it);
         }
     }
     // Delete disconnected clients.
@@ -355,7 +355,6 @@ void ApplicationState::operator()(ChangeRequestLoginClient&& req) {
             return;
         connackSent = true;
         BinaryEncoder response;
-        response.encodeByte(static_cast<uint8_t>(MQTTMessageType::CONNACK) << 4);
         response.encodeByte(sessionPresent == SessionPresent::Yes ? 1 : 0);
         response.encodeByte(0); // everything okay
         if(req.client->getMQTTVersion() == MQTTVersion::V5) {
@@ -365,8 +364,7 @@ void ApplicationState::operator()(ChangeRequestLoginClient&& req) {
             properties.emplace(MQTTProperty::SHARED_SUBSCRIPTION_AVAILABLE, uint8_t(0));
             response.encodePropertyList(properties);
         }
-        response.insertPacketLength();
-        req.client->sendData(response.moveData());
+        req.client->sendData(EncodedPacket::fromData(static_cast<uint8_t>(MQTTMessageType::CONNACK) << 4, response.moveData()));
     };
 
     if(existingSession != mPersistentClientStates.end()) {
@@ -391,25 +389,29 @@ void ApplicationState::operator()(ChangeRequestLoginClient&& req) {
                     ShouldPersistSubscription::No);
             }
             sendConnack();
-            for(auto& qos1packet : existingSession->second.qos1sendingPackets) {
-                auto cpy = qos1packet.second.copy();
-                cpy.data()[0] |= 0x08; // set dup flag
-                // On a sidenote: The dup flag is so useless? Like no MQTT implementation really makes use of it, most just hand it to the client who
-                // ignores it. Even we ignore the dup flags for packets we receive. But for that little bit, we need to do a lot of work here with copying
-                // the whole buffer. It doesn't really matter though because this is far removed from the hot code path.
-                req.client->sendData(std::move(cpy));
+            std::vector<HighQoSRetainStorage> orderedPackets;
+            orderedPackets.reserve(existingSession->second.highQoSSendingPackets.size());
+            for(auto& packet: existingSession->second.highQoSSendingPackets) {
+                orderedPackets.emplace_back(packet.second);
             }
-            for(auto& qos2packet : existingSession->second.qos2sendingPackets) {
-                auto cpy = qos2packet.second.copy();
-                cpy.data()[0] |= 0x08; // set dup flag
+            std::sort(orderedPackets.begin(), orderedPackets.end(), [](auto& a, auto& b) {
+                return a.getGlobalOrder() < b.getGlobalOrder();
+            });
+
+            for(auto& highQoSPacket : orderedPackets) {
+                auto cpy = highQoSPacket.getPacketSharedCopy();
+                cpy.setDupFlag();
+                // On a sidenote: The dup flag is so useless. Like no MQTT implementation really makes use of it, most just hand it to the client who
+                // ignores it. Even we ignore the dup flags for packets we receive. Luckily, we can avoid the expensive buffer copies due to only having
+                // to modify the first byte
                 req.client->sendData(std::move(cpy));
             }
             for(size_t i = 0; i < existingSession->second.qos2pubrecReceived.count(); ++i) {
-                BinaryEncoder encoder;
-                encoder.encodeByte((static_cast<uint8_t>(MQTTMessageType::PUBREL) << 4) | 0b10);
-                encoder.encodeByte(2); // remaining length
-                encoder.encode2Bytes(i);
-                req.client->sendData(encoder.moveData());
+                if(existingSession->second.qos2pubrecReceived[i]) {
+                    BinaryEncoder encoder;
+                    encoder.encode2Bytes(i);
+                    req.client->sendData(EncodedPacket::fromData((static_cast<uint8_t>(MQTTMessageType::PUBREL) << 4) | 0b10, encoder.moveData()));
+                }
             }
         }
     } else {
@@ -487,7 +489,7 @@ void ApplicationState::logoutClient(MQTTClientConnection& client) {
         // perform will
         auto willMsg = client.moveWill();
         if(willMsg) {
-            publishInternal(std::move(willMsg->topic), std::move(willMsg->msg), willMsg->qos, willMsg->retain);
+            publishInternal(std::move(willMsg->topic), std::move(willMsg->payload), willMsg->qos, willMsg->retain, willMsg->properties);
         }
     }
     deleteAllSubscriptions(client);
@@ -509,22 +511,22 @@ void ApplicationState::logoutClient(MQTTClientConnection& client) {
     client.getTcpClient().close();
     client.notifyLoggedOut();
 }
-void ApplicationState::publish(std::string&& topic, std::vector<uint8_t>&& msg, QoS qos, Retain retain) {
+void ApplicationState::publish(std::string&& topic, std::vector<uint8_t>&& msg, QoS qos, Retain retain, const PropertyList& properties) {
     std::shared_lock<std::shared_mutex> lock{ mMutex };
-    retain = publishNoLockNoRetain(topic, msg, qos, retain);
+    retain = publishNoLockNoRetain(topic, msg, qos, retain, properties);
     lock.unlock();
     if(retain == Retain::Yes) {
         // we aren't allowed to call requestChange from another thread while holding a lock, so we need to do it here
-        requestChange(ChangeRequestRetain{ std::move(topic), std::move(msg), qos });
+        requestChange(ChangeRequestRetain{ MQTTPacket{std::move(topic), std::move(msg), qos, Retain::Yes, properties} });
     }
 }
-void ApplicationState::publishInternal(std::string&& topic, std::vector<uint8_t>&& msg, QoS qos, Retain retain) {
-    retain = publishNoLockNoRetain(topic, msg, qos, retain);
+void ApplicationState::publishInternal(std::string&& topic, std::vector<uint8_t>&& msg, QoS qos, Retain retain, const PropertyList& properties) {
+    retain = publishNoLockNoRetain(topic, msg, qos, retain, properties);
     if(retain == Retain::Yes) {
-        requestChange(ChangeRequestRetain{ std::move(topic), std::move(msg), qos });
+        requestChange(ChangeRequestRetain{ MQTTPacket{std::move(topic), std::move(msg), qos, Retain::Yes, properties} });
     }
 }
-Retain ApplicationState::publishNoLockNoRetain(const std::string& topic, const std::vector<uint8_t>& msg, QoS publishQoS, Retain retain) {
+Retain ApplicationState::publishNoLockNoRetain(const std::string& topic, const std::vector<uint8_t>& msg, QoS publishQoS, Retain retain, const PropertyList& properties) {
 // NOTE: It's possible that we only have a read-only lock here, so we aren't allowed to call requestChange
 #ifndef NDEBUG
     if(topic != LOG_TOPIC) {
@@ -538,13 +540,13 @@ Retain ApplicationState::publishNoLockNoRetain(const std::string& topic, const s
         //retain = Retain::No;
     }
     std::unordered_set<Subscriber*> subs;
-    forEachSubscriber(topic, [&topic, &msg, publishQoS, &subs](Subscription& sub) {
+    forEachSubscriber(topic, [&topic, &msg, publishQoS, &subs, &properties](Subscription& sub) {
         if(subs.contains(sub.subscriber.get()))
             return;
         subs.emplace(sub.subscriber.get());
         // according to the spec, we have to downgrade the publishQoS level here to match that of the publish; TODO allow overriding this behaviour in a config file
         auto usedQos = minQoS(sub.qos, publishQoS);
-        sendPublish(*sub.subscriber, topic, msg, usedQos, Retained::No);
+        sendPublish(*sub.subscriber, topic, msg, usedQos, Retained::No, properties);
     });
     return retain;
     // TODO reimplement sync scripts

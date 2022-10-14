@@ -8,10 +8,10 @@
 #include <queue>
 
 #include "Forward.hpp"
-#include "TcpClientConnection.hpp"
+#include "MQTTPublishPacketBuilder.hpp"
 #include "nioev/lib/Enums.hpp"
 #include "Subscriber.hpp"
-#include "Forward.hpp"
+#include "TcpClientConnection.hpp"
 
 namespace nioev::mqtt {
 
@@ -30,10 +30,6 @@ public:
         INITIAL,
         CONNECTED,
         INVALID_PROTOCOL_VERSION
-    };
-    enum class SendDataType {
-        DEFAULT,
-        PUBLISH
     };
     [[nodiscard]] ConnectionState getState() {
         std::lock_guard<std::mutex> lock{mRemaingingMutex};
@@ -62,11 +58,7 @@ public:
         return {mRecvData, std::move(lock)};
     }
 
-    struct SendTask {
-        SharedBuffer bytes;
-        uint offset = 0;
-    };
-    std::pair<std::reference_wrapper<std::queue<SendTask>>, std::unique_lock<std::timed_mutex>> getSendTasks() {
+    std::pair<std::reference_wrapper<std::vector<InTransitEncodedPacket>>, std::unique_lock<std::timed_mutex>> getSendTasks() {
         std::unique_lock<std::timed_mutex> lock{mSendMutex};
         return {mSendTasks, std::move(lock)};
     }
@@ -75,7 +67,7 @@ public:
         std::lock_guard<std::mutex> lock{mRemaingingMutex};
         mWill.emplace();
         mWill->topic = std::move(topic);
-        mWill->msg = std::move(msg);
+        mWill->payload = std::move(msg);
         mWill->qos = qos;
         mWill->retain = retain;
     }
@@ -149,8 +141,9 @@ public:
         return mSendError;
     }
 
-    bool sendData(SharedBuffer&& bytes, SendDataType type = SendDataType::DEFAULT);
-    void publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained, MQTTPublishPacketBuilder& packetBuilder) override;
+    void sendData(EncodedPacket packet);
+    void sendData(InTransitEncodedPacket packet);
+    void publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained, const PropertyList& properties, MQTTPublishPacketBuilder& packetBuilder) override;
 
     virtual const char* getType() const override {
         return "mqtt client";
@@ -163,17 +156,12 @@ private:
     PacketReceiveData mRecvData;
 
     std::timed_mutex mSendMutex;
-    std::queue<SendTask> mSendTasks;
+    std::vector<InTransitEncodedPacket> mSendTasks;
 
     std::mutex mRemaingingMutex;
     ConnectionState mState = ConnectionState::INITIAL;
-    struct WillStruct{
-        std::string topic;
-        std::vector<uint8_t> msg;
-        QoS qos;
-        Retain retain;
-    };
-    std::optional<WillStruct> mWill;
+
+    std::optional<MQTTPacket> mWill;
     PersistentClientState* mPersistentState = nullptr;
 
     // don't need a lock, protected by mRecvMutex
@@ -187,6 +175,8 @@ private:
 
     std::atomic<bool> mProperClientIdSet{false};
     std::string mProperClientId;
+
+    std::atomic<uint16_t> mPacketIdCounter = 0;
 };
 
 }

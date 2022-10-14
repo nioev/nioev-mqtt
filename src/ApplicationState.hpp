@@ -1,23 +1,24 @@
 #pragma once
 
-#include "MQTTClientConnection.hpp"
-#include "ClientThreadManager.hpp"
-#include <shared_mutex>
-#include <list>
-#include <memory>
-#include <unordered_set>
-#include <vector>
-#include <atomic_queue/atomic_queue.h>
-#include <variant>
-#include <condition_variable>
-#include "TcpClientHandlerInterface.hpp"
-#include "Timers.hpp"
 #include "AsyncPublisher.hpp"
-#include "scripting/ScriptContainer.hpp"
+#include "ClientThreadManager.hpp"
+#include "MQTTClientConnection.hpp"
+#include "MQTTPublishPacketBuilder.hpp"
 #include "scripting/NativeLibraryCompiler.hpp"
+#include "scripting/ScriptContainer.hpp"
 #include "SQLiteCpp/Database.h"
 #include "Statistics.hpp"
+#include "TcpClientHandlerInterface.hpp"
+#include "Timers.hpp"
+#include <atomic_queue/atomic_queue.h>
 #include <bitset>
+#include <condition_variable>
+#include <list>
+#include <memory>
+#include <shared_mutex>
+#include <unordered_set>
+#include <variant>
+#include <vector>
 
 namespace nioev::mqtt {
 
@@ -53,9 +54,7 @@ struct ChangeRequestUnsubscribeFromAll {
 };
 
 struct ChangeRequestRetain {
-    std::string topic;
-    std::vector<uint8_t> payload;
-    QoS qos{QoS::QoS0};
+    MQTTPacket packet;
 };
 struct ChangeRequestLoginClient {
     std::shared_ptr<MQTTClientConnection> client;
@@ -107,6 +106,25 @@ static inline ChangeRequest makeChangeRequestSubscribe(std::shared_ptr<Subscribe
     };
 }
 
+struct HighQoSRetainStorage {
+public:
+    HighQoSRetainStorage(EncodedPacket packet, QoS qos)
+    : mPacket(std::move(packet)), mQoS(qos) {
+        static std::atomic<uint64_t> globalOrderCounter{0};
+        mGlobalOrderCount = globalOrderCounter++;
+    }
+    EncodedPacket getPacketSharedCopy() {
+        return mPacket;
+    }
+    uint64_t getGlobalOrder() const {
+        return mGlobalOrderCount;
+    }
+private:
+    EncodedPacket mPacket;
+    uint64_t mGlobalOrderCount{0};
+    QoS mQoS;
+};
+
 // almost everything here is protected by the ApplicationState::mMutex lock
 struct PersistentClientState {
     static_assert(std::is_same_v<decltype(std::chrono::steady_clock::time_point{}.time_since_epoch().count()), int64_t>);
@@ -115,8 +133,7 @@ struct PersistentClientState {
     int64_t lastDisconnectTime = 0;
 
     // these two are protected by the lock in MQTTClientConnection::mRemainingMutex
-    std::unordered_map<uint16_t, SharedBuffer> qos1sendingPackets;
-    std::unordered_map<uint16_t, SharedBuffer> qos2sendingPackets;
+    std::unordered_map<uint16_t, HighQoSRetainStorage> highQoSSendingPackets;
     std::bitset<256 * 256> qos2pubrecReceived;
     std::bitset<256 * 256> qos2receivingPacketIds;
 
@@ -165,7 +182,7 @@ public:
     void operator()(ChangeRequestActivateScript&& req);
     void operator()(ChangeRequestDeactivateScript&& req);
 
-    void publish(std::string&& topic, std::vector<uint8_t>&& msg, QoS qos, Retain retain);
+    void publish(std::string&& topic, std::vector<uint8_t>&& msg, QoS qos, Retain retain, const PropertyList& properties);
     // The one-stop solution for all your async publishing needs! Need to publish something but you are actually called by publish itself, which
     // would cause deadlocks or stack overflows? Don't worry! Just call publishAsync and be certain that another thread will handle this problem for you!
     // This will probably even increase performance in case there are many subscribers and you are really busy yourself, because this will free up processing
@@ -176,8 +193,8 @@ public:
     // then we can't add stuff to mQueue, because that could cause deadlocks etc. This new architecture allows you to log at anytime anywhere (except
     // in publishAsync itself), though be aware that infinite loops are still possible if every logged message causes another message to be logged, which
     // causes another message to be logged etc. etc.
-    void publishAsync(AsyncPublishData&& data) {
-        mAsyncPublisher.enqueue(std::move(data));
+    void publishAsync(MQTTPacket&& data) {
+        (void)mAsyncPublisher.enqueue(std::move(data));
     }
 
     void handleNewClientConnection(TcpClientConnection&&) override;
@@ -247,9 +264,9 @@ private:
     };
 
     // basically the same as publish but without acquiring a read-only lock
-    void publishInternal(std::string&& topic, std::vector<uint8_t>&& msg, QoS qos, Retain retain);
+    void publishInternal(std::string&& topic, std::vector<uint8_t>&& msg, QoS qos, Retain retain, const PropertyList& properties);
 
-    Retain publishNoLockNoRetain(const std::string& topic, const std::vector<uint8_t>& msg, QoS publishQoS, Retain retain);
+    Retain publishNoLockNoRetain(const std::string& topic, const std::vector<uint8_t>& msg, QoS publishQoS, Retain retain, const PropertyList& properties);
     void executeChangeRequest(ChangeRequest&&);
     void workerThreadFunc();
 
@@ -327,6 +344,7 @@ private:
         std::vector<uint8_t> payload;
         std::time_t timestamp;
         QoS qos{QoS::QoS0};
+        PropertyList properties;
     };
     std::unordered_map<std::string, RetainedMessage> mRetainedMessages;
     std::unordered_map<std::string, PersistentClientState> mPersistentClientStates;

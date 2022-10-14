@@ -1,9 +1,10 @@
 #pragma once
 
-#include <string>
-#include <cstdint>
-#include <vector>
+#include "MQTTPublishPacketBuilder.hpp"
 #include "nioev/lib/Util.hpp"
+#include <cstdint>
+#include <string>
+#include <vector>
 
 namespace nioev::mqtt {
 
@@ -42,6 +43,7 @@ public:
         return mSockFd;
     }
     uint send(const uint8_t* data, uint len);
+    uint sendScatter(InTransitEncodedPacket* packets, size_t encoedPacketCount);
     uint recv(std::vector<uint8_t>& buffer);
 
     void close();

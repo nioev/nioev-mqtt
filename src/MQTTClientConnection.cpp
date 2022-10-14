@@ -7,54 +7,44 @@ namespace nioev::mqtt {
 
 using namespace nioev::lib;
 
-void MQTTClientConnection::publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained, MQTTPublishPacketBuilder& packetBuilder) {
-    auto packet = packetBuilder.getPacket(qos);
-    uint16_t packetId = 0;
-    if(qos == QoS::QoS1 || qos == QoS::QoS2) {
-        packetId = packet.getPacketId();
+void MQTTClientConnection::publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained, const PropertyList& properties, MQTTPublishPacketBuilder& packetBuilder) {
+    if(qos == QoS::QoS0) {
+        sendData(InTransitEncodedPacket{packetBuilder.getPacket(qos, 0, mMQTTVersion)});
+        return;
     }
-    if(sendData(std::move(packet), SendDataType::PUBLISH)) {
-        if(qos == QoS::QoS1) {
-            auto[persistentState, lock] = getPersistentState();
-            persistentState->qos1sendingPackets.emplace(packetId, packet);
-        } else if(qos == QoS::QoS2) {
-            auto[persistentState, lock] = getPersistentState();
-            persistentState->qos2sendingPackets.emplace(packetId, packet);
-        }
+    // FIXME choose packet id in closer accordance to spec. Concretely, this means that we must always pick an unused id
+    uint16_t packetId = mPacketIdCounter++;
+    EncodedPacket packet = packetBuilder.getPacket(qos, packetId, mMQTTVersion);
+    sendData(InTransitEncodedPacket{packet});
+    if(qos == QoS::QoS1) {
+        auto[persistentState, lock] = getPersistentState();
+        persistentState->highQoSSendingPackets.emplace(packetId, HighQoSRetainStorage{std::move(packet), qos});
+    } else if(qos == QoS::QoS2) {
+        auto[persistentState, lock] = getPersistentState();
+        persistentState->highQoSSendingPackets.emplace(packetId, HighQoSRetainStorage{std::move(packet), qos});
     }
 }
 
-bool MQTTClientConnection::sendData(SharedBuffer&& bytes, SendDataType type) {
+void MQTTClientConnection::sendData(EncodedPacket packet) {
+    sendData(InTransitEncodedPacket{std::move(packet)});
+}
+void MQTTClientConnection::sendData(InTransitEncodedPacket packet) {
     try {
         uint totalBytesSent = 0;
         uint bytesSent = 0;
 
-        std::unique_lock<std::timed_mutex> lock{mSendMutex, std::defer_lock};
-        if(type == SendDataType::DEFAULT) {
-            lock.lock();
-        } else {
-            // TODO make configurable
-            if(!lock.try_lock_for(std::chrono::milliseconds(1))) {
-                spdlog::warn("[{}] Dropping message due to inability to acquire lock within 1ms", mClientId);
-                return false;
-            }
-        }
+        std::unique_lock<std::timed_mutex> lock{mSendMutex};
 
         // TODO make configurable
-        if(type == SendDataType::PUBLISH && mSendTasks.size() > 1000) {
+        /*if(type == SendDataType::PUBLISH && mSendTasks.size() > 1000) {
             spdlog::warn("[{}] Dropping packet due to large queue depth", mClientId);
             return false;
-        }
+        }*/
         if(mSendTasks.empty()) {
-            do {
-                bytesSent = getTcpClient().send(bytes.data() + totalBytesSent, bytes.size() - totalBytesSent);
-                totalBytesSent += bytesSent;
-            } while(bytesSent > 0 && totalBytesSent < bytes.size());
+            getTcpClient().sendScatter(&packet, 1);
         }
-        //spdlog::warn("Bytes sent: {}, Total bytes sent: {}", bytesSent, totalBytesSent);
-
-        if(totalBytesSent < bytes.size()) {
-            mSendTasks.emplace(MQTTClientConnection::SendTask{ std::move(bytes), totalBytesSent });
+        if(!packet.isDone()) {
+            mSendTasks.emplace_back(std::move(packet));
         }
     } catch(std::exception& e) {
         spdlog::error("[{}] Error while sending data: {}", getClientId(), e.what());
@@ -62,7 +52,6 @@ bool MQTTClientConnection::sendData(SharedBuffer&& bytes, SendDataType type) {
         // that's why we just set a flag which causes the logout to be enequeued later on
         mSendError = true;
     }
-    return true;
 }
 
 }
