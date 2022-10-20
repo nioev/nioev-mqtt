@@ -106,7 +106,6 @@ public:
     const std::string& getClientId() {
         if(mProperClientIdSet)
             return mProperClientId;
-        assert(false);
         static std::string tmp{"< INVALID CLIENT ID >"};
         return tmp;
     }
