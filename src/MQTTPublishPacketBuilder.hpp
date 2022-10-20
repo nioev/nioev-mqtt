@@ -42,7 +42,7 @@ public:
         ret.mPrelude.firstByte = firstByte;
         memcpy(ret.mPrelude.varLength, varLength.value, varLength.valueLength);
         ret.mPreludeLength = varLength.valueLength + 1;
-        ret.mPacketId = packetId;
+        ret.mPacketId = htons(packetId);
         ret.mEnd = std::move(end);
         return ret;
     }
