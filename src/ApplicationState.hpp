@@ -126,7 +126,7 @@ public:
             mQos2pubrecReceived.reset();
             mQoS2receivingPacketIds.reset();
             mHighQoSSendingPackets.clear();
-            mPacketIdCounter = 0;
+            mPacketIdCounter = 1;
         }
     }
     void dropCurrentClient() {
@@ -158,7 +158,7 @@ private:
 
     std::string mClientID;
     CleanSession mCleanSession = CleanSession::Yes;
-    uint16_t mPacketIdCounter = 0;
+    uint16_t mPacketIdCounter = 1;
     MQTTClientConnection* mCurrentClient = nullptr;
 };
 

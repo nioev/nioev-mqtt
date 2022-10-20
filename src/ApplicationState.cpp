@@ -645,20 +645,26 @@ void ApplicationState::performSystemAction(const std::string& topic, std::string
 }
 
 void PersistentClientState::publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained, const PropertyList& properties, MQTTPublishPacketBuilder& packetBuilder) {
+    std::unique_lock<std::recursive_mutex> lock{mMutex};
     if(qos == QoS::QoS0) {
         mCurrentClient->publish(topic, payload, QoS::QoS0, retained, properties, packetBuilder, 0);
         return;
     }
-    std::unique_lock<std::recursive_mutex> lock{mMutex};
     MQTTVersion encoderVersion = MQTTVersion::V4;
     if(mCurrentClient) {
         encoderVersion = mCurrentClient->getMQTTVersion();
     }
-    auto packetId = mPacketIdCounter++;
+    // TODO smarter packet id choosing
+    uint16_t packetId;
+    do {
+        mPacketIdCounter += 1;
+    } while(mPacketIdCounter == 0);
+    packetId = mPacketIdCounter;
+
     if(qos == QoS::QoS1) {
-        mHighQoSSendingPackets.emplace(mPacketIdCounter, HighQoSRetainStorage{packetBuilder.getPacket(qos, packetId, encoderVersion), qos, encoderVersion});
+        mHighQoSSendingPackets.emplace(packetId, HighQoSRetainStorage{packetBuilder.getPacket(qos, packetId, encoderVersion), qos, encoderVersion});
     } else if(qos == QoS::QoS2) {
-        mHighQoSSendingPackets.emplace(mPacketIdCounter, HighQoSRetainStorage{packetBuilder.getPacket(qos, packetId, encoderVersion), qos, encoderVersion});
+        mHighQoSSendingPackets.emplace(packetId, HighQoSRetainStorage{packetBuilder.getPacket(qos, packetId, encoderVersion), qos, encoderVersion});
     }
     if(mCurrentClient) {
         // FIXME release lock somehow here???
