@@ -339,15 +339,19 @@ void ApplicationState::operator()(ChangeRequestLoginClient&& req) {
     if(existingSession != mPersistentClientStates.end()) {
         // disconnect existing client
         auto [existingClient, existingClientLock] = existingSession->second->getCurrentClient();
-        if(existingClient) {
-            spdlog::warn("[{}] Already logged in, closing old connection", req.clientId);
-            logoutClient(*existingClient);
-        }
         if(req.cleanSession == CleanSession::Yes || existingSession->second->isCleanSession() == CleanSession::Yes) {
             existingSession->second->replaceCurrentClient(existingClientLock, req.client, req.cleanSession, PersistentClientState::ReplaceStyle::CleanSession);
+            if(existingClient) {
+                spdlog::warn("[{}] Already logged in, closing old connection", req.clientId);
+                logoutClient(*existingClient);
+            }
         } else {
             sessionPresent = SessionPresent::Yes;
             existingSession->second->replaceCurrentClient(existingClientLock, req.client, req.cleanSession, PersistentClientState::ReplaceStyle::SimpleReplace);
+            if(existingClient) {
+                spdlog::warn("[{}] Already logged in, closing old connection", req.clientId);
+                logoutClient(*existingClient);
+            }
             sendConnack();
             std::vector<HighQoSRetainStorage> orderedPackets;
             orderedPackets.reserve(existingSession->second->getHighQoSSendingPackets().size());
