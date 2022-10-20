@@ -18,6 +18,9 @@ struct CompileNativeLibraryData {
 class NativeLibraryCompiler : public GenServer<CompileNativeLibraryData> {
 public:
     NativeLibraryCompiler();
+    ~NativeLibraryCompiler() {
+        stopThread();
+    }
     std::pair<std::reference_wrapper<const std::unordered_set<std::string>>, std::shared_lock<std::shared_mutex>> getListOfCurrentlyLoadingNativeLibs() const {
         std::shared_lock<std::shared_mutex> lock{mCurrentlyLoadingMutex};
         return {mCurrentlyLoading, std::move(lock)};

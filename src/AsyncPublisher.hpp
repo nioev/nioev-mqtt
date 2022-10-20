@@ -19,6 +19,9 @@ using namespace nioev::lib;
 
 class AsyncPublisher : public GenServer<MQTTPacket> {
 public:
+    ~AsyncPublisher() {
+        stopThread();
+    }
     explicit AsyncPublisher(ApplicationState& app);
 private:
     void handleTask(MQTTPacket&&) override;
