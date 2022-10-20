@@ -110,7 +110,7 @@ void RESTAPI::run(ApplicationState& app) {
                                                                                          auto userData = ws->getUserData();
                                                                                          spdlog::info("New WS subscription on: {}", userData->topic);
                                                                                          auto sub = std::make_shared<WSSubscriber>(app, *mLoop, ws);
-                                                                                         app.requestChange(makeChangeRequestSubscribe(sub, std::string{userData->topic}, QoS::QoS0));
+                                                                                         app.requestChange(ChangeRequestSubscribe{sub.get(), std::string{userData->topic}, QoS::QoS0});
                                                                                          openWSFds.emplace(ws, std::move(sub));
                                                                                      },
                                                                                  .message =
@@ -131,7 +131,7 @@ void RESTAPI::run(ApplicationState& app) {
                                                                                              return;
                                                                                          }
                                                                                          it->second->deactivate();
-                                                                                         app.requestChange(ChangeRequestUnsubscribeFromAll{ it->second });
+                                                                                         app.requestChange(ChangeRequestUnsubscribeFromAll{ it->second.get() });
                                                                                          openWSFds.erase(it);
                                                                                      } })
         .put(

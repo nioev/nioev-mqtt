@@ -10,6 +10,7 @@
 #include "Statistics.hpp"
 #include "TcpClientHandlerInterface.hpp"
 #include "Timers.hpp"
+#include "nioev/lib/SubscriptionTree.hpp"
 #include <atomic_queue/atomic_queue.h>
 #include <bitset>
 #include <condition_variable>
@@ -19,6 +20,32 @@
 #include <unordered_set>
 #include <variant>
 #include <vector>
+
+namespace nioev::mqtt {
+struct Subscription {
+    Subscriber* subscriber = nullptr;
+    QoS qos = QoS::QoS0;
+    Subscription() {
+
+    }
+    Subscription(Subscriber* conn, QoS qos)
+    : subscriber(std::move(conn)), qos(qos) {
+
+    }
+    bool operator==(const Subscription& b) const {
+        return subscriber == b.subscriber;
+    }
+};
+}
+
+namespace std {
+template<>
+struct hash<nioev::mqtt::Subscription> {
+    size_t operator()(const nioev::mqtt::Subscription& sub) const {
+        return std::hash<void*>()(sub.subscriber);
+    }
+};
+}
 
 namespace nioev::mqtt {
 
@@ -32,37 +59,134 @@ enum class SessionPresent {
 };
 
 enum class SubscriptionType {
-    SIMPLE,
-    WILDCARD,
+    NORMAL,
     OMNI // receives ALL messages, even ones to $ topics
 };
 
+struct HighQoSRetainStorage {
+public:
+    // FIXME reencode data when connecting with different MQTT version (this is really weird though)
+    HighQoSRetainStorage(EncodedPacket packet, QoS qos, MQTTVersion version)
+    : mPacket(std::move(packet)), mQoS(qos), mMQTTVersion(version) {
+        static std::atomic<uint64_t> globalOrderCounter{0};
+        mGlobalOrderCount = globalOrderCounter++;
+    }
+    EncodedPacket getPacketSharedCopy() {
+        return mPacket;
+    }
+    uint64_t getGlobalOrder() const {
+        return mGlobalOrderCount;
+    }
+private:
+    EncodedPacket mPacket;
+    uint64_t mGlobalOrderCount{0};
+    QoS mQoS;
+    MQTTVersion mMQTTVersion;
+};
+
+class PersistentClientState : public Subscriber {
+public:
+    PersistentClientState(std::string clientId, CleanSession cleanSession, MQTTClientConnection* client)
+    : mClientID(std::move(clientId)), mCleanSession(cleanSession), mCurrentClient(std::move(client)) {
+
+    }
+    void publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained, const PropertyList& properties, MQTTPublishPacketBuilder& packetBuilder) override;
+    virtual const char* getType() const override {
+        return "mqtt client";
+    }
+    std::pair<MQTTClientConnection*, std::unique_lock<std::recursive_mutex>> getCurrentClient() {
+        std::unique_lock<std::recursive_mutex> lock{mMutex};
+        return std::make_pair(mCurrentClient, std::move(lock));
+    }
+    std::pair<const MQTTClientConnection*, std::unique_lock<std::recursive_mutex>> getCurrentClient() const {
+        std::unique_lock<std::recursive_mutex> lock{mMutex};
+        return std::make_pair(mCurrentClient, std::move(lock));
+    }
+    const std::string& getClientID() const {
+        return mClientID;
+    }
+    CleanSession isCleanSession() const {
+        return mCleanSession;
+    }
+    enum class ReplaceStyle {
+        SimpleReplace,
+        CleanSession
+    };
+    void replaceCurrentClient(std::unique_lock<std::recursive_mutex>& lock, MQTTClientConnection* newConnection, CleanSession cleanSession, ReplaceStyle replaceStyle) {
+        assert(lock.owns_lock());
+        if(mCurrentClient) {
+            mCurrentClient->setPersistentClientState(nullptr);
+        }
+        mCurrentClient = newConnection;
+        mCleanSession = cleanSession;
+        mCurrentClient->setPersistentClientState(this);
+        mCurrentClient->setClientId(mClientID);
+
+        if(replaceStyle == ReplaceStyle::CleanSession) {
+            mQos2pubrecReceived.reset();
+            mQoS2receivingPacketIds.reset();
+            mHighQoSSendingPackets.clear();
+            mPacketIdCounter = 0;
+        }
+    }
+    void dropCurrentClient() {
+        std::unique_lock<std::recursive_mutex> lock{mMutex};
+        mCurrentClient->setPersistentClientState(nullptr);
+        mCurrentClient = nullptr;
+    }
+    std::unordered_map<uint16_t, HighQoSRetainStorage>& getHighQoSSendingPackets() {
+        return mHighQoSSendingPackets;
+    }
+    std::bitset<256 * 256>& getQoS2PubRecReceived() {
+        return mQos2pubrecReceived;
+    }
+    std::bitset<256 * 256>& getQoS2ReceivingPacketIds() {
+        return mQoS2receivingPacketIds;
+    }
+    std::unique_lock<std::recursive_mutex> getLock() {
+        return std::unique_lock<std::recursive_mutex>{mMutex};
+    }
+
+private:
+    static_assert(std::is_same_v<decltype(std::chrono::steady_clock::time_point{}.time_since_epoch().count()), int64_t>);
+
+    mutable std::recursive_mutex mMutex;
+
+    std::unordered_map<uint16_t, HighQoSRetainStorage> mHighQoSSendingPackets;
+    std::bitset<256 * 256> mQos2pubrecReceived;
+    std::bitset<256 * 256> mQoS2receivingPacketIds;
+
+    std::string mClientID;
+    CleanSession mCleanSession = CleanSession::Yes;
+    uint16_t mPacketIdCounter = 0;
+    MQTTClientConnection* mCurrentClient = nullptr;
+};
+
 struct ChangeRequestSubscribe {
-    std::shared_ptr<Subscriber> subscriber;
+    Subscriber* subscriber;
     std::string topic;
-    std::vector<std::string> topicSplit; // only relevant for wildcard subscriptions
-    SubscriptionType subType;
     QoS qos = QoS::QoS0;
+    SubscriptionType type = SubscriptionType::NORMAL;
 };
 
 struct ChangeRequestUnsubscribe {
-    std::shared_ptr<Subscriber> subscriber;
+    Subscriber* subscriber;
     std::string topic;
 };
 struct ChangeRequestUnsubscribeFromAll {
-    std::shared_ptr<Subscriber> subscriber;
+    Subscriber* subscriber;
 };
 
 struct ChangeRequestRetain {
     MQTTPacket packet;
 };
 struct ChangeRequestLoginClient {
-    std::shared_ptr<MQTTClientConnection> client;
+    MQTTClientConnection* client;
     std::string clientId;
     CleanSession cleanSession;
 };
 struct ChangeRequestLogoutClient {
-    std::shared_ptr<MQTTClientConnection> client;
+    MQTTClientConnection* client;
 };
 
 struct ChangeRequestAddScript {
@@ -88,63 +212,6 @@ using ChangeRequest = std::variant<ChangeRequestSubscribe, ChangeRequestUnsubscr
                                    ChangeRequestLogoutClient, ChangeRequestUnsubscribeFromAll, ChangeRequestDeleteScript,
                                    ChangeRequestActivateScript, ChangeRequestDeactivateScript>;
 
-static inline ChangeRequest makeChangeRequestSubscribe(std::shared_ptr<Subscriber> sub, std::string&& topic, QoS qos = QoS::QoS0, bool isOmni = false) {
-    assert(isOmni == false); // they are currently not used, so if you need an omni subscription, test thorougly!
-    auto split = splitTopics(topic);
-    SubscriptionType type;
-    if(isOmni) {
-        type = SubscriptionType::OMNI;
-    } else {
-        type = hasWildcard(topic) ? SubscriptionType::WILDCARD : SubscriptionType::SIMPLE;
-    }
-    return ChangeRequestSubscribe{
-        std::move(sub),
-        std::move(topic),
-        std::move(split),
-        type,
-        qos
-    };
-}
-
-struct HighQoSRetainStorage {
-public:
-    HighQoSRetainStorage(EncodedPacket packet, QoS qos)
-    : mPacket(std::move(packet)), mQoS(qos) {
-        static std::atomic<uint64_t> globalOrderCounter{0};
-        mGlobalOrderCount = globalOrderCounter++;
-    }
-    EncodedPacket getPacketSharedCopy() {
-        return mPacket;
-    }
-    uint64_t getGlobalOrder() const {
-        return mGlobalOrderCount;
-    }
-private:
-    EncodedPacket mPacket;
-    uint64_t mGlobalOrderCount{0};
-    QoS mQoS;
-};
-
-// almost everything here is protected by the ApplicationState::mMutex lock
-struct PersistentClientState {
-    static_assert(std::is_same_v<decltype(std::chrono::steady_clock::time_point{}.time_since_epoch().count()), int64_t>);
-
-    MQTTClientConnection *currentClient = nullptr;
-    int64_t lastDisconnectTime = 0;
-
-    // these two are protected by the lock in MQTTClientConnection::mRemainingMutex
-    std::unordered_map<uint16_t, HighQoSRetainStorage> highQoSSendingPackets;
-    std::bitset<256 * 256> qos2pubrecReceived;
-    std::bitset<256 * 256> qos2receivingPacketIds;
-
-    std::string clientId;
-    CleanSession cleanSession = CleanSession::Yes;
-    struct PersistentSubscription {
-        std::string topic;
-        QoS qos;
-    };
-    std::vector<PersistentSubscription> subscriptions;
-};
 
 template<typename T>
 class UniqueLockWithAtomicTidUpdate : public std::unique_lock<T> {
@@ -244,24 +311,15 @@ public:
     template<typename T> void forEachClient(T&& callback) const {
         std::shared_lock<std::shared_mutex> lock{mMutex};
         for(auto& c: mPersistentClientStates) {
-            if(c.second.currentClient) {
-                callback(c.second.clientId, c.second.currentClient->getTcpClient().getRemoteIp(), c.second.currentClient->getTcpClient().getRemotePort());
+            auto [client, clientLock] = c.second->getCurrentClient();
+            if(client) {
+                callback(c.second->getClientID(), client->getTcpClient().getRemoteIp(), client->getTcpClient().getRemotePort());
             } else {
-                callback(c.second.clientId);
+                callback(c.second->getClientID());
             }
         }
     }
 private:
-    struct Subscription {
-        std::shared_ptr<Subscriber> subscriber;
-        std::string topic;
-        std::vector<std::string> topicSplit; // only used for wildcard subscriptions
-        QoS qos;
-        Subscription(std::shared_ptr<Subscriber> conn, std::string topic, std::vector<std::string>&& topicSplit, QoS qos)
-        : subscriber(std::move(conn)), topic(std::move(topic)), topicSplit(std::move(topicSplit)), qos(qos) {
-
-        }
-    };
 
     // basically the same as publish but without acquiring a read-only lock
     void publishInternal(std::string&& topic, std::vector<uint8_t>&& msg, QoS qos, Retain retain, const PropertyList& properties);
@@ -279,47 +337,12 @@ private:
     void subscribeClientInternal(ChangeRequestSubscribe&& req, ShouldPersistSubscription);
 
     void logoutClient(MQTTClientConnection& client);
-    // ensure you have at least a readonly lock when calling
-    template<typename Callback>
-    void forEachSubscriber(const std::string& topic, Callback&& callback) {
-        auto[start, end] = mSimpleSubscriptions.equal_range(topic);
-        for(auto it = start; it != end; ++it) {
-            callback(it->second);
-        }
-        for(auto& sub: mWildcardSubscriptions) {
-            if(doesTopicMatchSubscription(topic, sub.topicSplit)) {
-                callback(sub);
-            }
-        }
-        for(auto& sub: mOmniSubscriptions) {
-            callback(sub);
-        }
-    }
-    template<typename T = Subscriber, typename Callback>
-    void forEachSubscriberThatIsNotOfT(const std::string& topic, Callback&& callback) {
-        auto[start, end] = mSimpleSubscriptions.equal_range(topic);
-        for(auto it = start; it != end; ++it) {
-            if(std::dynamic_pointer_cast<T>(it->second.subscriber) != nullptr)
-                continue;
-            callback(it->second);
-        }
-        for(auto& sub: mWildcardSubscriptions) {
-            if(std::dynamic_pointer_cast<T>(sub.subscriber) != nullptr)
-                continue;
-            if(doesTopicMatchSubscription(topic, sub.topicSplit)) {
-                callback(sub);
-            }
-        }
-        for(auto& sub: mOmniSubscriptions) {
-            if(std::dynamic_pointer_cast<T>(sub.subscriber) != nullptr)
-                continue;
-            callback(sub);
-        }
-    }
-    void deleteScript(std::unordered_map<std::string, std::shared_ptr<ScriptContainer>>::iterator it);
+
+    void deleteScript(std::unordered_map<std::string, std::unique_ptr<ScriptContainer>>::iterator it);
     void deleteAllSubscriptions(Subscriber& sub);
 
     void performSystemAction(const std::string& topic, std::string_view payloadStr, const std::vector<uint8_t>& payloadBytes);
+
 
     // the order of these fields has been carefully evaluated and tested to be race-free during deconstruction, so be careful to change anything!
 
@@ -328,17 +351,17 @@ private:
 
     NativeLibraryCompiler mNativeLibManager;
 
-    std::unordered_multimap<std::string, Subscription> mSimpleSubscriptions;
-    std::vector<Subscription> mWildcardSubscriptions;
-    std::vector<Subscription> mOmniSubscriptions;
+    SubscriptionTree<Subscription> mSubscriptions;
 
-    std::queue<ChangeRequest> mQueueInternal;
+    std::list<ChangeRequest> mQueueInternal;
     atomic_queue::AtomicQueue2<ChangeRequest, 4096> mQueue;
-    bool mClientsWereLoggedOutSinceLastCleanup = false;
+    std::atomic<bool> mShouldCleanup = false;
 
     AsyncPublisher mAsyncPublisher;
 
-    std::list<std::shared_ptr<MQTTClientConnection>> mClients;
+    std::list<MQTTClientConnection> mClients;
+    std::unordered_map<std::string, std::unique_ptr<PersistentClientState>> mPersistentClientStates;
+    std::vector<std::unique_ptr<PersistentClientState>> mDeletedPersistentClientStates;
 
     struct RetainedMessage {
         std::vector<uint8_t> payload;
@@ -347,7 +370,6 @@ private:
         PropertyList properties;
     };
     std::unordered_map<std::string, RetainedMessage> mRetainedMessages;
-    std::unordered_map<std::string, PersistentClientState> mPersistentClientStates;
 
     std::atomic<bool> mShouldRun = true;
     std::atomic<WorkerThreadSleepLevel> mWorkerThreadSleepLevel;
@@ -356,7 +378,7 @@ private:
     std::atomic<size_t> mScriptsAlreadyAddedFromStartup{0};
 
     Timers mTimers;
-    std::unordered_map<std::string, std::shared_ptr<ScriptContainer>> mScripts;
+    std::unordered_map<std::string, std::unique_ptr<ScriptContainer>> mScripts;
     std::shared_ptr<Statistics> mStatistics;
 
     SQLite::Database mDb{"nioev.db3", SQLite::OPEN_READWRITE|SQLite::OPEN_CREATE};

@@ -7,22 +7,8 @@ namespace nioev::mqtt {
 
 using namespace nioev::lib;
 
-void MQTTClientConnection::publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained, const PropertyList& properties, MQTTPublishPacketBuilder& packetBuilder) {
-    if(qos == QoS::QoS0) {
-        sendData(InTransitEncodedPacket{packetBuilder.getPacket(qos, 0, mMQTTVersion)});
-        return;
-    }
-    // FIXME choose packet id in closer accordance to spec. Concretely, this means that we must always pick an unused id
-    uint16_t packetId = mPacketIdCounter++;
-    EncodedPacket packet = packetBuilder.getPacket(qos, packetId, mMQTTVersion);
-    sendData(InTransitEncodedPacket{packet});
-    if(qos == QoS::QoS1) {
-        auto[persistentState, lock] = getPersistentState();
-        persistentState->highQoSSendingPackets.emplace(packetId, HighQoSRetainStorage{std::move(packet), qos});
-    } else if(qos == QoS::QoS2) {
-        auto[persistentState, lock] = getPersistentState();
-        persistentState->highQoSSendingPackets.emplace(packetId, HighQoSRetainStorage{std::move(packet), qos});
-    }
+void MQTTClientConnection::publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained, const PropertyList& properties, MQTTPublishPacketBuilder& packetBuilder, uint16_t packetId) {
+    sendData(InTransitEncodedPacket{packetBuilder.getPacket(qos, packetId, mMQTTVersion)});
 }
 
 void MQTTClientConnection::sendData(EncodedPacket packet) {

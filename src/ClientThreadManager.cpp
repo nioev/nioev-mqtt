@@ -157,10 +157,10 @@ void ClientThreadManager::receiverThreadFunction() {
                     } while(bytesReceived > 0);
                 }
             } catch(CleanDisconnectException&) {
-                mApp.requestChange(ChangeRequestLogoutClient{client.makeShared()});
+                mApp.requestChange(ChangeRequestLogoutClient{&client});
             } catch(std::exception& e) {
                 spdlog::error("Caught: {}", e.what());
-                mApp.requestChange(ChangeRequestLogoutClient{client.makeShared()});
+                mApp.requestChange(ChangeRequestLogoutClient{&client});
             }
         }
     }
@@ -250,9 +250,8 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
                 // password
                 auto password = decoder.decodeString();
             }
-            // according to the MQTT spec, a client can actually send PUBLISH before receiving CONNACK, so as logging a client in is handled async, we need to set the connected flag here already
-            client.setState(MQTTClientConnection::ConnectionState::CONNECTED);
-            mApp.requestChange(ChangeRequestLoginClient{client.makeShared(), std::move(clientId), cleanSession ? CleanSession::Yes : CleanSession::No});
+            client.setState(MQTTClientConnection::ConnectionState::CONNECTING);
+            mApp.requestChange(ChangeRequestLoginClient{&client, std::move(clientId), cleanSession ? CleanSession::Yes : CleanSession::No});
 
             break;
         }
@@ -260,6 +259,10 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
             protocolViolation("Packet not allowed here");
         }
         }
+        break;
+    }
+    case MQTTClientConnection::ConnectionState::CONNECTING: {
+        client.pushPacketReceivedWhileConnecting(recvData);
         break;
     }
     case MQTTClientConnection::ConnectionState::CONNECTED: {
@@ -285,10 +288,14 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
                     encoder.encode2Bytes(id);
                     client.sendData(EncodedPacket::fromData(static_cast<uint8_t>(MQTTMessageType::PUBACK) << 4, encoder.moveData()));
                 } else {
-                    auto[state, stateLock] = client.getPersistentState();
-                    doDeliverOnward = !state->qos2receivingPacketIds[id];
-                    state->qos2receivingPacketIds[id] = true;
-                    stateLock.unlock();
+                    auto state = client.getPersistentClientState();
+                    if(!state)
+                        throw std::runtime_error{"Persistent state lost!"};
+                    auto lock = state->getLock();
+                    auto& recvPacketIds = state->getQoS2ReceivingPacketIds();
+                    doDeliverOnward = !recvPacketIds[id];
+                    recvPacketIds[id] = true;
+                    lock.unlock();
                     // send PUBREC
                     BinaryEncoder encoder;
                     encoder.encode2Bytes(id);
@@ -307,8 +314,12 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
         }
         case MQTTMessageType::PUBACK: {
             uint16_t id = decoder.decode2Bytes();
-            auto[state, lock] = client.getPersistentState();
-            state->highQoSSendingPackets.erase(id);
+            auto state = client.getPersistentClientState();
+            if(!state)
+                throw std::runtime_error{"Persistent state lost!"};
+            auto lock = state->getLock();
+            auto& sendingPackets = state->getHighQoSSendingPackets();
+            sendingPackets.erase(id);
             break;
         }
         case MQTTMessageType::PUBREL: {
@@ -318,12 +329,16 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
             }
             uint16_t id = decoder.decode2Bytes();
             {
-                auto[state, stateLock] = client.getPersistentState();
-                if(!state->qos2receivingPacketIds[id]) {
+                auto state = client.getPersistentClientState();
+                if(!state)
+                    throw std::runtime_error{"Persistent state lost!"};
+                auto stateLock = state->getLock();
+                auto &receivingPacketIds = state->getQoS2ReceivingPacketIds();
+                if(!receivingPacketIds[id]) {
                     stateLock.unlock();
                     spdlog::warn("[{}] PUBREL no such message id", client.getClientId());
                 } else {
-                    state->qos2receivingPacketIds[id] = false;
+                    receivingPacketIds[id] = false;
                 }
             }
 
@@ -337,13 +352,16 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
             // QoS 2 part 1 (sending packets)
             uint16_t id = decoder.decode2Bytes();
             {
-                auto[state, stateLock] = client.getPersistentState();
-                auto erased = state->highQoSSendingPackets.erase(id);
-                if(erased != 1) {
+                auto state = client.getPersistentClientState();
+                if(!state)
+                    throw std::runtime_error{"Persistent state lost!"};
+                auto stateLock = state->getLock();
+                auto &sendingPackets = state->getHighQoSSendingPackets();
+                if(sendingPackets.erase(id) != 1) {
                     stateLock.unlock();
-                    spdlog::warn("[{}] PUBREC no such message id (erased {})", client.getClientId(), erased);
+                    spdlog::warn("[{}] PUBREC no such message id", client.getClientId());
                 }
-                state->qos2pubrecReceived[id] = true;
+                state->getQoS2PubRecReceived()[id] = true;
             }
 
             // send PUBREL
@@ -355,8 +373,10 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
         case MQTTMessageType::PUBCOMP: {
             // QoS 2 part 3 (sending packets)
             uint16_t id = decoder.decode2Bytes();
-            auto[state, stateLock] = client.getPersistentState();
-            state->qos2pubrecReceived[id] = false;
+            auto state = client.getPersistentClientState();
+            if(!state)
+                throw std::runtime_error{"Persistent state lost!"};
+            state->getQoS2PubRecReceived()[id] = false;
             break;
         }
         case MQTTMessageType::SUBSCRIBE: {
@@ -380,7 +400,10 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
                 }
                 auto qos = static_cast<QoS>(qosInt);
                 encoder.encodeByte(qosInt);
-                mApp.requestChange(makeChangeRequestSubscribe(client.makeShared(), std::move(topic), qos));
+                auto state = client.getPersistentClientState();
+                if(!state)
+                    throw std::runtime_error{"Persistent state lost!"};
+                mApp.requestChange(ChangeRequestSubscribe{state, std::move(topic), qos});
             } while(!decoder.empty());
 
 
@@ -395,7 +418,10 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
             auto packetIdentifier = decoder.decode2Bytes();
             do {
                 auto topic = decoder.decodeString();
-                mApp.requestChange(ChangeRequestUnsubscribe{client.makeShared(), topic});
+                auto state = client.getPersistentClientState();
+                if(!state)
+                    throw std::runtime_error{"Persistent state lost!"};
+                mApp.requestChange(ChangeRequestUnsubscribe{state, topic});
             } while(!decoder.empty());
 
             // prepare SUBACK

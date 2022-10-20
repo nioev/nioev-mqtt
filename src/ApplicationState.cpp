@@ -88,13 +88,13 @@ void ApplicationState::workerThreadFunc() {
     uint tasksPerformed = 0;
     auto processInternalQueue = [this, &tasksPerformed] {
         for(auto& client : mClients) {
-            if(client->hasSendError() && !client->isLoggedOut()) {
-                requestChange(ChangeRequestLogoutClient{ client->makeShared() });
+            if(client.hasSendError()) {
+                logoutClient(client);
             }
         }
         while(!mQueueInternal.empty()) {
             executeChangeRequest(std::move(mQueueInternal.front()));
-            mQueueInternal.pop();
+            mQueueInternal.pop_front();
             tasksPerformed += 1;
         }
     };
@@ -159,6 +159,14 @@ void ApplicationState::workerThreadFunc() {
 }
 
 void ApplicationState::requestChange(ChangeRequest&& changeRequest, ApplicationState::RequestChangeMode mode) {
+    std::visit(overloaded{
+                   [&](const ChangeRequestLoginClient& req) { req.client->incTaskQueueRefCount(); },
+                   [&](const ChangeRequestLogoutClient& req) { req.client->incTaskQueueRefCount(); },
+                   [&](const ChangeRequestSubscribe& req) { req.subscriber->incTaskQueueRefCount(); },
+                   [&](const ChangeRequestUnsubscribe& req) { req.subscriber->incTaskQueueRefCount(); },
+                   [&](const ChangeRequestUnsubscribeFromAll& req) { req.subscriber->incTaskQueueRefCount(); },
+                   [&](auto&) {} }, changeRequest);
+
     if(mode == RequestChangeMode::SYNC_WHEN_IDLE || mode == RequestChangeMode::SYNC) {
         UniqueLockWithAtomicTidUpdate<std::shared_mutex> lock{ mMutex, mCurrentRWHolderOfMMutex };
         executeChangeRequest(std::move(changeRequest));
@@ -168,7 +176,7 @@ void ApplicationState::requestChange(ChangeRequest&& changeRequest, ApplicationS
          * Note that this also means that we can't hold a read-only version of mMutex, so be cautious when calling requestChange!
          */
         if(mCurrentRWHolderOfMMutex == std::this_thread::get_id()) {
-            mQueueInternal.emplace(std::move(changeRequest));
+            mQueueInternal.emplace_back(std::move(changeRequest));
         } else {
             mQueue.push(std::move(changeRequest));
         }
@@ -180,6 +188,28 @@ void ApplicationState::requestChange(ChangeRequest&& changeRequest, ApplicationS
 
 void ApplicationState::executeChangeRequest(ChangeRequest&& changeRequest) {
     std::visit(*this, std::move(changeRequest));
+    std::visit(overloaded{
+                   [&](const ChangeRequestLoginClient& req) {
+                       if(req.client->decTaskQueueRefCount() && req.client->isLoggedOut())
+                           mShouldCleanup = true;
+                   },
+                   [&](const ChangeRequestLogoutClient& req) {
+                       if(req.client->decTaskQueueRefCount() && req.client->isLoggedOut())
+                           mShouldCleanup = true;
+                   },
+                   [&](const ChangeRequestSubscribe& req) {
+                       if(req.subscriber->decTaskQueueRefCount() && req.subscriber->isDeleted())
+                           mShouldCleanup = true;
+                   },
+                   [&](const ChangeRequestUnsubscribe& req) {
+                       if(req.subscriber->decTaskQueueRefCount() && req.subscriber->isDeleted())
+                           mShouldCleanup = true;
+                   },
+                   [&](const ChangeRequestUnsubscribeFromAll& req) {
+                       if(req.subscriber->decTaskQueueRefCount() && req.subscriber->isDeleted())
+                           mShouldCleanup = true;
+                   },
+                   [&](auto&) {} }, changeRequest);
 }
 
 static inline void sendPublish(Subscriber& sub, const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained, const PropertyList& properties) {
@@ -188,91 +218,29 @@ static inline void sendPublish(Subscriber& sub, const std::string& topic, const 
 }
 
 void ApplicationState::subscribeClientInternal(ChangeRequestSubscribe&& req, ShouldPersistSubscription persist) {
-    if(req.subType == SubscriptionType::WILDCARD) {
-        // check for existing subscription
-        for(auto& wildcardSub : mWildcardSubscriptions) {
-            if(wildcardSub.subscriber == req.subscriber && wildcardSub.topic == req.topic) {
-                wildcardSub.qos = req.qos;
-                persist = ShouldPersistSubscription::No; // already persisted, so no need
-                break;
+    Subscription sub{req.subscriber, req.qos};
+    mSubscriptions.addSubscription(req.topic, sub);
+    for(auto& retainedMessage : mRetainedMessages) {
+        mSubscriptions.forEveryMatch(retainedMessage.first, [&](Subscription& matchedSub) {
+            if(sub == matchedSub) {
+                sendPublish(*req.subscriber, retainedMessage.first, retainedMessage.second.payload, minQoS(retainedMessage.second.qos, req.qos), Retained::Yes, retainedMessage.second.properties);
             }
-        }
-        auto& sub = mWildcardSubscriptions.emplace_back(req.subscriber, req.topic, std::move(req.topicSplit), req.qos);
-        for(auto& retainedMessage : mRetainedMessages) {
-            if(doesTopicMatchSubscription(retainedMessage.first, sub.topicSplit)) {
-                sendPublish(*sub.subscriber, retainedMessage.first, retainedMessage.second.payload, minQoS(retainedMessage.second.qos, req.qos), Retained::Yes, retainedMessage.second.properties);
-            }
-        }
-
-    } else if(req.subType == SubscriptionType::SIMPLE) {
-        // check for existing subscription
-        auto [existingSubStart, existingSubEnd] = mSimpleSubscriptions.equal_range(req.topic);
-        for(auto it = existingSubStart; it != existingSubEnd; ++it) {
-            if(it->second.subscriber == req.subscriber) {
-                it->second.qos = req.qos;
-                persist = ShouldPersistSubscription::No; // already persisted, so no need
-                break;
-            }
-        }
-
-        mSimpleSubscriptions.emplace(std::piecewise_construct, std::make_tuple(req.topic), std::make_tuple(req.subscriber, req.topic, std::vector<std::string>{}, req.qos));
-        auto retainedMessage = mRetainedMessages.find(req.topic);
-        if(retainedMessage != mRetainedMessages.end()) {
-            sendPublish(*req.subscriber, retainedMessage->first, retainedMessage->second.payload, minQoS(retainedMessage->second.qos, req.qos), Retained::Yes, retainedMessage->second.properties);
-        }
-    } else if(req.subType == SubscriptionType::OMNI) {
-        auto existingSub = std::find_if(mOmniSubscriptions.begin(), mOmniSubscriptions.end(), [&](const Subscription& sub) { return sub.subscriber == req.subscriber; });
-        if(existingSub == mOmniSubscriptions.end()) {
-            persist = ShouldPersistSubscription::No;
-        }
-        auto& sub = mOmniSubscriptions.emplace_back(req.subscriber, req.topic, std::move(req.topicSplit), req.qos);
-        for(auto& retainedMessage : mRetainedMessages) {
-            sendPublish(*sub.subscriber, retainedMessage.first, retainedMessage.second.payload, minQoS(retainedMessage.second.qos, req.qos), Retained::Yes, retainedMessage.second.properties);
-        }
-    } else {
-        assert(false);
-    }
-    if(persist == ShouldPersistSubscription::No)
-        return;
-    auto subscriberAsMQTTConn = std::dynamic_pointer_cast<MQTTClientConnection>(req.subscriber);
-    if(subscriberAsMQTTConn) {
-        auto [state, stateLock] = subscriberAsMQTTConn->getPersistentState();
-        if(state && state->cleanSession == CleanSession::No) {
-            state->subscriptions.emplace_back(PersistentClientState::PersistentSubscription{ std::move(req.topic), req.qos });
-        }
+        });
     }
 }
 void ApplicationState::operator()(ChangeRequestSubscribe&& req) {
+    if(req.subscriber->isDeleted())
+        return;
     subscribeClientInternal(std::move(req), ShouldPersistSubscription::Yes);
 }
 void ApplicationState::operator()(ChangeRequestUnsubscribe&& req) {
-    auto [start, end] = mSimpleSubscriptions.equal_range(req.topic);
-    if(start != end) {
-        for(auto it = start; it != end;) {
-            if(it->second.subscriber == req.subscriber) {
-                it = mSimpleSubscriptions.erase(it);
-            } else {
-                it++;
-            }
-        }
-    } else {
-        erase_if(mWildcardSubscriptions, [&req](auto& sub) { return sub.subscriber == req.subscriber && sub.topic == req.topic; });
-    }
-    auto subscriberAsMQTTConn = std::dynamic_pointer_cast<MQTTClientConnection>(req.subscriber);
-    if(subscriberAsMQTTConn) {
-        auto [state, stateLock] = subscriberAsMQTTConn->getPersistentState();
-        if(state->cleanSession == CleanSession::No) {
-            for(auto it = state->subscriptions.begin(); it != state->subscriptions.end();) {
-                if(it->topic == req.topic) {
-                    it = state->subscriptions.erase(it);
-                } else {
-                    it++;
-                }
-            }
-        }
-    }
+    if(req.subscriber->isDeleted())
+        return;
+    mSubscriptions.removeSubscription(req.topic, Subscription{req.subscriber, QoS::QoS0 /* QoS doesn't matter here */});
 }
 void ApplicationState::operator()(ChangeRequestUnsubscribeFromAll&& req) {
+    if(req.subscriber->isDeleted())
+        return;
     deleteAllSubscriptions(*req.subscriber);
 }
 void ApplicationState::operator()(ChangeRequestRetain&& req) {
@@ -285,35 +253,44 @@ void ApplicationState::operator()(ChangeRequestRetain&& req) {
 void ApplicationState::cleanup() {
     UniqueLockWithAtomicTidUpdate<std::shared_mutex> lock{ mMutex, mCurrentRWHolderOfMMutex };
     for(auto it = mClients.begin(); it != mClients.end(); ++it) {
-        if(!it->get()->isLoggedOut()
-           && it->get()->getLastDataRecvTimestamp() + (int64_t)it->get()->getKeepAliveIntervalSeconds() * 2'000'000'000 <= std::chrono::steady_clock::now().time_since_epoch().count()) {
+        if(!it->isLoggedOut()
+           && it->getLastDataRecvTimestamp() + (int64_t)it->getKeepAliveIntervalSeconds() * 2'000'000'000 <= std::chrono::steady_clock::now().time_since_epoch().count()) {
             spdlog::info(
-                "[{}] Timeout after {} seconds, keep alive is {}", it->get()->getClientId(),
-                (std::chrono::steady_clock::now().time_since_epoch().count() - it->get()->getLastDataRecvTimestamp()) / 1'000'000'000, it->get()->getKeepAliveIntervalSeconds());
-            logoutClient(**it);
+                "[{}] Timeout after {} seconds, keep alive is {}", it->getClientId(),
+                (std::chrono::steady_clock::now().time_since_epoch().count() - it->getLastDataRecvTimestamp()) / 1'000'000'000, it->getKeepAliveIntervalSeconds());
+            logoutClient(*it);
         }
     }
     // Delete disconnected clients.
     // As we need to suspend all client threads for this, this operation is really expensive, so we delete the clients if there are actually ones
     // that need to be deleted.
-    if(mClientsWereLoggedOutSinceLastCleanup) {
+    if(mShouldCleanup) {
         lock.unlock();
         mCurrentRWHolderOfMMutex = std::thread::id();
         mClientManager.suspendAllThreads();
         lock.lock();
         mCurrentRWHolderOfMMutex = std::this_thread::get_id();
         for(auto it = mClients.begin(); it != mClients.end();) {
-            if((*it)->isLoggedOut()) {
+            if(it->isLoggedOut() && it->getTaskQueueRefCount() == 0) {
                 it = mClients.erase(it);
             } else {
                 it++;
             }
         }
-        mClientsWereLoggedOutSinceLastCleanup = false;
+        for(auto it = mDeletedPersistentClientStates.begin(); it != mDeletedPersistentClientStates.end();) {
+            if((**it).getTaskQueueRefCount() == 0) {
+                it = mDeletedPersistentClientStates.erase(it);
+            } else {
+                it++;
+            }
+        }
+        mShouldCleanup = false;
         mClientManager.resumeAllThreads();
     }
 }
 void ApplicationState::operator()(ChangeRequestLoginClient&& req) {
+    if(req.client->isLoggedOut())
+        return;
     constexpr char AVAILABLE_RANDOM_CHARS[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890";
 
     decltype(mPersistentClientStates.begin()) existingSession;
@@ -337,15 +314,6 @@ void ApplicationState::operator()(ChangeRequestLoginClient&& req) {
     }
 
     SessionPresent sessionPresent = SessionPresent::No;
-    auto createNewSession = [&] {
-        auto newState = mPersistentClientStates.emplace_hint(existingSession, std::piecewise_construct, std::make_tuple(req.clientId), std::make_tuple());
-        req.client->setClientId(req.clientId);
-        newState->second.clientId = std::move(req.clientId);
-        newState->second.currentClient = req.client.get();
-        newState->second.cleanSession = req.cleanSession;
-        req.client->setPersistentState(&newState->second);
-        sessionPresent = SessionPresent::No;
-    };
 
     // this part is a lambda because if we need to send a client QoS1 packets that it missed, we need to send CONNACK before that, but that part of
     // the code is in an if-statement... it's a bit messy, TODO cleanup?
@@ -365,33 +333,26 @@ void ApplicationState::operator()(ChangeRequestLoginClient&& req) {
             response.encodePropertyList(properties);
         }
         req.client->sendData(EncodedPacket::fromData(static_cast<uint8_t>(MQTTMessageType::CONNACK) << 4, response.moveData()));
+        req.client->setState(MQTTClientConnection::ConnectionState::CONNECTED);
     };
 
     if(existingSession != mPersistentClientStates.end()) {
         // disconnect existing client
-        auto existingClient = existingSession->second.currentClient;
+        auto [existingClient, existingClientLock] = existingSession->second->getCurrentClient();
         if(existingClient) {
             spdlog::warn("[{}] Already logged in, closing old connection", req.clientId);
             logoutClient(*existingClient);
         }
-        if(req.cleanSession == CleanSession::Yes || existingSession->second.cleanSession == CleanSession::Yes) {
-            createNewSession();
+        if(req.cleanSession == CleanSession::Yes || existingSession->second->isCleanSession() == CleanSession::Yes) {
+            existingSession->second->replaceCurrentClient(existingClientLock, req.client, req.cleanSession, PersistentClientState::ReplaceStyle::CleanSession);
         } else {
             sessionPresent = SessionPresent::Yes;
-            req.client->setClientId(req.clientId);
-            existingSession->second.currentClient = req.client.get();
-            existingSession->second.cleanSession = req.cleanSession;
-            req.client->setPersistentState(&existingSession->second);
-            auto subs = std::move(existingSession->second.subscriptions);
-            for(auto& sub : subs) {
-                subscribeClientInternal(
-                    ChangeRequestSubscribe{ req.client, sub.topic, splitTopics(sub.topic), hasWildcard(sub.topic) ? SubscriptionType::WILDCARD : SubscriptionType::SIMPLE, sub.qos },
-                    ShouldPersistSubscription::No);
-            }
+            existingSession->second->replaceCurrentClient(existingClientLock, req.client, req.cleanSession, PersistentClientState::ReplaceStyle::SimpleReplace);
             sendConnack();
             std::vector<HighQoSRetainStorage> orderedPackets;
-            orderedPackets.reserve(existingSession->second.highQoSSendingPackets.size());
-            for(auto& packet: existingSession->second.highQoSSendingPackets) {
+            orderedPackets.reserve(existingSession->second->getHighQoSSendingPackets().size());
+            for(auto& packet: existingSession->second->getHighQoSSendingPackets()) {
+                // FIXME check mqtt version & reencode maybe
                 orderedPackets.emplace_back(packet.second);
             }
             std::sort(orderedPackets.begin(), orderedPackets.end(), [](auto& a, auto& b) {
@@ -406,8 +367,8 @@ void ApplicationState::operator()(ChangeRequestLoginClient&& req) {
                 // to modify the first byte
                 req.client->sendData(std::move(cpy));
             }
-            for(size_t i = 0; i < existingSession->second.qos2pubrecReceived.count(); ++i) {
-                if(existingSession->second.qos2pubrecReceived[i]) {
+            for(size_t i = 0; i < existingSession->second->getQoS2PubRecReceived().count(); ++i) {
+                if(existingSession->second->getQoS2PubRecReceived()[i]) {
                     BinaryEncoder encoder;
                     encoder.encode2Bytes(i);
                     req.client->sendData(EncodedPacket::fromData((static_cast<uint8_t>(MQTTMessageType::PUBREL) << 4) | 0b10, encoder.moveData()));
@@ -416,7 +377,10 @@ void ApplicationState::operator()(ChangeRequestLoginClient&& req) {
         }
     } else {
         // no session exists
-        createNewSession();
+        auto newState = mPersistentClientStates.emplace_hint(existingSession, std::piecewise_construct, std::make_tuple(req.clientId), std::make_tuple(std::make_unique<PersistentClientState>(req.clientId, req.cleanSession, req.client)));
+        sessionPresent = SessionPresent::No;
+        auto lock = newState->second->getLock();
+        newState->second->replaceCurrentClient(lock, req.client, req.cleanSession, PersistentClientState::ReplaceStyle::CleanSession);
     }
 
     // send CONNACK now
@@ -426,6 +390,8 @@ void ApplicationState::operator()(ChangeRequestLoginClient&& req) {
     sendConnack();
 }
 void ApplicationState::operator()(ChangeRequestLogoutClient&& req) {
+    if(req.client->isLoggedOut())
+        return;
     logoutClient(*req.client);
 }
 void ApplicationState::operator()(ChangeRequestAddScript&& req) {
@@ -433,12 +399,11 @@ void ApplicationState::operator()(ChangeRequestAddScript&& req) {
     if(existingScript != mScripts.end()) {
         deleteScript(existingScript);
     }
-    std::shared_ptr<ScriptContainer> script;
     auto extension = getFileExtension(req.name);
     if(extension == ".js") {
-        script = std::make_shared<ScriptContainerJS>(*this, req.name, std::move(req.code));
-        mScripts.emplace(req.name, script);
-        script->init(std::move(req.statusOutput));
+        auto script = std::make_unique<ScriptContainerJS>(*this, req.name, std::move(req.code));
+        auto inserted = mScripts.emplace(req.name, std::move(script));
+        inserted.first->second->init(std::move(req.statusOutput));
     } else if(extension == ".cpp") {
         mNativeLibManager.enqueue(CompileNativeLibraryData{ std::move(req.statusOutput), req.name, std::move(req.code) });
     } else {
@@ -473,7 +438,7 @@ void ApplicationState::operator()(ChangeRequestDeactivateScript&& req) {
     script->second->deactivate();
 }
 
-void ApplicationState::deleteScript(std::unordered_map<std::string, std::shared_ptr<ScriptContainer>>::iterator it) {
+void ApplicationState::deleteScript(std::unordered_map<std::string, std::unique_ptr<ScriptContainer>>::iterator it) {
     if(it == mScripts.end())
         return;
     it->second->forceQuit();
@@ -481,35 +446,36 @@ void ApplicationState::deleteScript(std::unordered_map<std::string, std::shared_
     mScripts.erase(it);
 }
 void ApplicationState::logoutClient(MQTTClientConnection& client) {
-    mClientsWereLoggedOutSinceLastCleanup = true;
     if(client.isLoggedOut())
         return;
+    mShouldCleanup = true;
     mClientManager.removeClientConnection(client);
-    {
-        // perform will
-        auto willMsg = client.moveWill();
-        if(willMsg) {
-            publishInternal(std::move(willMsg->topic), std::move(willMsg->payload), willMsg->qos, willMsg->retain, willMsg->properties);
-        }
-    }
-    deleteAllSubscriptions(client);
-    {
-        // detach persistent state
-        auto [state, stateLock] = client.getPersistentState();
-        if(state) {
-            if(state->cleanSession == CleanSession::Yes) {
-                mPersistentClientStates.erase(state->clientId);
-            } else {
-                state->currentClient = nullptr;
-                state->lastDisconnectTime = std::chrono::steady_clock::now().time_since_epoch().count();
-            }
-            static_assert(std::is_reference<decltype(state)>::value);
-            state = nullptr;
-        }
-    }
-    spdlog::info("[{}] Logged out", client.getClientId());
-    client.getTcpClient().close();
     client.notifyLoggedOut();
+
+    // perform will
+    auto willMsg = client.moveWill();
+    if(willMsg) {
+        publishInternal(std::move(willMsg->topic), std::move(willMsg->payload), willMsg->qos, willMsg->retain, willMsg->properties);
+    }
+
+    spdlog::info("[{}] Logged out", client.getClientId());
+    // detach persistent state
+    auto state = client.getPersistentClientState();
+    if(state) {
+        state->dropCurrentClient();
+        if(state->isCleanSession() == CleanSession::Yes) {
+            auto actualState = std::find_if(mPersistentClientStates.begin(), mPersistentClientStates.end(), [&](const auto& upState) {
+                return upState.second.get() == state;
+            });
+            if(actualState == mPersistentClientStates.end()) {
+                return;
+            }
+            mSubscriptions.removeAllSubscriptions(Subscription{state, QoS::QoS0}); // QoS doesn't matter here
+            mDeletedPersistentClientStates.emplace_back(std::move(actualState->second));
+            mPersistentClientStates.erase(actualState);
+            mShouldCleanup = true;
+        }
+    }
 }
 void ApplicationState::publish(std::string&& topic, std::vector<uint8_t>&& msg, QoS qos, Retain retain, const PropertyList& properties) {
     std::shared_lock<std::shared_mutex> lock{ mMutex };
@@ -540,10 +506,11 @@ Retain ApplicationState::publishNoLockNoRetain(const std::string& topic, const s
         //retain = Retain::No;
     }
     std::unordered_set<Subscriber*> subs;
-    forEachSubscriber(topic, [&topic, &msg, publishQoS, &subs, &properties](Subscription& sub) {
-        if(subs.contains(sub.subscriber.get()))
+
+    mSubscriptions.forEveryMatch(topic, [&topic, &msg, publishQoS, &subs, &properties](Subscription& sub) {
+        if(subs.contains(sub.subscriber))
             return;
-        subs.emplace(sub.subscriber.get());
+        subs.emplace(sub.subscriber);
         // according to the spec, we have to downgrade the publishQoS level here to match that of the publish; TODO allow overriding this behaviour in a config file
         auto usedQos = minQoS(sub.qos, publishQoS);
         sendPublish(*sub.subscriber, topic, msg, usedQos, Retained::No, properties);
@@ -554,18 +521,11 @@ Retain ApplicationState::publishNoLockNoRetain(const std::string& topic, const s
 void ApplicationState::handleNewClientConnection(TcpClientConnection&& conn) {
     UniqueLockWithAtomicTidUpdate<std::shared_mutex> lock{ mMutex, mCurrentRWHolderOfMMutex };
     spdlog::info("New connection from [{}:{}]", conn.getRemoteIp(), conn.getRemotePort());
-    auto newClient = mClients.emplace_back(std::make_shared<MQTTClientConnection>(*this, std::move(conn)));
-    mClientManager.addClientConnection(*newClient);
+    auto& newClient = mClients.emplace_back(*this, std::move(conn));
+    mClientManager.addClientConnection(newClient);
 }
 void ApplicationState::deleteAllSubscriptions(Subscriber& sub) {
-    for(auto it = mSimpleSubscriptions.begin(); it != mSimpleSubscriptions.end();) {
-        if(it->second.subscriber.get() == &sub) {
-            it = mSimpleSubscriptions.erase(it);
-        } else {
-            it++;
-        }
-    }
-    erase_if(mWildcardSubscriptions, [&sub](auto& subscription) { return subscription.subscriber.get() == &sub; });
+    mSubscriptions.removeAllSubscriptions(Subscription{&sub, QoS::QoS0}); // QoS doesn't matter here
 }
 ApplicationState::ScriptsInfo ApplicationState::getScriptsInfo() {
     UniqueLockWithAtomicTidUpdate lock{ mMutex, mCurrentRWHolderOfMMutex };
@@ -635,7 +595,7 @@ std::unordered_map<std::string, uint64_t> ApplicationState::getSubscriptionsCoun
             it->second += 1;
         }
     };
-    for(auto& s : mSimpleSubscriptions) {
+    /*for(auto& s : mSimpleSubscriptions) {
         addSub(*s.second.subscriber);
     }
     for(auto& s : mWildcardSubscriptions) {
@@ -643,7 +603,8 @@ std::unordered_map<std::string, uint64_t> ApplicationState::getSubscriptionsCoun
     }
     for(auto& s : mOmniSubscriptions) {
         addSub(*s.subscriber);
-    }
+    }*/
+    // FIXME readd
     return counts;
 }
 void ApplicationState::runScript(const std::string& name, const ScriptInputArgs& input, ScriptStatusOutput&& output) {
@@ -679,4 +640,25 @@ void ApplicationState::performSystemAction(const std::string& topic, std::string
     }
 }
 
+void PersistentClientState::publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained, const PropertyList& properties, MQTTPublishPacketBuilder& packetBuilder) {
+    if(qos == QoS::QoS0) {
+        mCurrentClient->publish(topic, payload, QoS::QoS0, retained, properties, packetBuilder, 0);
+        return;
+    }
+    std::unique_lock<std::recursive_mutex> lock{mMutex};
+    MQTTVersion encoderVersion = MQTTVersion::V4;
+    if(mCurrentClient) {
+        encoderVersion = mCurrentClient->getMQTTVersion();
+    }
+    auto packetId = mPacketIdCounter++;
+    if(qos == QoS::QoS1) {
+        mHighQoSSendingPackets.emplace(mPacketIdCounter, HighQoSRetainStorage{packetBuilder.getPacket(qos, packetId, encoderVersion), qos, encoderVersion});
+    } else if(qos == QoS::QoS2) {
+        mHighQoSSendingPackets.emplace(mPacketIdCounter, HighQoSRetainStorage{packetBuilder.getPacket(qos, packetId, encoderVersion), qos, encoderVersion});
+    }
+    if(mCurrentClient) {
+        // FIXME release lock somehow here???
+        mCurrentClient->publish(topic, payload, qos, retained, properties, packetBuilder, packetId);
+    }
+}
 }

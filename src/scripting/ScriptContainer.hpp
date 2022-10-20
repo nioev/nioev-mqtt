@@ -99,9 +99,6 @@ public:
         return mScriptInitReturn;
     }
     virtual void forceQuit() = 0;
-    auto makeShared() {
-        return std::dynamic_pointer_cast<ScriptContainer>(shared_from_this());
-    }
 
     void publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained, const PropertyList& properties, MQTTPublishPacketBuilder& packetBuilder) override {
         if(mState != ScriptState::RUNNING)

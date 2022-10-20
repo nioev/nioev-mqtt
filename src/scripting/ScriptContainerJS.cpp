@@ -107,9 +107,9 @@ JSValue jsSubOrUnsub(JSContext* ctx, JSValue this_obj, int argc, JSValue* args) 
                 JS_FreeCString(ctx, topic);
             }};
             if constexpr(sub) {
-                self->mApp.requestChange(makeChangeRequestSubscribe(self->makeShared(), std::string{topic}));
+                self->mApp.requestChange(ChangeRequestSubscribe{self, std::string{topic}});
             } else {
-                self->mApp.requestChange(ChangeRequestUnsubscribe{self->makeShared(), topic});
+                self->mApp.requestChange(ChangeRequestUnsubscribe{self, topic});
             }
         }
         return JS_UNDEFINED;

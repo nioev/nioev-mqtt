@@ -15,19 +15,22 @@
 
 namespace nioev::mqtt {
 
-class MQTTClientConnection final : public Subscriber {
+class MQTTClientConnection : public TaskQueueRefCount {
 public:
     MQTTClientConnection(ApplicationState& app, TcpClientConnection&& conn)
     : mConn(std::move(conn)), mApp(app) {
-        mClientId = mConn.getRemoteIp() + ":" + std::to_string(mConn.getRemotePort());
     }
 
     [[nodiscard]] TcpClientConnection& getTcpClient() {
         return mConn;
     }
+    [[nodiscard]] const TcpClientConnection& getTcpClient() const {
+        return mConn;
+    }
 
     enum class ConnectionState {
         INITIAL,
+        CONNECTING,
         CONNECTED,
         INVALID_PROTOCOL_VERSION
     };
@@ -79,15 +82,6 @@ public:
         std::lock_guard<std::mutex> lock{mRemaingingMutex};
         return std::move(mWill);
     }
-    void setPersistentState(PersistentClientState* newState) {
-        std::unique_lock lock{mRemaingingMutex};
-        mPersistentState = newState;
-    }
-    // TODO Remove mutex - I'm pretty sure we don't actually need it anymore, but it doesn't really matter and I'm not 100% sure
-    std::pair<PersistentClientState*&, std::unique_lock<std::mutex>> getPersistentState() {
-        std::unique_lock lock{mRemaingingMutex};
-        return {mPersistentState, std::move(lock)};
-    }
     void notifyLoggedOut() {
         mLoggedOut = true;
     }
@@ -112,10 +106,9 @@ public:
     const std::string& getClientId() {
         if(mProperClientIdSet)
             return mProperClientId;
-        return mClientId;
-    }
-    auto makeShared() {
-        return std::dynamic_pointer_cast<MQTTClientConnection>(shared_from_this());
+        assert(false);
+        static std::string tmp{"< INVALID CLIENT ID >"};
+        return tmp;
     }
     int64_t getLastDataRecvTimestamp() const {
         return mLastDataReceivedTimestamp;
@@ -136,47 +129,49 @@ public:
     MQTTVersion getMQTTVersion() const {
         return mMQTTVersion;
     }
-
     bool hasSendError() {
         return mSendError;
+    }
+    PersistentClientState* getPersistentClientState() {
+        return mPersistentClientState;
+    }
+    void setPersistentClientState(PersistentClientState* state) {
+        mPersistentClientState = state;
+    }
+    void pushPacketReceivedWhileConnecting(const PacketReceiveData& packet) {
+        mPacketsReceivedWhileWaitingForConnectingLogin.emplace_back(packet);
     }
 
     void sendData(EncodedPacket packet);
     void sendData(InTransitEncodedPacket packet);
-    void publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained, const PropertyList& properties, MQTTPublishPacketBuilder& packetBuilder) override;
+    void publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained, const PropertyList& properties, MQTTPublishPacketBuilder& packetBuilder, uint16_t packetId);
 
-    virtual const char* getType() const override {
-        return "mqtt client";
-    }
 private:
     ApplicationState& mApp;
     TcpClientConnection mConn;
 
+    std::atomic<PersistentClientState*> mPersistentClientState{nullptr};
+
     std::mutex mRecvMutex;
     PacketReceiveData mRecvData;
+    std::vector<PacketReceiveData> mPacketsReceivedWhileWaitingForConnectingLogin;
+    uint16_t mKeepAliveIntervalSeconds = 10;
+    PropertyList mConnectProperties;
+    MQTTVersion mMQTTVersion = MQTTVersion::V4;
+    std::string mProperClientId;
 
     std::timed_mutex mSendMutex;
     std::vector<InTransitEncodedPacket> mSendTasks;
 
+
     std::mutex mRemaingingMutex;
     ConnectionState mState = ConnectionState::INITIAL;
-
     std::optional<MQTTPacket> mWill;
-    PersistentClientState* mPersistentState = nullptr;
-
-    // don't need a lock, protected by mRecvMutex
-    uint16_t mKeepAliveIntervalSeconds = 10;
-    PropertyList mConnectProperties;
-    MQTTVersion mMQTTVersion = MQTTVersion::V4;
 
     std::atomic<bool> mLoggedOut = false, mSendError = false;
-    std::string mClientId;
     std::atomic<int64_t> mLastDataReceivedTimestamp = std::chrono::steady_clock::now().time_since_epoch().count();
 
     std::atomic<bool> mProperClientIdSet{false};
-    std::string mProperClientId;
-
-    std::atomic<uint16_t> mPacketIdCounter = 0;
 };
 
 }

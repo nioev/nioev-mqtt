@@ -24,7 +24,7 @@ Statistics::Statistics(ApplicationState& app)
     mStartTime = std::chrono::steady_clock::now();
 }
 void Statistics::init() {
-    mApp.requestChange(ChangeRequestSubscribe{makeShared(), "", {}, SubscriptionType::OMNI, QoS::QoS2});
+    mApp.requestChange(ChangeRequestSubscribe{this, "", QoS::QoS2, SubscriptionType::OMNI});
 
     // TODO move ui logic to nioev-scripting?
     mApp.publishAsync(MQTTPacket{"nioev/ui/services/mqtt", stringToBuffer("{}"), QoS::QoS2, Retain::Yes});

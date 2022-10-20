@@ -4,6 +4,7 @@
 #include "spdlog/spdlog.h"
 #include <fcntl.h>
 #include <sys/socket.h>
+#include <sys/uio.h>
 #include <unistd.h>
 
 namespace nioev::mqtt {
@@ -69,6 +70,7 @@ void TcpClientConnection::close() {
 }
 uint TcpClientConnection::sendScatter(InTransitEncodedPacket* packets, size_t encodedPacketCount) {
     assert(encodedPacketCount > 0);
+    encodedPacketCount = (std::min)(encodedPacketCount, (size_t)UIO_MAXIOV / 4);
     auto fd = mSockFd.load();
     if(fd == -1)
         throwErrno("recv()");
@@ -79,6 +81,9 @@ uint TcpClientConnection::sendScatter(InTransitEncodedPacket* packets, size_t en
 
     for(size_t i = 0; i < encodedPacketCount; ++i) {
         vecsOffset += packets[i].packet.constructIOVecs(packets[i].offset, vecs + vecsOffset);
+    }
+    if(vecsOffset >= UIO_MAXIOV) {
+        spdlog::error("Over max: {}", vecsOffset);
     }
     scatterMessage.msg_iov = vecs;
     scatterMessage.msg_iovlen = vecsOffset;
@@ -93,16 +98,17 @@ uint TcpClientConnection::sendScatter(InTransitEncodedPacket* packets, size_t en
         throwErrno("send()");
     }
     for(size_t i = 0; i < encodedPacketCount; ++i) {
-        auto packetSize = packets[i].packet.fullSize();
-        if(packetSize <= result) {
-            packets[i].offset = packetSize;
-            result -= packetSize;
+        auto remainingPacketSize = packets[i].packet.fullSize() - packets[i].offset;
+        if(remainingPacketSize <= result) {
+            packets[i].offset = packets[i].packet.fullSize();
+            result -= remainingPacketSize;
         } else {
             packets[i].offset += result;
             result = 0;
             break;
         }
     }
+    assert(result == 0);
     return result;
 }
 
