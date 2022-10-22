@@ -10,6 +10,10 @@
 
 namespace nioev::mqtt {
 
+void protocolViolation(const std::string& reason) {
+    throw std::runtime_error{"Protocol violation: " + reason};
+}
+
 using namespace nioev::lib;
 
 ClientThreadManager::ClientThreadManager(ApplicationState& app)
@@ -19,8 +23,8 @@ ClientThreadManager::ClientThreadManager(ApplicationState& app)
         spdlog::critical("Failed to create epoll fd: " + errnoToString());
         exit(5);
     }
-    uint threadCount = std::max<uint>(4, std::thread::hardware_concurrency() / 2);
-    for(uint i = 0; i < threadCount; ++i) {
+    size_t threadCount = std::max<size_t>(4, std::thread::hardware_concurrency() / 2);
+    for(size_t i = 0; i < threadCount; ++i) {
         mReceiverThreads.emplace_back([this, i] {
             std::string threadName = "C-" + std::to_string(i);
             pthread_setname_np(pthread_self(), threadName.c_str());
@@ -28,11 +32,11 @@ ClientThreadManager::ClientThreadManager(ApplicationState& app)
             sigemptyset(&blockedSignals);
             sigaddset(&blockedSignals, SIGUSR1);
             pthread_sigmask(SIG_BLOCK, &blockedSignals, nullptr);
-            receiverThreadFunction();
+            receiverThreadFunction(i);
         });
     }
 }
-void ClientThreadManager::receiverThreadFunction() {
+void ClientThreadManager::receiverThreadFunction(size_t threadId) {
     sigset_t blockedSignalsDuringEpoll = { 0 };
     sigemptyset(&blockedSignalsDuringEpoll);
     sigaddset(&blockedSignalsDuringEpoll, SIGINT);
@@ -47,14 +51,30 @@ void ClientThreadManager::receiverThreadFunction() {
             if(errno == EINTR) {
                 if(mShouldQuit)
                     continue;
-                suspendLock.unlock();
-                mSuspendMutex2.lock_shared();
-                mSuspendMutex2.unlock_shared();
-                suspendLock.lock();
+                if(mShouldSuspend) {
+                    suspendLock.unlock();
+                    mSuspendMutex2.lock_shared();
+                    mSuspendMutex2.unlock_shared();
+                    suspendLock.lock();
+                    continue;
+                }
+            } else {
+                spdlog::warn("epoll_wait(): {}", errnoToString());
                 continue;
             }
-            spdlog::warn("epoll_wait(): {}", errnoToString());
-            continue;
+            // if an interrupt happens and we don't need to suspend, then we just continue onwards
+        }
+        if(threadId == 0) {
+            if(!mRecentlyLoggedInClientsEmpty) {
+                std::unique_lock<std::mutex> lock{mRecentlyLoggedInClientsMutex};
+                while(!mRecentlyLoggedInClients.empty()) {
+                    for(auto client: mRecentlyLoggedInClients) {
+                        auto lock = client->getRecvMutexLock();
+                        handlePacketsReceivedWhileConnecting(lock, *client);
+                    }
+                    mRecentlyLoggedInClients.clear();
+                }
+            }
         }
         for(int i = 0; i < eventCount; ++i) {
             auto& client = * (MQTTClientConnection*)events[i].data.ptr;
@@ -79,7 +99,7 @@ void ClientThreadManager::receiverThreadFunction() {
                             }
                         }
                         sendTasks.erase(sendTasks.begin(), sendTasks.begin() + donePackets);
-                        if(sendTasks.empty() && client.getState() == MQTTClientConnection::ConnectionState::INVALID_PROTOCOL_VERSION) {
+                        if(sendTasks.empty() && client.getStateAtomic() == MQTTClientConnection::ConnectionState::INVALID_PROTOCOL_VERSION) {
                             assert(sendTasks.empty());
                             throw CleanDisconnectException{};
                         }
@@ -91,11 +111,14 @@ void ClientThreadManager::receiverThreadFunction() {
                     // the recommended way of doing io if one uses the edge-triggered mode of epoll.
                     // This ensures that we don't hang somewhere when we couldn't receive all the data.
                     uint bytesReceived = 0;
-                    auto [recvDataRef, recvDataRefLock] = client.getRecvData();
+                    auto recvDataRefLock = client.getRecvMutexLock();
+
+                    handlePacketsReceivedWhileConnecting(recvDataRefLock, client);
+
+                    auto& recvData = client.getRecvData(recvDataRefLock);
                     do {
                         bytesReceived = client.getTcpClient().recv(bytes);
                         spdlog::debug("Bytes read: {}", bytesReceived);
-                        auto& recvData = recvDataRef.get();
                         if(bytesReceived > 0) {
                             client.setLastDataRecvTimestamp(std::chrono::steady_clock::now().time_since_epoch().count());
                         }
@@ -123,7 +146,7 @@ void ClientThreadManager::receiverThreadFunction() {
                                 if((encodedByte & 0x80) == 0) {
                                     if(recvData.packetLength == 0) {
                                         recvData.recvState = MQTTClientConnection::PacketReceiveState::IDLE;
-                                        handlePacketReceived(client, recvData, recvDataRefLock);
+                                        handlePacketReceived(mApp, client.getState(recvDataRefLock), client, recvData, recvDataRefLock);
                                     } else {
                                        recvData.recvState = MQTTClientConnection::PacketReceiveState::RECEIVING_DATA;
                                        spdlog::debug("Expecting packet of length {}", recvData.packetLength);
@@ -147,7 +170,7 @@ void ClientThreadManager::receiverThreadFunction() {
                                 }
                                 if(recvData.currentReceiveBuffer.size() == recvData.packetLength) {
                                     spdlog::debug("Received: {}", recvData.currentReceiveBuffer.size());
-                                    handlePacketReceived(client, recvData, recvDataRefLock);
+                                    handlePacketReceived(mApp, client.getState(recvDataRefLock), client, recvData, recvDataRefLock);
                                     recvData.recvState = MQTTClientConnection::PacketReceiveState::IDLE;
                                 }
                                 break;
@@ -179,12 +202,22 @@ void ClientThreadManager::removeClientConnection(MQTTClientConnection& conn) {
     if(epoll_ctl(mEpollFd, EPOLL_CTL_DEL, conn.getTcpClient().getFd(), nullptr) < 0) {
         spdlog::debug("Failed to remove fd from epoll: {}", lib::errnoToString());
     }
+    std::unique_lock<std::mutex> lock{mRecentlyLoggedInClientsMutex};
+    std::erase_if(mRecentlyLoggedInClients, [&](auto& rliClient) {
+        return rliClient == &conn;
+    });
 }
-void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, const MQTTClientConnection::PacketReceiveData& recvData, std::unique_lock<std::mutex>& clientReceiveLock) {
+void ClientThreadManager::addRecentlyLoggedInClient(MQTTClientConnection* client) {
+    std::unique_lock<std::mutex> lock{mRecentlyLoggedInClientsMutex};
+    mRecentlyLoggedInClients.emplace_back(client);
+    lock.unlock();
+    pthread_kill(mReceiverThreads.at(0).native_handle(), SIGUSR1);
+}
+void handlePacketReceived(ApplicationState& app, MQTTClientConnection::ConnectionState state, MQTTClientConnection& client, const MQTTClientConnection::PacketReceiveData& recvData, std::unique_lock<std::mutex>& clientReceiveLock) {
     spdlog::debug("Received packet of type {}", recvData.messageType);
 
     BinaryDecoder decoder{recvData.currentReceiveBuffer, recvData.packetLength};
-    switch(client.getState()) {
+    switch(state) {
     case MQTTClientConnection::ConnectionState::INITIAL: {
         switch(recvData.messageType) {
         case MQTTMessageType::CONNECT: {
@@ -205,7 +238,7 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
                 response.encodeByte(2); // remaining packet length
                 response.encodeByte(0); // no session present
                 response.encodeByte(1); // invalid protocol version
-                client.setState(MQTTClientConnection::ConnectionState::INVALID_PROTOCOL_VERSION);
+                client.setStateAtomic(MQTTClientConnection::ConnectionState::INVALID_PROTOCOL_VERSION);
                 spdlog::error("Invalid protocol version requested by client: {}", protocolLevel);
                 client.sendData(EncodedPacket::fromData(static_cast<uint8_t>(MQTTMessageType::CONNACK) << 4, response.moveData()));
                 break;
@@ -240,7 +273,7 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
                 if(willQos >= 3) {
                     protocolViolation("Invalid will qos");
                 }
-                client.setWill(std::move(willTopic), std::move(willMessage), static_cast<QoS>(willQos), willRetain);
+                client.setWill(clientReceiveLock, std::move(willTopic), std::move(willMessage), static_cast<QoS>(willQos), willRetain);
             }
             if(connectFlags & 0x80) {
                 // username
@@ -250,8 +283,8 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
                 // password
                 auto password = decoder.decodeString();
             }
-            client.setState(MQTTClientConnection::ConnectionState::CONNECTING);
-            mApp.requestChange(ChangeRequestLoginClient{&client, std::move(clientId), cleanSession ? CleanSession::Yes : CleanSession::No});
+            client.setStateAtomic(MQTTClientConnection::ConnectionState::CONNECTING);
+            app.requestChange(ChangeRequestLoginClient{&client, std::move(clientId), cleanSession ? CleanSession::Yes : CleanSession::No});
 
             break;
         }
@@ -262,7 +295,7 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
         break;
     }
     case MQTTClientConnection::ConnectionState::CONNECTING: {
-        client.pushPacketReceivedWhileConnecting(recvData);
+        client.pushPacketReceivedWhileConnecting(clientReceiveLock, recvData);
         break;
     }
     case MQTTClientConnection::ConnectionState::CONNECTED: {
@@ -308,7 +341,7 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
                     properties = decoder.decodeProperties();
                 }
                 std::vector<uint8_t> data = decoder.getRemainingBytes();
-                mApp.publish(std::move(topic), std::move(data), qos, retain, properties);
+                app.publish(std::move(topic), std::move(data), qos, retain, properties);
             }
             break;
         }
@@ -403,7 +436,7 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
                 auto state = client.getPersistentClientState();
                 if(!state)
                     throw std::runtime_error{"Persistent state lost!"};
-                mApp.requestChange(ChangeRequestSubscribe{state, std::move(topic), qos});
+                app.requestChange(ChangeRequestSubscribe{state, std::move(topic), qos});
             } while(!decoder.empty());
 
 
@@ -421,7 +454,7 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
                 auto state = client.getPersistentClientState();
                 if(!state)
                     throw std::runtime_error{"Persistent state lost!"};
-                mApp.requestChange(ChangeRequestUnsubscribe{state, topic});
+                app.requestChange(ChangeRequestUnsubscribe{state, topic});
             } while(!decoder.empty());
 
             // prepare SUBACK
@@ -445,7 +478,7 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
                 protocolViolation("Invalid disconnect first byte");
             }
             spdlog::info("[{}] Received disconnect request", client.getClientId());
-            client.discardWill();
+            client.discardWill(clientReceiveLock);
             throw CleanDisconnectException{};
 
             break;
@@ -454,9 +487,6 @@ void ClientThreadManager::handlePacketReceived(MQTTClientConnection& client, con
         break;
     }
     }
-}
-void ClientThreadManager::protocolViolation(const std::string& reason) {
-    throw std::runtime_error{"Protocol violation: " + reason};
 }
 
 ClientThreadManager::~ClientThreadManager() {
@@ -470,6 +500,7 @@ ClientThreadManager::~ClientThreadManager() {
     }
 }
 void ClientThreadManager::suspendAllThreads() {
+    mShouldSuspend = true;
     mSuspendMutex2.lock();
     while(!mSuspendMutex.try_lock()) {
         for(auto& thread: mReceiverThreads) {
@@ -481,6 +512,13 @@ void ClientThreadManager::suspendAllThreads() {
 }
 void ClientThreadManager::resumeAllThreads() {
     mSuspendMutex.unlock();
+    mShouldSuspend = false;
+}
+void ClientThreadManager::handlePacketsReceivedWhileConnecting(std::unique_lock<std::mutex>& recvDataLock, MQTTClientConnection& client) {
+    for(auto& packet: client.getPacketsReceivedWhileConnecting(recvDataLock)) {
+        handlePacketReceived(mApp, MQTTClientConnection::ConnectionState::CONNECTED, client, packet, recvDataLock);
+    }
+    client.getPacketsReceivedWhileConnecting(recvDataLock).clear();
 }
 
 }

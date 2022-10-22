@@ -23,7 +23,7 @@ void Timers::tasksThreadFunc() {
             }
         }
         auto now = std::chrono::steady_clock::now();
-        std::chrono::steady_clock::duration smallestDiff = std::chrono::steady_clock::duration::max();
+        auto smallestDiff = std::chrono::steady_clock::duration::max();
         for(auto it = mTasks.begin(); it != mTasks.end(); ++it) {
             std::visit(
                 overloaded{ [&](PeriodicTask& p) {
@@ -38,7 +38,12 @@ void Timers::tasksThreadFunc() {
                 } },
                 *it);
         }
-        mTasksCV.wait_for(lock, smallestDiff);
+        if(smallestDiff == std::chrono::steady_clock::duration::max()) {
+            mTasksCV.wait(lock);
+        } else {
+            mTasksCV.wait_for(lock, smallestDiff);
+
+        }
     }
 }
 

@@ -18,12 +18,13 @@ public:
     void addClientConnection(MQTTClientConnection& conn);
     void removeClientConnection(MQTTClientConnection& connection);
 
+    void addRecentlyLoggedInClient(MQTTClientConnection* client);
+
     void suspendAllThreads();
     void resumeAllThreads();
 private:
-    void receiverThreadFunction();
-    void handlePacketReceived(MQTTClientConnection& client, const MQTTClientConnection::PacketReceiveData&, std::unique_lock<std::mutex>& clientReceiveLock);
-    void protocolViolation(const std::string& reason);
+    void receiverThreadFunction(size_t threadId);
+    void handlePacketsReceivedWhileConnecting(std::unique_lock<std::mutex>& recvDataLock, MQTTClientConnection& client);
 private:
     std::vector<std::thread> mReceiverThreads;
     std::atomic<bool> mShouldQuit = false;
@@ -32,6 +33,12 @@ private:
     std::shared_mutex mSuspendMutex;
     std::shared_mutex mSuspendMutex2;
     std::atomic<bool> mShouldSuspend{false};
+
+    std::mutex mRecentlyLoggedInClientsMutex;
+    std::vector<MQTTClientConnection*> mRecentlyLoggedInClients;
+    std::atomic<bool> mRecentlyLoggedInClientsEmpty{true};
 };
+
+void handlePacketReceived(ApplicationState& app, MQTTClientConnection::ConnectionState state, MQTTClientConnection& client, const MQTTClientConnection::PacketReceiveData& recvData, std::unique_lock<std::mutex>& clientReceiveLock);
 
 }

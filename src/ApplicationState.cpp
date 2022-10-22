@@ -57,13 +57,13 @@ ApplicationState::ApplicationState() : mAsyncPublisher(*this), mStatistics(std::
         return true;
     });
     mAmountOfScriptsLoadedFromDBOnStartup = scripts.size();
+    UniqueLockWithAtomicTidUpdate<std::shared_mutex> lock{ mMutex, mCurrentRWHolderOfMMutex };
     for(auto& [name, code, active] : scripts) {
         executeChangeRequest(ChangeRequestAddScript{ name, std::move(code), ScriptStatusOutput{}, true });
         if(!active) {
             executeChangeRequest(ChangeRequestDeactivateScript{ std::move(name) });
         }
     }
-    UniqueLockWithAtomicTidUpdate<std::shared_mutex> lock{ mMutex, mCurrentRWHolderOfMMutex };
     // fetch retained messages
     SQLite::Statement retainedMsgQuery(mDb, "SELECT topic,payload,timestamp,qos FROM retained_msg");
     while(retainedMsgQuery.executeStep()) {
@@ -333,7 +333,6 @@ void ApplicationState::operator()(ChangeRequestLoginClient&& req) {
             response.encodePropertyList(properties);
         }
         req.client->sendData(EncodedPacket::fromData(static_cast<uint8_t>(MQTTMessageType::CONNACK) << 4, response.moveData()));
-        req.client->setState(MQTTClientConnection::ConnectionState::CONNECTED);
     };
 
     if(existingSession != mPersistentClientStates.end()) {
@@ -392,6 +391,7 @@ void ApplicationState::operator()(ChangeRequestLoginClient&& req) {
     // we could use callbacks, but that seems too complicated
     spdlog::info("[{}] Logged in from [{}:{}]", req.client->getClientId(), req.client->getTcpClient().getRemoteIp(), req.client->getTcpClient().getRemotePort());
     sendConnack();
+    req.client->setStateAtomic(MQTTClientConnection::ConnectionState::CONNECTED);
 }
 void ApplicationState::operator()(ChangeRequestLogoutClient&& req) {
     if(req.client->isLoggedOut())
@@ -456,16 +456,19 @@ void ApplicationState::logoutClient(MQTTClientConnection& client) {
     mClientManager.removeClientConnection(client);
     client.notifyLoggedOut();
 
-    // perform will
-    auto willMsg = client.moveWill();
-    if(willMsg) {
-        publishInternal(std::move(willMsg->topic), std::move(willMsg->payload), willMsg->qos, willMsg->retain, willMsg->properties);
-    }
 
     spdlog::info("[{}] Logged out", client.getClientId());
     // detach persistent state
     auto state = client.getPersistentClientState();
     if(state) {
+        // perform will
+        // it's safe to move-access the will message here without a lock as the only way the client can have a persistent state if the CONNECT
+        // packet has been parsed fully and then the client logged in. In that case, the will message won't change anymore so this is actually safe.
+        auto willMsg = client.moveWill_NO_LOCK();
+        if(willMsg) {
+            publishInternal(std::move(willMsg->topic), std::move(willMsg->payload), willMsg->qos, willMsg->retain, willMsg->properties);
+        }
+
         state->dropCurrentClient();
         if(state->isCleanSession() == CleanSession::Yes) {
             auto actualState = std::find_if(mPersistentClientStates.begin(), mPersistentClientStates.end(), [&](const auto& upState) {

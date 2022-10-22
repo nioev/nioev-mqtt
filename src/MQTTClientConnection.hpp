@@ -34,12 +34,15 @@ public:
         CONNECTED,
         INVALID_PROTOCOL_VERSION
     };
-    [[nodiscard]] ConnectionState getState() {
-        std::lock_guard<std::mutex> lock{mRemaingingMutex};
+    [[nodiscard]] ConnectionState getState(std::unique_lock<std::mutex>& recvMutex) const {
+        assert(recvMutex.owns_lock());
+        assert(recvMutex.mutex() == &mRecvMutex);
         return mState;
     }
-    void setState(ConnectionState newState) {
-        std::lock_guard<std::mutex> lock{mRemaingingMutex};
+    ConnectionState getStateAtomic() const {
+        return mState;
+    }
+    void setStateAtomic(ConnectionState newState) {
         mState = newState;
     }
     enum class PacketReceiveState {
@@ -56,9 +59,10 @@ public:
         uint32_t multiplier = 1;
         uint8_t firstByte = 0;
     };
-    std::pair<std::reference_wrapper<PacketReceiveData>, std::unique_lock<std::mutex>> getRecvData() {
-        std::unique_lock<std::mutex> lock{mRecvMutex};
-        return {mRecvData, std::move(lock)};
+    PacketReceiveData& getRecvData(std::unique_lock<std::mutex>& recvMutex) {
+        assert(recvMutex.owns_lock());
+        assert(recvMutex.mutex() == &mRecvMutex);
+        return mRecvData;
     }
 
     std::pair<std::reference_wrapper<std::vector<InTransitEncodedPacket>>, std::unique_lock<std::timed_mutex>> getSendTasks() {
@@ -66,20 +70,21 @@ public:
         return {mSendTasks, std::move(lock)};
     }
 
-    void setWill(std::string&& topic, std::vector<uint8_t>&& msg, QoS qos, Retain retain) {
-        std::lock_guard<std::mutex> lock{mRemaingingMutex};
+    void setWill(std::unique_lock<std::mutex>& recvMutex, std::string&& topic, std::vector<uint8_t>&& msg, QoS qos, Retain retain) {
+        assert(recvMutex.owns_lock());
+        assert(recvMutex.mutex() == &mRecvMutex);
         mWill.emplace();
         mWill->topic = std::move(topic);
         mWill->payload = std::move(msg);
         mWill->qos = qos;
         mWill->retain = retain;
     }
-    void discardWill() {
-        std::lock_guard<std::mutex> lock{mRemaingingMutex};
+    void discardWill(std::unique_lock<std::mutex>& recvMutex) {
+        assert(recvMutex.owns_lock());
+        assert(recvMutex.mutex() == &mRecvMutex);
         mWill.reset();
     }
-    auto moveWill() {
-        std::lock_guard<std::mutex> lock{mRemaingingMutex};
+    auto moveWill_NO_LOCK() {
         return std::move(mWill);
     }
     void notifyLoggedOut() {
@@ -137,8 +142,18 @@ public:
     void setPersistentClientState(PersistentClientState* state) {
         mPersistentClientState = state;
     }
-    void pushPacketReceivedWhileConnecting(const PacketReceiveData& packet) {
+    void pushPacketReceivedWhileConnecting(std::unique_lock<std::mutex>& recvMutex, const PacketReceiveData& packet) {
+        assert(recvMutex.owns_lock());
+        assert(recvMutex.mutex() == &mRecvMutex);
         mPacketsReceivedWhileWaitingForConnectingLogin.emplace_back(packet);
+    }
+    std::vector<PacketReceiveData>& getPacketsReceivedWhileConnecting(std::unique_lock<std::mutex>& recvMutex) {
+        assert(recvMutex.owns_lock());
+        assert(recvMutex.mutex() == &mRecvMutex);
+        return mPacketsReceivedWhileWaitingForConnectingLogin;
+    }
+    std::unique_lock<std::mutex> getRecvMutexLock() {
+        return std::unique_lock<std::mutex>{ mRecvMutex };
     }
 
     void sendData(EncodedPacket packet);
@@ -158,14 +173,13 @@ private:
     PropertyList mConnectProperties;
     MQTTVersion mMQTTVersion = MQTTVersion::V4;
     std::string mProperClientId;
+    std::atomic<ConnectionState> mState = ConnectionState::INITIAL;
+    std::optional<MQTTPacket> mWill;
 
     std::timed_mutex mSendMutex;
     std::vector<InTransitEncodedPacket> mSendTasks;
 
 
-    std::mutex mRemaingingMutex;
-    ConnectionState mState = ConnectionState::INITIAL;
-    std::optional<MQTTPacket> mWill;
 
     std::atomic<bool> mLoggedOut = false, mSendError = false;
     std::atomic<int64_t> mLastDataReceivedTimestamp = std::chrono::steady_clock::now().time_since_epoch().count();
