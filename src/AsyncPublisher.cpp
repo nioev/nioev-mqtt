@@ -8,7 +8,7 @@ AsyncPublisher::AsyncPublisher(ApplicationState& app)
     startThread();
 }
 void AsyncPublisher::handleTask(MQTTPacket&& pub) {
-    mApp.publish(std::move(pub.topic), std::move(pub.payload), pub.qos, pub.retain, pub.properties);
+    mApp.publish(std::move(pub.topic), vecToPayload(pub.payload), pub.qos, pub.retain, pub.properties);
 }
 
 }

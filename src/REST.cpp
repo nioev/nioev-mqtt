@@ -19,11 +19,11 @@ struct PerWebsocketClientData {
 class WSSubscriber : public Subscriber {
 public:
     WSSubscriber(ApplicationState& app, uWS::Loop& loop, uWS::WebSocket<false, true, PerWebsocketClientData>* ws) : mApp(app), mLoop(loop), mWS(ws) { }
-    void publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained, const PropertyList& properties, MQTTPublishPacketBuilder&) override {
+    void publish(const std::string& topic, PayloadType payload, QoS qos, Retained retained, const PropertyList& properties, MQTTPublishPacketBuilder&) override {
         mLoop.defer([this, topic, payload, active = mActive] {
             if(!*active)
                 return;
-            mWS->send(std::string_view{ (const char*)payload.data(), payload.size() }, uWS::BINARY, false);
+            mWS->send(payload, uWS::BINARY, false);
             // mWebApp.publish(mWSId, std::string_view{ (const char*)payload.data(), payload.size() }, uWS::BINARY, false);
         });
     }
@@ -71,7 +71,6 @@ void RESTAPI::run(ApplicationState& app) {
                         return;
                     }
                     auto payloadStringView = req->getQuery("payload");
-                    std::vector<uint8_t> payload{ payloadStringView.begin(), payloadStringView.end() };
 
                     std::string qosStr{ req->getQuery("qos") };
                     QoS qos = QoS::QoS0;
@@ -86,7 +85,7 @@ void RESTAPI::run(ApplicationState& app) {
                         res->end("Invalid QoS (0, 1 or 2 allowed)", true);
                         return;
                     }
-                    app.publish(std::move(topic), std::move(payload), qos, retain, {});
+                    app.publish(std::move(topic), payloadStringView, qos, retain, {});
                     res->end("ok", true);
                 } catch(std::exception& e) {
                     res->writeStatus("500 Internal Server Error");

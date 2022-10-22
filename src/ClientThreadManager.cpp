@@ -340,8 +340,7 @@ void handlePacketReceived(ApplicationState& app, MQTTClientConnection::Connectio
                 if(client.getMQTTVersion() == MQTTVersion::V5) {
                     properties = decoder.decodeProperties();
                 }
-                std::vector<uint8_t> data = decoder.getRemainingBytes();
-                app.publish(std::move(topic), std::move(data), qos, retain, properties);
+                app.publish(std::move(topic), decoder.getRemainingBytes(), qos, retain, properties);
             }
             break;
         }

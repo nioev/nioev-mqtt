@@ -11,10 +11,9 @@
 namespace nioev::mqtt {
 using namespace nioev::lib;
 
-
 class Subscriber : public TaskQueueRefCount {
 public:
-    virtual void publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained, const PropertyList& properties, MQTTPublishPacketBuilder& packetBuilder) = 0;
+    virtual void publish(const std::string& topic, PayloadType payload, QoS qos, Retained retained, const PropertyList& properties, MQTTPublishPacketBuilder& packetBuilder) = 0;
     virtual ~Subscriber() = default;
 
     virtual bool isDeleted() const {

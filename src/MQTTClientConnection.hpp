@@ -158,7 +158,7 @@ public:
 
     void sendData(EncodedPacket packet);
     void sendData(InTransitEncodedPacket packet);
-    void publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained, const PropertyList& properties, MQTTPublishPacketBuilder& packetBuilder, uint16_t packetId);
+    void publish(const std::string& topic, PayloadType payload, QoS qos, Retained retained, const PropertyList& properties, MQTTPublishPacketBuilder& packetBuilder, uint16_t packetId);
 
 private:
     ApplicationState& mApp;

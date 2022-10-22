@@ -90,7 +90,7 @@ public:
     : mClientID(std::move(clientId)), mCleanSession(cleanSession), mCurrentClient(std::move(client)) {
 
     }
-    void publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained, const PropertyList& properties, MQTTPublishPacketBuilder& packetBuilder) override;
+    void publish(const std::string& topic, PayloadType payload, QoS qos, Retained retained, const PropertyList& properties, MQTTPublishPacketBuilder& packetBuilder) override;
     virtual const char* getType() const override {
         return "mqtt client";
     }
@@ -233,7 +233,7 @@ public:
     enum class RequestChangeMode {
         ASYNC,
         SYNC,
-        SYNC_WHEN_IDLE
+        TRY_SYNC_THEN_ASYNC
     };
     void requestChange(ChangeRequest&&, RequestChangeMode = RequestChangeMode::ASYNC);
 
@@ -249,7 +249,7 @@ public:
     void operator()(ChangeRequestActivateScript&& req);
     void operator()(ChangeRequestDeactivateScript&& req);
 
-    void publish(std::string&& topic, std::vector<uint8_t>&& msg, QoS qos, Retain retain, const PropertyList& properties);
+    void publish(std::string&& topic, PayloadType msg, QoS qos, Retain retain, const PropertyList& properties);
     // The one-stop solution for all your async publishing needs! Need to publish something but you are actually called by publish itself, which
     // would cause deadlocks or stack overflows? Don't worry! Just call publishAsync and be certain that another thread will handle this problem for you!
     // This will probably even increase performance in case there are many subscribers and you are really busy yourself, because this will free up processing
@@ -322,9 +322,9 @@ public:
 private:
 
     // basically the same as publish but without acquiring a read-only lock
-    void publishInternal(std::string&& topic, std::vector<uint8_t>&& msg, QoS qos, Retain retain, const PropertyList& properties);
+    void publishInternal(std::string&& topic, PayloadType msg, QoS qos, Retain retain, const PropertyList& properties);
 
-    Retain publishNoLockNoRetain(const std::string& topic, const std::vector<uint8_t>& msg, QoS publishQoS, Retain retain, const PropertyList& properties);
+    Retain publishNoLockNoRetain(const std::string& topic, PayloadType msg, QoS publishQoS, Retain retain, const PropertyList& properties);
     void executeChangeRequest(ChangeRequest&&);
     void workerThreadFunc();
 
@@ -341,7 +341,7 @@ private:
     void deleteScript(std::unordered_map<std::string, std::unique_ptr<ScriptContainer>>::iterator it);
     void deleteAllSubscriptions(Subscriber& sub);
 
-    void performSystemAction(const std::string& topic, std::string_view payloadStr, const std::vector<uint8_t>& payloadBytes);
+    void performSystemAction(const std::string& topic, std::string_view payloadStr);
 
 
     // the order of these fields has been carefully evaluated and tested to be race-free during deconstruction, so be careful to change anything!

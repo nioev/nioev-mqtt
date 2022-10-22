@@ -3,7 +3,7 @@
 
 namespace nioev::mqtt {
 
-MQTTPublishPacketBuilder::MQTTPublishPacketBuilder(const std::string& topic, const std::vector<uint8_t>& payload, Retained retained, const PropertyList& properties)
+MQTTPublishPacketBuilder::MQTTPublishPacketBuilder(const std::string& topic, PayloadType payload, Retained retained, const PropertyList& properties)
 : mTopic(topic), mPayload(payload), mRetained(retained), mProperties(properties) {
 
 }
@@ -32,7 +32,7 @@ EncodedPacket MQTTPublishPacketBuilder::getPacket(QoS qos, uint16_t packetId, MQ
     if(version == MQTTVersion::V5) {
         endEncoder.encodePropertyList(mProperties);
     }
-    endEncoder.encodeBytes(mPayload);
+    endEncoder.encodeBytes(mPayload.data(), mPayload.size());
 
     mPacketPostlude.emplace(version, endEncoder.moveData());
 

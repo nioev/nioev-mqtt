@@ -167,9 +167,22 @@ void ApplicationState::requestChange(ChangeRequest&& changeRequest, ApplicationS
                    [&](const ChangeRequestUnsubscribeFromAll& req) { req.subscriber->incTaskQueueRefCount(); },
                    [&](auto&) {} }, changeRequest);
 
-    if(mode == RequestChangeMode::SYNC_WHEN_IDLE || mode == RequestChangeMode::SYNC) {
+    if(mode == RequestChangeMode::SYNC) {
         UniqueLockWithAtomicTidUpdate<std::shared_mutex> lock{ mMutex, mCurrentRWHolderOfMMutex };
         executeChangeRequest(std::move(changeRequest));
+    } else if(mode == RequestChangeMode::TRY_SYNC_THEN_ASYNC) {
+        std::unique_lock<std::shared_mutex> lock{ mMutex, std::defer_lock };
+        if(lock.try_lock()) {
+            mCurrentRWHolderOfMMutex = std::this_thread::get_id();
+            executeChangeRequest(std::move(changeRequest));
+            mCurrentRWHolderOfMMutex = std::thread::id();
+        } else {
+            if(mCurrentRWHolderOfMMutex == std::this_thread::get_id()) {
+                mQueueInternal.emplace_back(std::move(changeRequest));
+            } else {
+                mQueue.push(std::move(changeRequest));
+            }
+        }
     } else if(mode == RequestChangeMode::ASYNC) {
         /* Because of it's finite size, we can only use the lockless queue if we don't hold the mutex currently; if we push an element
          * while holding the mutex we might hang indefinitly as the worker thread is unable to execute entries from the queue.
@@ -212,7 +225,7 @@ void ApplicationState::executeChangeRequest(ChangeRequest&& changeRequest) {
                    [&](auto&) {} }, changeRequest);
 }
 
-static inline void sendPublish(Subscriber& sub, const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained, const PropertyList& properties) {
+static inline void sendPublish(Subscriber& sub, const std::string& topic, PayloadType payload, QoS qos, Retained retained, const PropertyList& properties) {
     MQTTPublishPacketBuilder builder{ topic, payload, retained, properties };
     sub.publish(topic, payload, qos, retained, properties, builder);
 }
@@ -223,7 +236,7 @@ void ApplicationState::subscribeClientInternal(ChangeRequestSubscribe&& req, Sho
     for(auto& retainedMessage : mRetainedMessages) {
         mSubscriptions.forEveryMatch(retainedMessage.first, [&](Subscription& matchedSub) {
             if(sub == matchedSub) {
-                sendPublish(*req.subscriber, retainedMessage.first, retainedMessage.second.payload, minQoS(retainedMessage.second.qos, req.qos), Retained::Yes, retainedMessage.second.properties);
+                sendPublish(*req.subscriber, retainedMessage.first, vecToPayload(retainedMessage.second.payload), minQoS(retainedMessage.second.qos, req.qos), Retained::Yes, retainedMessage.second.properties);
             }
         });
     }
@@ -466,7 +479,7 @@ void ApplicationState::logoutClient(MQTTClientConnection& client) {
         // packet has been parsed fully and then the client logged in. In that case, the will message won't change anymore so this is actually safe.
         auto willMsg = client.moveWill_NO_LOCK();
         if(willMsg) {
-            publishInternal(std::move(willMsg->topic), std::move(willMsg->payload), willMsg->qos, willMsg->retain, willMsg->properties);
+            publishInternal(std::move(willMsg->topic), vecToPayload(willMsg->payload), willMsg->qos, willMsg->retain, willMsg->properties);
         }
 
         state->dropCurrentClient();
@@ -484,22 +497,22 @@ void ApplicationState::logoutClient(MQTTClientConnection& client) {
         }
     }
 }
-void ApplicationState::publish(std::string&& topic, std::vector<uint8_t>&& msg, QoS qos, Retain retain, const PropertyList& properties) {
+void ApplicationState::publish(std::string&& topic, PayloadType msg, QoS qos, Retain retain, const PropertyList& properties) {
     std::shared_lock<std::shared_mutex> lock{ mMutex };
     retain = publishNoLockNoRetain(topic, msg, qos, retain, properties);
     lock.unlock();
     if(retain == Retain::Yes) {
         // we aren't allowed to call requestChange from another thread while holding a lock, so we need to do it here
-        requestChange(ChangeRequestRetain{ MQTTPacket{std::move(topic), std::move(msg), qos, Retain::Yes, properties} });
+        requestChange(ChangeRequestRetain{ MQTTPacket{std::move(topic), payloadToVec(msg), qos, Retain::Yes, properties} }, RequestChangeMode::TRY_SYNC_THEN_ASYNC);
     }
 }
-void ApplicationState::publishInternal(std::string&& topic, std::vector<uint8_t>&& msg, QoS qos, Retain retain, const PropertyList& properties) {
+void ApplicationState::publishInternal(std::string&& topic, PayloadType msg, QoS qos, Retain retain, const PropertyList& properties) {
     retain = publishNoLockNoRetain(topic, msg, qos, retain, properties);
     if(retain == Retain::Yes) {
-        requestChange(ChangeRequestRetain{ MQTTPacket{std::move(topic), std::move(msg), qos, Retain::Yes, properties} });
+        requestChange(ChangeRequestRetain{ MQTTPacket{std::move(topic), payloadToVec(msg), qos, Retain::Yes, properties} }, RequestChangeMode::TRY_SYNC_THEN_ASYNC);
     }
 }
-Retain ApplicationState::publishNoLockNoRetain(const std::string& topic, const std::vector<uint8_t>& msg, QoS publishQoS, Retain retain, const PropertyList& properties) {
+Retain ApplicationState::publishNoLockNoRetain(const std::string& topic, PayloadType msg, QoS publishQoS, Retain retain, const PropertyList& properties) {
 // NOTE: It's possible that we only have a read-only lock here, so we aren't allowed to call requestChange
 #ifndef NDEBUG
     if(topic != LOG_TOPIC) {
@@ -509,7 +522,7 @@ Retain ApplicationState::publishNoLockNoRetain(const std::string& topic, const s
 #endif
     // first check for publish to $NIOEV
     if(startsWith(topic, "$NIOEV")) {
-        performSystemAction(topic, std::string_view{(const char*)msg.data(), (const char*)msg.data() + msg.size()}, msg);
+        performSystemAction(topic, msg);
         //retain = Retain::No;
     }
     std::unordered_set<Subscriber*> subs;
@@ -636,7 +649,7 @@ void ApplicationState::runScript(const std::string& name, const ScriptInputArgs&
         return;
     }
 }
-void ApplicationState::performSystemAction(const std::string& topic, std::string_view payloadStr, const std::vector<uint8_t>& payloadBytes) {
+void ApplicationState::performSystemAction(const std::string& topic, std::string_view payloadStr) {
     if(payloadStr.size() > 1024 * 1024) {
         spdlog::warn("Dropping system action request due to 1MB size limit");
         return;
@@ -647,7 +660,7 @@ void ApplicationState::performSystemAction(const std::string& topic, std::string
     }
 }
 
-void PersistentClientState::publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained, const PropertyList& properties, MQTTPublishPacketBuilder& packetBuilder) {
+void PersistentClientState::publish(const std::string& topic, PayloadType payload, QoS qos, Retained retained, const PropertyList& properties, MQTTPublishPacketBuilder& packetBuilder) {
     std::unique_lock<std::recursive_mutex> lock{mMutex};
     if(qos == QoS::QoS0) {
         mCurrentClient->publish(topic, payload, QoS::QoS0, retained, properties, packetBuilder, 0);

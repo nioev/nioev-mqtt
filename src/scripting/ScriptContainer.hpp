@@ -100,10 +100,10 @@ public:
     }
     virtual void forceQuit() = 0;
 
-    void publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained, const PropertyList& properties, MQTTPublishPacketBuilder& packetBuilder) override {
+    void publish(const std::string& topic, PayloadType payload, QoS qos, Retained retained, const PropertyList& properties, MQTTPublishPacketBuilder& packetBuilder) override {
         if(mState != ScriptState::RUNNING)
             return;
-        run(ScriptInputArgs{ScriptRunArgsMqttMessage{topic, payload, retained}}, ScriptStatusOutput{});
+        run(ScriptInputArgs{ScriptRunArgsMqttMessage{topic, payloadToVec(payload), retained}}, ScriptStatusOutput{});
     }
     const auto& getCode() const {
         return mCode;

@@ -7,7 +7,7 @@ namespace nioev::mqtt {
 
 using namespace nioev::lib;
 
-void MQTTClientConnection::publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained, const PropertyList& properties, MQTTPublishPacketBuilder& packetBuilder, uint16_t packetId) {
+void MQTTClientConnection::publish(const std::string& topic, PayloadType payload, QoS qos, Retained retained, const PropertyList& properties, MQTTPublishPacketBuilder& packetBuilder, uint16_t packetId) {
     sendData(InTransitEncodedPacket{packetBuilder.getPacket(qos, packetId, mMQTTVersion)});
 }
 

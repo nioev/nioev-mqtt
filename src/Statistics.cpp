@@ -36,7 +36,7 @@ void Statistics::init() {
     mApp.publishAsync(MQTTPacket{"nioev/ui/services/mqtt/Stats/05_grid/02_msg_per_minute", stringToBuffer(R"({"type": "graph", "headline": "Messages per Minute"})"), QoS::QoS2, Retain::Yes});
     refresh();
 }
-void Statistics::publish(const std::string& topic, const std::vector<uint8_t>& payload, QoS qos, Retained retained, const PropertyList& properties, MQTTPublishPacketBuilder& packetBuilder) {
+void Statistics::publish(const std::string& topic, PayloadType payload, QoS qos, Retained retained, const PropertyList& properties, MQTTPublishPacketBuilder& packetBuilder) {
     // TODO remove system clock syscall somehow?
     PacketData packet{topic, payload.size(), std::chrono::system_clock::now(), qos};
     push(mCollectedData, std::move(packet));

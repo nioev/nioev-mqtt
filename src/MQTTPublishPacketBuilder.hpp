@@ -1,6 +1,7 @@
 #pragma once
 
 #include "nioev/lib/Util.hpp"
+#include "Subscriber.hpp"
 #include <array>
 #include <functional>
 namespace nioev::mqtt {
@@ -97,11 +98,11 @@ struct InTransitEncodedPacket {
 class MQTTPublishPacketBuilder {
 public:
     // A reference to topic & payload is captured, so be cautious about lifetimes!
-    MQTTPublishPacketBuilder(const std::string& topic, const std::vector<uint8_t>& payload, Retained retained, const PropertyList& properties);
+    MQTTPublishPacketBuilder(const std::string& topic, PayloadType payload, Retained retained, const PropertyList& properties);
     EncodedPacket getPacket(QoS qos, uint16_t packetId, MQTTVersion version);
 private:
     const std::string& mTopic;
-    const std::vector<uint8_t>& mPayload;
+    PayloadType mPayload;
     Retained mRetained;
     std::optional<SharedBuffer> mPacketMiddle;
     std::unordered_map<MQTTVersion, SharedBuffer> mPacketPostlude;
