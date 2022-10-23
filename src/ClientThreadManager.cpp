@@ -319,6 +319,12 @@ void handlePacketReceived(ApplicationState& app, MQTTClientConnection::Connectio
                     // send PUBACK
                     BinaryEncoder encoder;
                     encoder.encode2Bytes(id);
+
+                    if(client.getMQTTVersion() == MQTTVersion::V5) {
+                        PropertyList properties;
+                        encoder.encodeByte(0); // Reason code success
+                        encoder.encodePropertyList(properties);
+                    }
                     client.sendData(EncodedPacket::fromData(static_cast<uint8_t>(MQTTMessageType::PUBACK) << 4, encoder.moveData()));
                 } else {
                     auto state = client.getPersistentClientState();
@@ -332,6 +338,11 @@ void handlePacketReceived(ApplicationState& app, MQTTClientConnection::Connectio
                     // send PUBREC
                     BinaryEncoder encoder;
                     encoder.encode2Bytes(id);
+                    if(client.getMQTTVersion() == MQTTVersion::V5) {
+                        PropertyList properties;
+                        encoder.encodeByte(0); // Reason code success
+                        encoder.encodePropertyList(properties);
+                    }
                     client.sendData(EncodedPacket::fromData(static_cast<uint8_t>(MQTTMessageType::PUBREC) << 4, encoder.moveData()));
                 }
             }
@@ -346,6 +357,11 @@ void handlePacketReceived(ApplicationState& app, MQTTClientConnection::Connectio
         }
         case MQTTMessageType::PUBACK: {
             uint16_t id = decoder.decode2Bytes();
+            PropertyList properties;
+            if(client.getMQTTVersion() == MQTTVersion::V5) {
+                uint8_t reasonCode = decoder.decodeByte();
+                properties = decoder.decodeProperties();
+            }
             auto state = client.getPersistentClientState();
             if(!state)
                 throw std::runtime_error{"Persistent state lost!"};
@@ -360,6 +376,12 @@ void handlePacketReceived(ApplicationState& app, MQTTClientConnection::Connectio
                 protocolViolation("Invalid first byte in PUBREL");
             }
             uint16_t id = decoder.decode2Bytes();
+            PropertyList properties;
+            if(client.getMQTTVersion() == MQTTVersion::V5) {
+                uint8_t reasonCode = decoder.decodeByte();
+                properties = decoder.decodeProperties();
+            }
+            bool packetIdentifierFound = true;
             {
                 auto state = client.getPersistentClientState();
                 if(!state)
@@ -368,6 +390,7 @@ void handlePacketReceived(ApplicationState& app, MQTTClientConnection::Connectio
                 auto &receivingPacketIds = state->getQoS2ReceivingPacketIds();
                 if(!receivingPacketIds[id]) {
                     stateLock.unlock();
+                    packetIdentifierFound = false;
                     spdlog::warn("[{}] PUBREL no such message id", client.getClientId());
                 } else {
                     receivingPacketIds[id] = false;
@@ -377,12 +400,25 @@ void handlePacketReceived(ApplicationState& app, MQTTClientConnection::Connectio
             // send PUBCOMP
             BinaryEncoder encoder;
             encoder.encode2Bytes(id);
+            if(client.getMQTTVersion() == MQTTVersion::V5) {
+                if(!packetIdentifierFound) {
+                    PropertyList properties;
+                    encoder.encodeByte(0x92); // Reason code identifier nout found
+                    encoder.encodePropertyList(properties);
+                }
+            }
             client.sendData(EncodedPacket::fromData(static_cast<uint8_t>(MQTTMessageType::PUBCOMP) << 4, encoder.moveData()));
             break;
         }
         case MQTTMessageType::PUBREC: {
             // QoS 2 part 1 (sending packets)
             uint16_t id = decoder.decode2Bytes();
+            PropertyList properties;
+            if(client.getMQTTVersion() == MQTTVersion::V5) {
+                uint8_t reasonCode = decoder.decodeByte();
+                properties = decoder.decodeProperties();
+            }
+            bool packetIdentifierFound = true;
             {
                 auto state = client.getPersistentClientState();
                 if(!state)
@@ -391,6 +427,7 @@ void handlePacketReceived(ApplicationState& app, MQTTClientConnection::Connectio
                 auto &sendingPackets = state->getHighQoSSendingPackets();
                 if(sendingPackets.erase(id) != 1) {
                     stateLock.unlock();
+                    packetIdentifierFound = false;
                     spdlog::warn("[{}] PUBREC no such message id", client.getClientId());
                 }
                 state->getQoS2PubRecReceived()[id] = true;
@@ -399,15 +436,28 @@ void handlePacketReceived(ApplicationState& app, MQTTClientConnection::Connectio
             // send PUBREL
             BinaryEncoder encoder;
             encoder.encode2Bytes(id);
+            if(client.getMQTTVersion() == MQTTVersion::V5) {
+                if(!packetIdentifierFound) {
+                    PropertyList properties;
+                    encoder.encodeByte(0x92);
+                    encoder.encodePropertyList(properties);
+                }
+            }
             client.sendData(EncodedPacket::fromData((static_cast<uint8_t>(MQTTMessageType::PUBREL) << 4) | 0b10, encoder.moveData()));
             break;
         }
         case MQTTMessageType::PUBCOMP: {
             // QoS 2 part 3 (sending packets)
             uint16_t id = decoder.decode2Bytes();
+            PropertyList properties;
+            if(client.getMQTTVersion() == MQTTVersion::V5) {
+                uint8_t reasonCode = decoder.decodeByte();
+                properties = decoder.decodeProperties();
+            }
             auto state = client.getPersistentClientState();
             if(!state)
                 throw std::runtime_error{"Persistent state lost!"};
+
             state->getQoS2PubRecReceived()[id] = false;
             break;
         }
@@ -416,10 +466,19 @@ void handlePacketReceived(ApplicationState& app, MQTTClientConnection::Connectio
                 protocolViolation("SUBSCRIBE invalid first byte");
             }
             auto packetIdentifier = decoder.decode2Bytes();
-
+            PropertyList properties;
+            if(client.getMQTTVersion() == MQTTVersion::V5) {
+                properties = decoder.decodeProperties();
+            }
 
             BinaryEncoder encoder;
             encoder.encode2Bytes(packetIdentifier);
+
+            if(client.getMQTTVersion() == MQTTVersion::V5) {
+                PropertyList properties;
+                encoder.encodePropertyList(properties);
+            }
+
             do {
                 auto topic = decoder.decodeString();
                 if(topic.empty()) {
@@ -438,9 +497,7 @@ void handlePacketReceived(ApplicationState& app, MQTTClientConnection::Connectio
                 app.requestChange(ChangeRequestSubscribe{state, std::move(topic), qos});
             } while(!decoder.empty());
 
-
             client.sendData(EncodedPacket::fromData(static_cast<uint8_t>(MQTTMessageType::SUBACK) << 4, encoder.moveData()));
-
             break;
         }
         case MQTTMessageType::UNSUBSCRIBE: {
@@ -448,17 +505,30 @@ void handlePacketReceived(ApplicationState& app, MQTTClientConnection::Connectio
                 protocolViolation("UNSUBSCRIBE invalid first byte");
             }
             auto packetIdentifier = decoder.decode2Bytes();
+            PropertyList properties;
+            if(client.getMQTTVersion() == MQTTVersion::V5) {
+                properties = decoder.decodeProperties();
+            }
+
+            // prepare SUBACK
+            BinaryEncoder encoder;
+            encoder.encode2Bytes(packetIdentifier);
+            if(client.getMQTTVersion() == MQTTVersion::V5) {
+                PropertyList properties;
+                encoder.encodePropertyList(properties);
+            }
+
             do {
                 auto topic = decoder.decodeString();
                 auto state = client.getPersistentClientState();
                 if(!state)
                     throw std::runtime_error{"Persistent state lost!"};
                 app.requestChange(ChangeRequestUnsubscribe{state, topic});
+                if(client.getMQTTVersion() == MQTTVersion::V5) {
+                    encoder.encodeByte(0); // success - according to spec we should actually send 0x11 if the sub didn't already exist
+                }
             } while(!decoder.empty());
 
-            // prepare SUBACK
-            BinaryEncoder encoder;
-            encoder.encode2Bytes(packetIdentifier);
             client.sendData(EncodedPacket::fromData(static_cast<uint8_t>(MQTTMessageType::UNSUBACK) << 4, encoder.moveData()));
 
             break;
@@ -475,6 +545,10 @@ void handlePacketReceived(ApplicationState& app, MQTTClientConnection::Connectio
         case MQTTMessageType::DISCONNECT: {
             if(recvData.firstByte != 0xE0) {
                 protocolViolation("Invalid disconnect first byte");
+            }
+            PropertyList properties;
+            if(client.getMQTTVersion() == MQTTVersion::V5 && decoder.getCurrentRemainingLength() > 1) {
+                properties = decoder.decodeProperties();
             }
             spdlog::info("[{}] Received disconnect request", client.getClientId());
             client.discardWill(clientReceiveLock);
