@@ -20,6 +20,7 @@ add_subdirectory(thirdparty/uWebSockets-CMake)
 add_subdirectory(thirdparty/zstd/build/cmake)
 add_subdirectory(thirdparty/SQLiteCpp)
 
+add_subdirectory(thirdparty/libnioev)
 include_directories(thirdparty/libnioev/include)
 
 include_directories (${CMAKE_BINARY_DIR})
@@ -51,8 +52,6 @@ add_executable(nioev_mqtt
         src/BigString.hpp
         src/BigVector.hpp
         ${UWEBSOCKETS_FILES}
-        src/Timers.cpp
-        src/Timers.hpp
         src/scripting/ScriptContainerManager.cpp
         src/ApplicationState.cpp
         src/ApplicationState.hpp
@@ -73,6 +72,7 @@ add_executable(nioev_mqtt
 #add_dependencies(nioev webui)
 
 target_link_libraries(nioev_mqtt
+        nioev
         libzstd_static
         uWebSockets
         spdlog
